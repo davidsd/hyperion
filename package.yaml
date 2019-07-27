@@ -1,0 +1,58 @@
+name: hyperion
+version: '0.1.0.0'
+author: David Simmons-Duffin
+maintainer: davidsd@gmail.com
+license: MIT
+
+ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2
+
+dependencies:
+- base
+- process
+- time
+- random
+- filepath
+- attoparsec
+- bytestring
+- mtl
+- text
+- distributed-static
+- distributed-process
+- distributed-process-async
+- network-transport
+- network-transport-tcp
+- network
+- unix
+- binary
+- transformers
+- hashable
+- stm
+- ghc-prim
+- directory
+- aeson
+- containers
+- pretty-show
+- pretty
+- exceptions
+- lens
+- digits
+- extra
+- concurrent-output
+- shell-escape
+- rank1dynamic
+- sqlite-simple
+- resource-pool
+- monad-control
+- transformers-base
+- optparse-applicative
+
+library:
+  source-dirs: src
+
+executables:
+  hyperion-example:
+    main: Main.hs
+    source-dirs: example
+    dependencies:
+      - hyperion
+      - optparse-applicative

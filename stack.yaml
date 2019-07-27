@@ -1,0 +1,11 @@
+flags: {}
+packages:
+- '.'
+extra-deps:
+- network-transport-tcp-0.6.0
+- shell-escape-0.2.0@sha256:05e7abba1936b9bd3c13aa28da92ee73f0a08be439a78999697f8fc5baf726e6,1482
+- git: https://github.com/haskell-distributed/distributed-process.git
+  commit: 660d554f6acd2dba8b605c84e8fa69e45708bc14
+- git: https://github.com/davidsd/distributed-process-async.git
+  commit: d914ebe6401ea4ffc4858bdc87b4f413f81cb476
+resolver: lts-12.18
