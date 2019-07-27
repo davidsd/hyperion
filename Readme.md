@@ -2,11 +2,8 @@ About
 -----
 
 Hyperion is a Haskell framework for running concurrent computations on
-an [HPC cluster](https://en.wikipedia.org/wiki/High-performance_computing), [^1] [^2] based
-on the [distributed-process library](http://hackage.haskell.org/package/distributed-process-0.7.4). It is currently targeted at clusters running the [Slurm workload manager](https://slurm.schedmd.com/documentation.html)
-
-However, it can in principal be modified to use an arbitrary resource manager.
-We give an explanation below, with some types simplified for clarity.
+an [HPC cluster](https://en.wikipedia.org/wiki/High-performance_computing), [1] [2] based
+on the [distributed-process library](http://hackage.haskell.org/package/distributed-process-0.7.4). It is targeted at clusters running the [Slurm workload manager](https://slurm.schedmd.com/documentation.html). However, it can in principle be modified to use an arbitrary resource manager.
 
 The basic idea is to define a `Monad`
 
@@ -72,6 +69,11 @@ there were a single giant machine.
 
 TODO: Describe the `Job` monad.
 
+[1]: The design of Hyperion was heavily inspired by [Haxl](https://github.com/facebook/Haxl),
+although unlike Haxl, we choose not to break the standard relationship between `ap` and `<*>`.
+
+[2]: Hyperion is named after the (now defunct) Hyperion cluster at the [IAS](https://www.ias.edu/).
+
 Author
 ------
 
@@ -84,7 +86,3 @@ Installation and Running
 
 - Run an example computation: (TODO)
   
-[^1]: The design of Hyperion was heavily inspired by [Haxl](https://github.com/facebook/Haxl),
-although unlike Haxl, we choose not to break the standard relationship between `ap` and `<*>`.
-
-[^2]: Hyperion is named after the (now defunct) Hyperion cluster at the [IAS](https://www.ias.edu/).
