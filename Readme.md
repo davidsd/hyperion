@@ -2,7 +2,7 @@ About
 -----
 
 Hyperion is a Haskell framework for running concurrent computations on
-an [HPC cluster](https://en.wikipedia.org/wiki/High-performance_computing), [1] [2] based
+an [HPC cluster](https://en.wikipedia.org/wiki/High-performance_computing) [1] [2], based
 on the [distributed-process library](http://hackage.haskell.org/package/distributed-process-0.7.4). It is targeted at clusters running the [Slurm workload manager](https://slurm.schedmd.com/documentation.html). However, it can in principle be modified to use an arbitrary resource manager.
 
 The basic idea is to define a `Monad`
