@@ -15,13 +15,15 @@
 
 module Hyperion.Job where
 
-import           Control.Distributed.Process
+import           Control.Distributed.Process hiding (try)
 import           Control.Lens                (lens)
+import           Control.Monad.Catch         (try)
 import           Control.Monad.Cont          (ContT (..), runContT)
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Data.Binary                 (Binary)
 import qualified Data.Map                    as Map
+import           Data.Maybe                  (catMaybes)
 import qualified Data.Text                   as T
 import           Data.Typeable               (Typeable)
 import           GHC.StaticPtr               (StaticPtr)
@@ -35,7 +37,7 @@ import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
 import qualified Hyperion.Slurm              as Slurm
 import           Hyperion.Util               (myExecutable)
-import           Hyperion.WorkerCpuPool      (NumCPUs (..))
+import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHError, WorkerAddr)
 import qualified Hyperion.WorkerCpuPool      as WCP
 import           System.FilePath.Posix       ((<.>), (</>))
 import           System.Process              (createProcess, proc)
@@ -65,10 +67,10 @@ setTaskCpus n cfg = cfg { jobTaskCpus = n }
 runJobLocal :: ProgramInfo -> Job a -> Process a
 runJobLocal programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
-  pool <- liftIO WCP.newJobPool
+  nodes <- liftIO WCP.getSlurmAddrs
   nodeCpus <- liftIO Slurm.getNTasksPerNode
   let logDir = programLogDir programInfo </> "workers" </> "workers"
-  withPoolLauncher logDir pool $ \poolLauncher -> do
+  withPoolLauncher logDir nodes $ \poolLauncher -> do
     let cfg = JobEnv
           { jobDatabaseConfig = dbConfig
           , jobNodeCpus       = NumCPUs nodeCpus
@@ -97,17 +99,25 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 
 withNodeLauncher
   :: FilePath
-  -> WCP.WorkerAddr
-  -> (WorkerLauncher JobId -> Process a)
+  -> WorkerAddr
+  -> (Maybe (WorkerAddr, WorkerLauncher JobId) -> Process a)
   -> Process a
 withNodeLauncher logDir addr' go = case addr' of
   WCP.RemoteAddr addr -> do
     sshLauncher <- workerLauncherWithRunCmd logDir (liftIO . WCP.sshRunCmd addr)
-    withRemoteRunProcess sshLauncher $ \remoteRunNode ->
-      let runCmdOnNode = remoteRunNode . applyRemoteStatic (static (remoteFnIO runCmdLocal))
-      in workerLauncherWithRunCmd logDir runCmdOnNode >>= go
-  WCP.LocalHost _ ->
-    workerLauncherWithRunCmd logDir (liftIO . runCmdLocalQuiet) >>= go
+    eitherResult <- try @Process @SSHError $ do
+      withRemoteRunProcess sshLauncher $ \remoteRunNode ->
+        let runCmdOnNode = remoteRunNode . applyRemoteStatic (static (remoteFnIO runCmdLocal))
+        in workerLauncherWithRunCmd logDir runCmdOnNode >>= \launcher ->
+        go (Just (addr', launcher))
+    case eitherResult of
+      Right result -> return result
+      Left err -> do
+        Log.warn "Couldn't start launcher" err
+        go Nothing
+  WCP.LocalHost _ -> do
+    launcher <- workerLauncherWithRunCmd logDir (liftIO . runCmdLocalQuiet)
+    go (Just (addr', launcher))
   where
     runCmdLocalQuiet :: (String, [String]) -> IO ()
     runCmdLocalQuiet (cmd, args) =
@@ -118,14 +128,15 @@ withNodeLauncher logDir addr' go = case addr' of
 
 withPoolLauncher
   :: FilePath
-  -> WCP.WorkerCpuPool
+  -> [WorkerAddr]
   -> ((NumCPUs -> WorkerLauncher JobId) -> Process a)
   -> Process a
-withPoolLauncher logDir workerCpuPool go = flip runContT return $ do
-  addrs <- liftIO $ WCP.getAddrs workerCpuPool
-  nodeLaunchers <- mapM (ContT . withNodeLauncher logDir) addrs
+withPoolLauncher logDir addrs' go = flip runContT return $ do
+  mLaunchers <- mapM (ContT . withNodeLauncher logDir) addrs'
+  let launcherMap = Map.fromList (catMaybes mLaunchers)
+      addrs = Map.keys launcherMap
+  workerCpuPool <- liftIO (WCP.newJobPool addrs)
   Log.info "Started worker launchers at" addrs
-  let launcherMap = Map.fromList (zip addrs nodeLaunchers)
   lift $ go $ \nCpus -> WorkerLauncher
     { withLaunchedWorker = \nodeId serviceId goJobId ->
         WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->

@@ -51,9 +51,8 @@ getSlurmAddrs = do
       then LocalHost n
       else RemoteAddr n
 
-newJobPool :: IO WorkerCpuPool
-newJobPool = do
-  nodes <- getSlurmAddrs
+newJobPool :: [WorkerAddr] -> IO WorkerCpuPool
+newJobPool nodes = do
   when (null nodes) (Log.throwError "Empty node list")
   cpusPerNode <- fmap NumCPUs Slurm.getNTasksPerNode
   mkWorkerCpuPool $ Map.fromList $ zip nodes (repeat cpusPerNode)
