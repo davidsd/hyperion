@@ -25,7 +25,6 @@ data HyperionConfig = HyperionConfig
   , execDir              :: FilePath
   , hyperionCommand      :: Maybe FilePath
   , initialDatabase      :: Maybe FilePath
-  , workerRetries        :: Int
   }
 
 newClusterEnv :: HyperionConfig -> IO (ClusterEnv, FilePath, HoldMap)

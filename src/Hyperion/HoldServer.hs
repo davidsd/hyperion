@@ -22,9 +22,11 @@ import qualified Hyperion.Log                as Log
 import           Network.Wai                 ()
 import           Network.Wai.Handler.Warp    (run)
 import           Servant
+import Data.Maybe (catMaybes)
 
 type HoldApi =
-       "release" :> Capture "service" T.Text :> Delete '[JSON] (Maybe T.Text)
+       "release" :> Capture "service" T.Text :> Get '[JSON] (Maybe T.Text)
+  :<|> "release-all" :> Get '[JSON] [T.Text] 
   :<|> "list" :> Get '[JSON] [T.Text]
 
 newtype HoldMap = HoldMap (TVar (Map T.Text (MVar ())))
@@ -33,9 +35,9 @@ newHoldMap :: IO HoldMap
 newHoldMap = HoldMap <$> newTVarIO Map.empty
 
 server :: HoldMap -> Server HoldApi
-server (HoldMap holdMap) = releaseHandler :<|> listHandler
+server (HoldMap holdMap) = releaseHold :<|> releaseAllHolds :<|> listHolds
   where
-    releaseHandler service = liftIO $ do
+    releaseHold service = liftIO $ do
       serviceMap <- readTVarIO holdMap
       case Map.lookup service serviceMap of
         Just holdVar -> do
@@ -44,8 +46,11 @@ server (HoldMap holdMap) = releaseHandler :<|> listHandler
           atomically $ modifyTVar holdMap (Map.delete service)
           return (Just service)
         Nothing -> return Nothing
-    listHandler = do
+    listHolds = do
       liftIO $ fmap Map.keys (readTVarIO holdMap)
+    releaseAllHolds = do
+      services <- listHolds
+      fmap catMaybes $ mapM releaseHold services
 
 -- | Start a hold associated to the given service. Returns an IO action
 -- that blocks until the hold is released

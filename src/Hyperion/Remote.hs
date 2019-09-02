@@ -239,8 +239,10 @@ withRemoteRunProcess workerLauncher go =
       -- In the event of an error, add the offending serviceId to the
       -- HoldMap. We then block until someone releases the service by
       -- sending a request to the HoldServer.
+      Log.info "Remote process failed; initiating hold" sId
       blockUntilReleased holdMap (serviceIdToText sId)
       -- When released, try again
+      Log.info "Hold released; retrying" sId
       withRemoteRunProcess workerLauncher go
     -- If there is no HoldMap, just rethrow the exception
     Nothing -> throwM e

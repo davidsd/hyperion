@@ -6,6 +6,7 @@
 
 module Hyperion.Main where
 
+import           Control.Concurrent        (forkIO, killThread)
 import           Control.Monad             (unless)
 import           Data.Maybe                (isJust)
 import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
@@ -72,8 +73,9 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     Log.redirectToFile masterLogFile
     logMasterInfo
     runDBWithProgramInfo clusterProgramInfo DB.createKeyValTable
-    runHoldServer holdMap
+    holdServerThread <- forkIO $ runHoldServer holdMap
     runCluster clusterEnv (clusterProgram args)
     unless (isJust (hyperionCommand hyperionConfig)) $ removeFile hyperionExecutable
+    killThread holdServerThread
     Log.info "Finished" progId
 
