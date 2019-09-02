@@ -7,26 +7,27 @@
 
 module Hyperion.HoldServer where
 
-import           Control.Concurrent.MVar     (MVar, newEmptyMVar, readMVar,
-                                              tryPutMVar)
+import           Control.Concurrent.MVar     (MVar, modifyMVar_, newEmptyMVar,
+                                              readMVar, tryPutMVar)
 import           Control.Concurrent.STM      (atomically)
 import           Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO,
                                               readTVarIO)
 import           Control.Monad               (when)
+import           Control.Monad.Catch         (catchIOError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Data.Map                    (Map)
 import qualified Data.Map                    as Map
+import           Data.Maybe                  (catMaybes)
 import           Data.Proxy                  (Proxy (..))
 import qualified Data.Text                   as T
 import qualified Hyperion.Log                as Log
 import           Network.Wai                 ()
 import           Network.Wai.Handler.Warp    (run)
 import           Servant
-import Data.Maybe (catMaybes)
 
 type HoldApi =
        "release" :> Capture "service" T.Text :> Get '[JSON] (Maybe T.Text)
-  :<|> "release-all" :> Get '[JSON] [T.Text] 
+  :<|> "release-all" :> Get '[JSON] [T.Text]
   :<|> "list" :> Get '[JSON] [T.Text]
 
 newtype HoldMap = HoldMap (TVar (Map T.Text (MVar ())))
@@ -60,8 +61,12 @@ blockUntilReleased (HoldMap holdMap) service = liftIO $ do
   atomically $ modifyTVar holdMap (Map.insert service holdVar)
   readMVar holdVar
 
-runHoldServer :: HoldMap -> IO ()
-runHoldServer holdMap =
+-- | Start the hold server. Initially try the port number in
+-- portVar. In case of exception, increment portVar and try again.
+runHoldServer :: HoldMap -> MVar Int -> IO ()
+runHoldServer holdMap portVar = do
+  port <- readMVar portVar
   run port (serve (Proxy @HoldApi) (server holdMap))
-  where
-    port = 11132
+    `catchIOError` (\_ -> do
+                       modifyMVar_ portVar (return . succ)
+                       runHoldServer holdMap portVar)

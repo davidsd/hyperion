@@ -7,6 +7,7 @@
 module Hyperion.Main where
 
 import           Control.Concurrent        (forkIO, killThread)
+import           Control.Concurrent.MVar   (newMVar, readMVar)
 import           Control.Monad             (unless)
 import           Data.Maybe                (isJust)
 import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
@@ -61,19 +62,25 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     let progId = programId clusterProgramInfo
         masterLogFile = programLogDir clusterProgramInfo </> "master.log"
     pid <- getProcessID
+    -- Initially try to start hold server on this port. If connection
+    -- fails, the port number will be incremented until it succeeds.
+    portVar <- newMVar 11132
+    -- Need to run the hold server first to fill portVar with the
+    -- right value. Capture the threadId so it can be killed later.
+    holdServerThread <- forkIO $ runHoldServer holdMap portVar
     let logMasterInfo = do
           Log.info "Program id" progId
           Log.info "Process id" pid
           Log.info "Program arguments" args
           Log.info "Using database" (programDatabase clusterProgramInfo)
-          Log.info "Running hold server on port" 11132
+          port <- readMVar portVar
+          Log.info "Running hold server on port" port
     logMasterInfo
     Log.info "Logging to" masterLogFile
     Log.flush
     Log.redirectToFile masterLogFile
     logMasterInfo
     runDBWithProgramInfo clusterProgramInfo DB.createKeyValTable
-    holdServerThread <- forkIO $ runHoldServer holdMap
     runCluster clusterEnv (clusterProgram args)
     unless (isJust (hyperionCommand hyperionConfig)) $ removeFile hyperionExecutable
     killThread holdServerThread
