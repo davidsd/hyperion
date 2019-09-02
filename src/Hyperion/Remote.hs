@@ -24,8 +24,8 @@ import           Control.Distributed.Static          (closure, registerStatic,
                                                       staticApply,
                                                       staticCompose,
                                                       staticLabel, staticPtr)
-import           Control.Monad.Catch                 (catch)
-import           Control.Monad.Catch                 (Exception, bracket)
+import           Control.Monad.Catch                 (Exception, bracket, catch,
+                                                      throwM)
 import           Control.Monad.Extra                 (whenM)
 import           Control.Monad.Trans.Maybe           (MaybeT (..))
 import           Data.Binary                         (Binary, encode)
@@ -38,6 +38,8 @@ import qualified Data.Text.Encoding                  as E
 import           Data.Time.Clock                     (NominalDiffTime)
 import           GHC.Generics                        (Generic)
 import           GHC.StaticPtr                       (StaticPtr)
+import           Hyperion.HoldServer                 (HoldMap,
+                                                      blockUntilReleased)
 import qualified Hyperion.Log                        as Log
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
@@ -59,12 +61,15 @@ serviceIdToString (ServiceId s) = s
 data WorkerMessage = Connected | ShutDown
   deriving (Read, Show, Generic, Data, Binary)
 
-data RemoteAsyncError
-  = RemoteAsyncFailed ServiceId DiedReason
-  | RemoteAsyncLinkFailed ServiceId DiedReason
-  | RemoteAsyncCancelled ServiceId
-  | RemoteAsyncPending ServiceId
+data RemoteAsyncError = RemoteAsyncError ServiceId RemoteAsyncErrorType
   deriving (Show, Exception)
+
+data RemoteAsyncErrorType
+  = RemoteAsyncFailed DiedReason
+  | RemoteAsyncLinkFailed DiedReason
+  | RemoteAsyncCancelled
+  | RemoteAsyncPending
+  deriving (Show)
 
 data WorkerConnectionTimeout = WorkerConnectionTimeout ServiceId
   deriving (Show, Exception)
@@ -79,8 +84,7 @@ data WorkerLauncher j = WorkerLauncher
     -- that case, it is recommended to set connectionTimeout =
     -- Nothing.
   , connectionTimeout :: Maybe NominalDiffTime
-    -- TODO: remove
-  , workerRetries     :: Int
+  , serviceHoldMap    :: Maybe HoldMap
   }
 
 addFstSndStatic :: RemoteTable -> RemoteTable
@@ -229,8 +233,17 @@ withRemoteRunProcess
   -> (RemoteProcessRunner -> Process a)
   -> Process a
 withRemoteRunProcess workerLauncher go =
-  catch goWithRemote $ \(_ :: RemoteAsyncError) -> do
-  withRemoteRunProcess workerLauncher go
+  catch goWithRemote $ \e@(RemoteAsyncError sId _) -> do
+  case serviceHoldMap workerLauncher of
+    Just holdMap -> do
+      -- In the event of an error, add the offending serviceId to the
+      -- HoldMap. We then block until someone releases the service by
+      -- sending a request to the HoldServer.
+      blockUntilReleased holdMap (serviceIdToText sId)
+      -- When released, try again
+      withRemoteRunProcess workerLauncher go
+    -- If there is no HoldMap, just rethrow the exception
+    Nothing -> throwM e
   where
     goWithRemote =
       withService workerLauncher $ \workerNodeId serviceId ->
@@ -239,10 +252,10 @@ withRemoteRunProcess workerLauncher go =
       a <- wait =<< async (remoteTask (staticSDict s) workerNodeId c)
       case a of
         AsyncDone r       -> return r
-        AsyncFailed r     -> Log.throw $ RemoteAsyncFailed serviceId r
-        AsyncLinkFailed r -> Log.throw $ RemoteAsyncLinkFailed serviceId r
-        AsyncCancelled    -> Log.throw $ RemoteAsyncCancelled serviceId
-        AsyncPending      -> Log.throw $ RemoteAsyncPending serviceId
+        AsyncFailed r     -> Log.throw $ RemoteAsyncError serviceId $ RemoteAsyncFailed r
+        AsyncLinkFailed r -> Log.throw $ RemoteAsyncError serviceId $ RemoteAsyncLinkFailed r
+        AsyncCancelled    -> Log.throw $ RemoteAsyncError serviceId $ RemoteAsyncCancelled
+        AsyncPending      -> Log.throw $ RemoteAsyncError serviceId $ RemoteAsyncPending
 
 bindRemoteStatic
   :: (Binary a, Typeable a, Typeable b)

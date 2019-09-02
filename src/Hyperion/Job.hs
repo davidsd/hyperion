@@ -95,7 +95,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
       runCmd (hyperionWorkerCommand hyperionExec nodeId serviceId logFile)
       goJobId jobId
     connectionTimeout = Nothing
-    workerRetries = 0
+    serviceHoldMap = Nothing
   return WorkerLauncher{..}
 
 withNodeLauncher
@@ -143,7 +143,7 @@ withPoolLauncher logDir addrs' go = flip runContT return $ do
         WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->
         withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
     , connectionTimeout = Nothing
-    , workerRetries     = 0
+    , serviceHoldMap    = Nothing
     }
 
 remoteFnJob

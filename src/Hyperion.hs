@@ -17,6 +17,6 @@ import           Hyperion.HasWorkers
 import           Hyperion.Job
 import           Hyperion.Main
 import           Hyperion.ProgramId
-import           Hyperion.Remote        hiding (workerRetries)
+import           Hyperion.Remote
 import           Hyperion.WorkerCpuPool
 

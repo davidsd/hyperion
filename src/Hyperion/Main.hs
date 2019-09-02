@@ -14,15 +14,16 @@ import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
 import           Hyperion.Command          (Worker (..), workerOpts)
 import           Hyperion.Config           (HyperionConfig (..), newClusterEnv)
 import qualified Hyperion.Database         as DB
+import           Hyperion.HoldServer       (runHoldServer)
 import qualified Hyperion.Log              as Log
 import           Hyperion.Remote           (addressToNodeId,
                                             runProcessLocallyDefault, worker)
 import           Options.Applicative
 import           System.Console.Concurrent (withConcurrentOutput)
 import           System.Directory          (removeFile)
+import           System.Environment        (getEnvironment)
 import           System.FilePath.Posix     ((</>))
 import           System.Posix.Process      (getProcessID)
-import           System.Environment        (getEnvironment)
 
 data HyperionOpts a = HyperionMaster a | HyperionWorker Worker
 
@@ -55,7 +56,7 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
       (worker (addressToNodeId workerMasterAddress) workerService)
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args
-    (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig
+    (clusterEnv@ClusterEnv{..}, hyperionExecutable, holdMap) <- newClusterEnv hyperionConfig
     let progId = programId clusterProgramInfo
         masterLogFile = programLogDir clusterProgramInfo </> "master.log"
     pid <- getProcessID
@@ -64,12 +65,14 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
           Log.info "Process id" pid
           Log.info "Program arguments" args
           Log.info "Using database" (programDatabase clusterProgramInfo)
+          Log.info "Running hold server on port" 11132
     logMasterInfo
     Log.info "Logging to" masterLogFile
     Log.flush
     Log.redirectToFile masterLogFile
     logMasterInfo
     runDBWithProgramInfo clusterProgramInfo DB.createKeyValTable
+    runHoldServer holdMap
     runCluster clusterEnv (clusterProgram args)
     unless (isJust (hyperionCommand hyperionConfig)) $ removeFile hyperionExecutable
     Log.info "Finished" progId

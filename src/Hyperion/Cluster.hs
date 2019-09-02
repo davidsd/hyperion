@@ -30,6 +30,7 @@ import           Hyperion.ProgramId
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..), SbatchOptions (..),
                                               sbatchCommand)
+import Hyperion.HoldServer (HoldMap)
 import           Hyperion.Util               (hashTruncateFileName,
                                               randomString, sanitizeFileString)
 import           System.Directory            (createDirectoryIfMissing)
@@ -116,14 +117,15 @@ runDBWithProgramInfo pInfo m = do
 
 slurmWorkerLauncher
   :: FilePath
-  -> Int
+  -> HoldMap
   -> SbatchOptions
   -> ProgramInfo
   -> WorkerLauncher JobId
-slurmWorkerLauncher hyperionExec workerRetries opts progInfo =
+slurmWorkerLauncher hyperionExec holdMap opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
+    serviceHoldMap = Just holdMap
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
     withLaunchedWorker nodeId serviceId goJobId = do
       let progId = programId progInfo

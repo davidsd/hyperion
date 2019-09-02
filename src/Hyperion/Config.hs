@@ -8,6 +8,7 @@ import           Data.Time.Format      (defaultTimeLocale, formatTime)
 import           Data.Time.LocalTime   (getZonedTime)
 import           Hyperion.Cluster
 import qualified Hyperion.Database     as DB
+import           Hyperion.HoldServer   (HoldMap, newHoldMap)
 import qualified Hyperion.Log          as Log
 import           Hyperion.ProgramId
 import           Hyperion.Slurm        (SbatchOptions)
@@ -27,7 +28,7 @@ data HyperionConfig = HyperionConfig
   , workerRetries        :: Int
   }
 
-newClusterEnv :: HyperionConfig -> IO (ClusterEnv, FilePath)
+newClusterEnv :: HyperionConfig -> IO (ClusterEnv, FilePath, HoldMap)
 newClusterEnv HyperionConfig{..} = do
   programId    <- newProgramId
   hyperionExec <- maybe
@@ -37,11 +38,12 @@ newClusterEnv HyperionConfig{..} = do
   programDatabase <- newDatabasePath initialDatabase databaseDir programId
   programLogDir <- timedProgramDir logDir programId
   programDataDir <- timedProgramDir dataDir programId
+  holdMap <- newHoldMap
   let clusterJobOptions = defaultSbatchOptions
       clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher hyperionExec workerRetries
+      clusterWorkerLauncher = slurmWorkerLauncher hyperionExec holdMap
   clusterDatabasePool <- DB.newDefaultPool programDatabase
-  return (ClusterEnv{..}, hyperionExec)
+  return (ClusterEnv{..}, hyperionExec, holdMap)
 
 newDatabasePath :: Maybe FilePath -> FilePath -> ProgramId -> IO FilePath
 newDatabasePath mOldDb baseDir progId = do
