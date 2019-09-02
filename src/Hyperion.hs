@@ -11,12 +11,12 @@ module Hyperion
   ) where
 
 import           Hyperion.Cluster
-import           Hyperion.Main
 import           Hyperion.Concurrent
+import           Hyperion.Config
 import           Hyperion.HasWorkers
 import           Hyperion.Job
+import           Hyperion.Main
 import           Hyperion.ProgramId
-import           Hyperion.Remote
-import           Hyperion.Config
+import           Hyperion.Remote        hiding (workerRetries)
 import           Hyperion.WorkerCpuPool
 

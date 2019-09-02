@@ -6,12 +6,15 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Hyperion.Remote where
 
-import           Control.Concurrent.MVar             (newEmptyMVar, putMVar,
-                                                      takeMVar)
-import           Control.Distributed.Process         hiding (bracket)
+import           Control.Concurrent.MVar             (MVar, isEmptyMVar,
+                                                      newEmptyMVar, putMVar,
+                                                      readMVar, takeMVar)
+import           Control.Distributed.Process         hiding (bracket, catch,
+                                                      try)
 import           Control.Distributed.Process.Async   (AsyncResult (..), async,
                                                       remoteTask, wait)
 import           Control.Distributed.Process.Closure (SerializableDict (..),
@@ -21,7 +24,9 @@ import           Control.Distributed.Static          (closure, registerStatic,
                                                       staticApply,
                                                       staticCompose,
                                                       staticLabel, staticPtr)
+import           Control.Monad.Catch                 (catch)
 import           Control.Monad.Catch                 (Exception, bracket)
+import           Control.Monad.Extra                 (whenM)
 import           Control.Monad.Trans.Maybe           (MaybeT (..))
 import           Data.Binary                         (Binary, encode)
 import           Data.Data                           (Data, Typeable)
@@ -74,6 +79,8 @@ data WorkerLauncher j = WorkerLauncher
     -- that case, it is recommended to set connectionTimeout =
     -- Nothing.
   , connectionTimeout :: Maybe NominalDiffTime
+    -- TODO: remove
+  , workerRetries     :: Int
   }
 
 addFstSndStatic :: RemoteTable -> RemoteTable
@@ -188,13 +195,29 @@ withService WorkerLauncher{..} go = withServiceId $ \serviceId -> do
         send workerId ShutDown
     bracket awaitWorker shutdownWorker (\wId -> go (processNodeId wId) serviceId)
 
-type SerializableClosureProcess a = (Static (SerializableDict a), Process (Closure (Process a)))
+-- | A process that generates the Closure to be run on a remote machine.
+data SerializableClosureProcess a = SerializableClosureProcess
+  { -- | Process to generate closure
+    runClosureProcess :: Process (Closure (Process a))
+    -- | Dict for seralizing result
+  , staticSDict       :: Static (SerializableDict a)
+    -- | MVar for memoizing closure so we don't run process more than once
+  , closureVar        :: MVar (Closure (Process a))
+  }
 
--- The type of a function that takes a SerializableClosureProcess and
+-- | Get closure and memoize the result
+getClosure :: SerializableClosureProcess a -> Process (Closure (Process a))
+getClosure s = do
+  whenM (liftIO (isEmptyMVar (closureVar s))) $ do
+    c <- runClosureProcess s
+    liftIO $ putMVar (closureVar s) c
+  liftIO $ readMVar (closureVar s)
+
+-- | The type of a function that takes a SerializableClosureProcess and
 -- runs the Closure on a remote machine.
 type RemoteProcessRunner = forall a . (Binary a, Typeable a) => SerializableClosureProcess a -> Process a
 
--- A monadic function, together with SerializableDicts for its input
+-- | A monadic function, together with SerializableDicts for its input
 -- and output
 type RemoteFunction a b = (a -> Process b, (SerializableDict a, SerializableDict b))
 
@@ -205,26 +228,34 @@ withRemoteRunProcess
   => WorkerLauncher j
   -> (RemoteProcessRunner -> Process a)
   -> Process a
-withRemoteRunProcess wConfig go =
-  withService wConfig $ \workerNodeId serviceId ->
-  go $ \(sdict, closureProcess) -> do
-  c <- closureProcess
-  a <- wait =<< async (remoteTask sdict workerNodeId c)
-  case a of
-    AsyncDone r       -> return r
-    AsyncFailed r     -> Log.throw $ RemoteAsyncFailed serviceId r
-    AsyncLinkFailed r -> Log.throw $ RemoteAsyncLinkFailed serviceId r
-    AsyncCancelled    -> Log.throw $ RemoteAsyncCancelled serviceId
-    AsyncPending      -> Log.throw $ RemoteAsyncPending serviceId
+withRemoteRunProcess workerLauncher go =
+  catch goWithRemote $ \(_ :: RemoteAsyncError) -> do
+  withRemoteRunProcess workerLauncher go
+  where
+    goWithRemote =
+      withService workerLauncher $ \workerNodeId serviceId ->
+      go $ \s -> do
+      c <- getClosure s
+      a <- wait =<< async (remoteTask (staticSDict s) workerNodeId c)
+      case a of
+        AsyncDone r       -> return r
+        AsyncFailed r     -> Log.throw $ RemoteAsyncFailed serviceId r
+        AsyncLinkFailed r -> Log.throw $ RemoteAsyncLinkFailed serviceId r
+        AsyncCancelled    -> Log.throw $ RemoteAsyncCancelled serviceId
+        AsyncPending      -> Log.throw $ RemoteAsyncPending serviceId
 
--- We really want to specialize c = Process b here, but for some
--- reason this causes a linker error!
 bindRemoteStatic
-  :: (Binary a, Typeable a, Typeable b, Typeable c)
+  :: (Binary a, Typeable a, Typeable b)
   => Process a
-  -> StaticPtr (a -> c, (SerializableDict a, SerializableDict b))
-  -> (Static (SerializableDict b), Process (Closure c))
-bindRemoteStatic ma kRemotePtr = (bDict, closureProcess)
+  -> StaticPtr (a -> Process b, (SerializableDict a, SerializableDict b))
+  -> Process (SerializableClosureProcess b)
+bindRemoteStatic ma kRemotePtr = do
+  v <- liftIO newEmptyMVar
+  return SerializableClosureProcess
+    { runClosureProcess = closureProcess
+    , staticSDict       = bDict
+    , closureVar        = v
+    }
   where
     closureProcess =  do
       a <- ma
@@ -235,10 +266,10 @@ bindRemoteStatic ma kRemotePtr = (bDict, closureProcess)
     bDict = sndStatic `staticApply` (sndStatic `staticApply` s)
 
 applyRemoteStatic
-  :: (Binary a, Typeable a, Typeable b, Typeable c)
-  => StaticPtr (a -> c, (SerializableDict a, SerializableDict b))
+  :: (Binary a, Typeable a, Typeable b)
+  => StaticPtr (a -> Process b, (SerializableDict a, SerializableDict b))
   -> a
-  -> (Static (SerializableDict b), Process (Closure c))
+  -> Process (SerializableClosureProcess b)
 applyRemoteStatic k a = return a `bindRemoteStatic` k
 
 remoteFn

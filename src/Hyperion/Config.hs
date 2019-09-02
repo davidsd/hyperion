@@ -24,6 +24,7 @@ data HyperionConfig = HyperionConfig
   , execDir              :: FilePath
   , hyperionCommand      :: Maybe FilePath
   , initialDatabase      :: Maybe FilePath
+  , workerRetries        :: Int
   }
 
 newClusterEnv :: HyperionConfig -> IO (ClusterEnv, FilePath)
@@ -38,7 +39,7 @@ newClusterEnv HyperionConfig{..} = do
   programDataDir <- timedProgramDir dataDir programId
   let clusterJobOptions = defaultSbatchOptions
       clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher hyperionExec
+      clusterWorkerLauncher = slurmWorkerLauncher hyperionExec workerRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   return (ClusterEnv{..}, hyperionExec)
 

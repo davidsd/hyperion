@@ -40,9 +40,9 @@ withRemoteRun
   => ((SerializableClosureProcess a -> Process a) -> m b)
   -> m b
 withRemoteRun go = do
-  wConfig <- getWorkerLauncher
+  workerLauncher <- getWorkerLauncher
   control $ \runInProcess ->
-    withRemoteRunProcess wConfig $ \remoteRunProcess ->
+    withRemoteRunProcess workerLauncher $ \remoteRunProcess ->
     runInProcess (go remoteRunProcess)
 
 remoteBind
@@ -53,7 +53,7 @@ remoteBind
 remoteBind ma kRemotePtr =
   withRemoteRun $ \remoteRun ->
     control $ \runInProcess ->
-    remoteRun $ runInProcess ma `bindRemoteStatic` kRemotePtr
+    remoteRun =<< runInProcess ma `bindRemoteStatic` kRemotePtr
 
 remoteEval
   :: (Binary a, Typeable a, Binary b, Typeable b, HasWorkers m, StM m b ~ b, StM m a ~ a)

@@ -22,6 +22,7 @@ import           System.Console.Concurrent (withConcurrentOutput)
 import           System.Directory          (removeFile)
 import           System.FilePath.Posix     ((</>))
 import           System.Posix.Process      (getProcessID)
+import           System.Environment        (getEnvironment)
 
 data HyperionOpts a = HyperionMaster a | HyperionWorker Worker
 
@@ -49,6 +50,7 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
   HyperionWorker Worker{..} -> do
     Log.redirectToFile workerLogFile
     Log.info "Starting service" workerService
+    Log.info "Environment" =<< getEnvironment
     runProcessLocallyDefault
       (worker (addressToNodeId workerMasterAddress) workerService)
   HyperionMaster args -> do

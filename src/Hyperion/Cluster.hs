@@ -12,8 +12,6 @@
 
 module Hyperion.Cluster where
 
-import Hyperion.Util (randomString, sanitizeFileString, hashTruncateFileName)
-import System.Directory (createDirectoryIfMissing)
 import           Control.Distributed.Process
 import           Control.Lens                (lens)
 import           Control.Monad.Reader
@@ -32,6 +30,9 @@ import           Hyperion.ProgramId
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..), SbatchOptions (..),
                                               sbatchCommand)
+import           Hyperion.Util               (hashTruncateFileName,
+                                              randomString, sanitizeFileString)
+import           System.Directory            (createDirectoryIfMissing)
 import           System.FilePath.Posix       ((<.>), (</>))
 
 data ProgramInfo = ProgramInfo
@@ -115,10 +116,11 @@ runDBWithProgramInfo pInfo m = do
 
 slurmWorkerLauncher
   :: FilePath
+  -> Int
   -> SbatchOptions
   -> ProgramInfo
   -> WorkerLauncher JobId
-slurmWorkerLauncher hyperionExec opts progInfo =
+slurmWorkerLauncher hyperionExec workerRetries opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
@@ -146,7 +148,7 @@ newWorkDir obj = do
   let slug = sanitizeFileString (filter (/= ' ') (show obj))
       base = hashTruncateFileName (slug <> "-" <> salt)
       workDir = dataDir </> base
-  liftIO $ createDirectoryIfMissing True workDir 
+  liftIO $ createDirectoryIfMissing True workDir
   return workDir
 
 -- A memoized version of newWorkDir that saves the result to the

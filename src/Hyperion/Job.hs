@@ -95,6 +95,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
       runCmd (hyperionWorkerCommand hyperionExec nodeId serviceId logFile)
       goJobId jobId
     connectionTimeout = Nothing
+    workerRetries = 0
   return WorkerLauncher{..}
 
 withNodeLauncher
@@ -107,7 +108,7 @@ withNodeLauncher logDir addr' go = case addr' of
     sshLauncher <- workerLauncherWithRunCmd logDir (liftIO . WCP.sshRunCmd addr)
     eitherResult <- try @Process @SSHError $ do
       withRemoteRunProcess sshLauncher $ \remoteRunNode ->
-        let runCmdOnNode = remoteRunNode . applyRemoteStatic (static (remoteFnIO runCmdLocal))
+        let runCmdOnNode = remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocal))
         in workerLauncherWithRunCmd logDir runCmdOnNode >>= \launcher ->
         go (Just (addr', launcher))
     case eitherResult of
@@ -142,6 +143,7 @@ withPoolLauncher logDir addrs' go = flip runContT return $ do
         WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->
         withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
     , connectionTimeout = Nothing
+    , workerRetries     = 0
     }
 
 remoteFnJob
