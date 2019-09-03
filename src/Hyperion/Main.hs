@@ -80,7 +80,7 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     Log.flush
     Log.redirectToFile masterLogFile
     logMasterInfo
-    runDBWithProgramInfo clusterProgramInfo DB.createKeyValTable
+    runDBWithProgramInfo clusterProgramInfo DB.setupKeyValTable
     runCluster clusterEnv (clusterProgram args)
     unless (isJust (hyperionCommand hyperionConfig)) $ removeFile hyperionExecutable
     killThread holdServerThread

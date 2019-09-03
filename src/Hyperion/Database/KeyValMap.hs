@@ -7,6 +7,7 @@ module Hyperion.Database.KeyValMap where
 import           Control.Lens                     (views)
 import           Control.Monad.IO.Class           (MonadIO)
 import           Control.Monad.Reader             (MonadReader)
+import           Control.Monad.Catch              (MonadCatch)
 import           Data.Aeson                       (FromJSON, ToJSON)
 import qualified Data.Aeson                       as Aeson
 import qualified Data.ByteString.Lazy             as LBS
@@ -37,10 +38,10 @@ newtype KeyValMap a b = KeyValMap { kvMapName :: Text }
 instance Sql.ToField (KeyValMap a b) where
   toField = Sql.toField . kvMapName
 
-createKeyValTable
-  :: (MonadIO m, MonadReader env m, HasDB env)
+setupKeyValTable
+  :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m)
   => m ()
-createKeyValTable = withConnection $ \conn ->
+setupKeyValTable = withConnectionRetry $ \conn -> do
   Sql.execute_ conn sql
   where
     sql =
@@ -65,14 +66,14 @@ instance ToJSON a => Sql.ToField (JsonField a) where
   toField (JsonField a) = Sql.SQLText $ T.decodeUtf8 $ LBS.toStrict $ Aeson.encode a
 
 insert
-  :: (MonadIO m, MonadReader env m, HasDB env, ToJSON a, ToJSON b)
+  :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, ToJSON b)
   => KeyValMap a b
   -> a
   -> b
   -> m ()
 insert kvMap key val = do
   programId <- views dbConfigLens dbProgramId
-  withConnection $ \conn -> Sql.execute conn sql
+  withConnectionRetry $ \conn -> Sql.execute conn sql
     ( programId
     , kvMap
     , JsonField key
@@ -84,11 +85,11 @@ insert kvMap key val = do
       \values (?, ?, ?, ?)"
 
 lookup
-  :: (MonadIO m, MonadReader env m, HasDB env, ToJSON a, Typeable b, FromJSON b)
+  :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, Typeable b, FromJSON b)
   => KeyValMap a b
   -> a
   -> m (Maybe b)
-lookup kvMap key = withConnection $ \conn -> do
+lookup kvMap key = withConnectionRetry $ \conn -> do
   result <- Sql.query conn sql (kvMap, JsonField key)
   case result of
     []                         -> return Nothing
@@ -101,10 +102,10 @@ lookup kvMap key = withConnection $ \conn -> do
       \limit 1"
 
 lookupAll
-  :: (MonadIO m, MonadReader env m, HasDB env, Typeable a, FromJSON a, Typeable b, FromJSON b)
+  :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, Typeable a, FromJSON a, Typeable b, FromJSON b)
   => KeyValMap a b
   -> m [(a,b)]
-lookupAll kvMap = withConnection $ \conn -> do
+lookupAll kvMap = withConnectionRetry $ \conn -> do
   result <- Sql.query conn sql (Sql.Only kvMap)
   return $ map (\(JsonField a, JsonField b, _ :: UTCTime) -> (a,b)) result
   where
@@ -115,7 +116,7 @@ lookupAll kvMap = withConnection $ \conn -> do
       \order by created_at"
 
 memoizeWithMap
-  :: (MonadIO m, MonadReader env m, HasDB env, ToJSON a, ToJSON b, Typeable b, FromJSON b)
+  :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, ToJSON b, Typeable b, FromJSON b)
   => KeyValMap a b
   -> (a -> m b)
   -> a
