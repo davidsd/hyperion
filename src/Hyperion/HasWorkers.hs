@@ -46,17 +46,23 @@ withRemoteRun go = do
     runInProcess (go remoteRunProcess)
 
 remoteBind
-  :: (Binary a, Typeable a, Binary b, Typeable b, HasWorkers m, StM m b ~ b, StM m a ~ a)
+  :: ( Binary a, Typeable a, Binary b, Typeable b, HasWorkers m
+     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
+     , StM m a ~ a
+     )
   => m a
   -> StaticPtr (RemoteFunction a b)
   -> m b
-remoteBind ma kRemotePtr =
-  withRemoteRun $ \remoteRun ->
-    control $ \runInProcess ->
-    remoteRun =<< runInProcess ma `bindRemoteStatic` kRemotePtr
+remoteBind ma kRemotePtr = do
+  serializableClosureProcess <- control $ \runInProcess ->
+    runInProcess ma `bindRemoteStatic` kRemotePtr
+  withRemoteRun $ \remoteRun -> liftBase $ remoteRun serializableClosureProcess
 
 remoteEval
-  :: (Binary a, Typeable a, Binary b, Typeable b, HasWorkers m, StM m b ~ b, StM m a ~ a)
+  :: ( Binary a, Typeable a, Binary b, Typeable b, HasWorkers m
+     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
+     , StM m a ~ a
+     )
   => StaticPtr (RemoteFunction a b)
   -> a
   -> m b

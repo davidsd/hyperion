@@ -272,7 +272,7 @@ bindRemoteStatic ma kRemotePtr = do
     , closureVar        = v
     }
   where
-    closureProcess =  do
+    closureProcess = do
       a <- ma
       return $ closure (f `staticCompose` staticDecode aDict) (encode a)
     s     = staticPtr kRemotePtr

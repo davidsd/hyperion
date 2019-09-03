@@ -115,6 +115,16 @@ lookupAll kvMap = withConnectionRetry $ \conn -> do
       \group by key \
       \order by created_at"
 
+lookupDefault
+  :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, Typeable b, FromJSON b)
+  => KeyValMap a b
+  -> b
+  -> a
+  -> m b
+lookupDefault kvMap def key = lookup kvMap key >>= \case
+  Just v -> return v
+  Nothing -> return def
+
 memoizeWithMap
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, ToJSON b, Typeable b, FromJSON b)
   => KeyValMap a b
