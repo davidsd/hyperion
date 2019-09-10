@@ -241,7 +241,6 @@ withRemoteRunProcess workerLauncher go =
       -- sending a request to the HoldServer.
       Log.info "Remote process failed; initiating hold" sId
       blockUntilReleased holdMap (serviceIdToText sId)
-      -- When released, try again
       Log.info "Hold released; retrying" sId
       withRemoteRunProcess workerLauncher go
     -- If there is no HoldMap, just rethrow the exception
@@ -262,7 +261,7 @@ withRemoteRunProcess workerLauncher go =
 bindRemoteStatic
   :: (Binary a, Typeable a, Typeable b)
   => Process a
-  -> StaticPtr (a -> Process b, (SerializableDict a, SerializableDict b))
+  -> StaticPtr (RemoteFunction a b)
   -> Process (SerializableClosureProcess b)
 bindRemoteStatic ma kRemotePtr = do
   v <- liftIO newEmptyMVar
@@ -282,7 +281,7 @@ bindRemoteStatic ma kRemotePtr = do
 
 applyRemoteStatic
   :: (Binary a, Typeable a, Typeable b)
-  => StaticPtr (a -> Process b, (SerializableDict a, SerializableDict b))
+  => StaticPtr (RemoteFunction a b)
   -> a
   -> Process (SerializableClosureProcess b)
 applyRemoteStatic k a = return a `bindRemoteStatic` k
