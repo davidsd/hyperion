@@ -1,12 +1,28 @@
-{-# Language TypeApplications #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Hyperion.Slurm.Environment where
 
-import System.Environment (getEnv, lookupEnv)
-import System.Process (readCreateProcess, shell)
+import           Control.Applicative       ((<|>))
+import           Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
+import           Data.Maybe                (fromMaybe)
+import           System.Environment        (getEnv, lookupEnv)
+import           System.Process            (readCreateProcess, shell)
+import           Text.Read                 (readMaybe)
 
 getNTasksPerNode :: IO Int
-getNTasksPerNode = fmap (read @Int) $ getEnv "SLURM_NTASKS_PER_NODE"
+getNTasksPerNode =
+  fromMaybe (error "Could not determine NTASKS_PER_NODE") <$>
+  runMaybeT (lookupNTasks <|> computeNTasks)
+  where
+    lookupInt :: String -> MaybeT IO Int
+    lookupInt name = MaybeT $ do
+      mStr <- lookupEnv name
+      return $ mStr >>= readMaybe @Int
+    lookupNTasks = lookupInt "SLURM_NTASKS_PER_NODE"
+    computeNTasks = do
+      nTasks <- lookupInt "SLURM_NTASKS"
+      nNodes <- lookupInt "SLURM_JOB_NUM_NODES"
+      return (nTasks `div` nNodes)
 
 getJobNodes :: IO [String]
 getJobNodes = fmap lines $
