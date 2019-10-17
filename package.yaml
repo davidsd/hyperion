@@ -52,11 +52,3 @@ dependencies:
 
 library:
   source-dirs: src
-
-executables:
-  hyperion-example:
-    main: Main.hs
-    source-dirs: example
-    dependencies:
-      - hyperion
-      - optparse-applicative
