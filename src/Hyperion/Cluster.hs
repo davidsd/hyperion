@@ -41,7 +41,7 @@ data ProgramInfo = ProgramInfo
   , programDatabase :: FilePath
   , programLogDir   :: FilePath
   , programDataDir  :: FilePath
-  } deriving (Eq, Generic, Data, Binary, FromJSON, ToJSON)
+  } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON)
 
 data ClusterEnv = ClusterEnv
   { clusterWorkerLauncher :: SbatchOptions -> ProgramInfo -> WorkerLauncher JobId

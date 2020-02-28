@@ -13,7 +13,7 @@ import           GHC.Generics                   (Generic)
 import           Hyperion.Util                  (randomString)
 
 newtype ProgramId = ProgramId { programIdToText :: Text }
-  deriving (Show, Eq, Generic, Data, Binary, FromJSON, ToJSON)
+  deriving (Show, Eq, Ord, Generic, Data, Binary, FromJSON, ToJSON)
 
 instance Sql.ToField ProgramId where
   toField = Sql.toField . programIdToText
