@@ -5,7 +5,7 @@ module Hyperion.Slurm.Environment where
 import           Control.Applicative       ((<|>))
 import           Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import           Data.Maybe                (fromMaybe)
-import           System.Environment        (getEnv, lookupEnv)
+import           System.Environment        (lookupEnv)
 import           System.Process            (readCreateProcess, shell)
 import           Text.Read                 (readMaybe)
 
