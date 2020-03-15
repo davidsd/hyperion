@@ -33,9 +33,12 @@ info msg a = text $ T.pack $ PP.render $ PP.text (T.unpack msg ++ ":") <+> ppDoc
 warn :: (Show a, MonadIO m) => Text -> a -> m ()
 warn msg a = info ("WARN: " <> msg) a
 
+err :: (Show a, MonadIO m) => a -> m ()
+err e = info "ERROR" e
+
 throw :: (MonadThrow m, MonadIO m, Exception e) => e -> m a
 throw e = do
-  info "ERROR" e
+  err e
   throwM e
 
 throwError :: MonadIO m => String -> m a

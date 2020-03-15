@@ -37,7 +37,7 @@ instance HasWorkerLauncher env => HasWorkers (ReaderT env Process) where
 
 withRemoteRun
   :: (Binary a, Typeable a, HasWorkers m)
-  => ((SerializableClosureProcess a -> Process a) -> m b)
+  => ((SerializableClosureProcess (Either String a) -> Process a) -> m b)
   -> m b
 withRemoteRun go = do
   workerLauncher <- getWorkerLauncher
@@ -47,7 +47,7 @@ withRemoteRun go = do
 
 remoteBind
   :: ( Binary a, Typeable a, Binary b, Typeable b, HasWorkers m
-     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
+     , StM m (SerializableClosureProcess (Either String b)) ~ SerializableClosureProcess (Either String b)
      , StM m a ~ a
      )
   => m a
@@ -60,7 +60,7 @@ remoteBind ma kRemotePtr = do
 
 remoteEval
   :: ( Binary a, Typeable a, Binary b, Typeable b, HasWorkers m
-     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
+     , StM m (SerializableClosureProcess (Either String b)) ~ SerializableClosureProcess (Either String b)
      , StM m a ~ a
      )
   => StaticPtr (RemoteFunction a b)

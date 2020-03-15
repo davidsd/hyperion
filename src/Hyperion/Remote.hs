@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StaticPointers      #-}
 {-# LANGUAGE TypeApplications    #-}
 
 module Hyperion.Remote where
@@ -20,19 +21,15 @@ import           Control.Distributed.Process.Async   (AsyncResult (..), async,
 import           Control.Distributed.Process.Closure (SerializableDict (..),
                                                       staticDecode)
 import qualified Control.Distributed.Process.Node    as Node
-import           Control.Distributed.Static          (closure, registerStatic,
-                                                      staticApply,
-                                                      staticCompose,
-                                                      staticLabel, staticPtr)
-import           Control.Monad.Catch                 (Exception, bracket, catch,
-                                                      throwM)
+import           Control.Distributed.Static          (closure, staticApply,
+                                                      staticCompose, staticPtr)
+import           Control.Monad.Catch                 (Exception, bracket, catch, try,
+                                                      throwM, SomeException)
 import           Control.Monad.Extra                 (whenM)
 import           Control.Monad.Trans.Maybe           (MaybeT (..))
 import           Data.Binary                         (Binary, encode)
 import           Data.Data                           (Data, Typeable)
 import           Data.Foldable                       (asum)
-import           Data.Rank1Dynamic                   (toDynamic)
-import           Data.Rank1Typeable                  (ANY1, ANY2)
 import           Data.Text                           (Text, pack)
 import qualified Data.Text.Encoding                  as E
 import           Data.Time.Clock                     (NominalDiffTime)
@@ -61,14 +58,15 @@ serviceIdToString (ServiceId s) = s
 data WorkerMessage = Connected | ShutDown
   deriving (Read, Show, Generic, Data, Binary)
 
-data RemoteAsyncError = RemoteAsyncError ServiceId RemoteAsyncErrorType
+data RemoteError = RemoteError ServiceId RemoteErrorType
   deriving (Show, Exception)
 
-data RemoteAsyncErrorType
+data RemoteErrorType
   = RemoteAsyncFailed DiedReason
   | RemoteAsyncLinkFailed DiedReason
   | RemoteAsyncCancelled
   | RemoteAsyncPending
+  | RemoteException String
   deriving (Show)
 
 data WorkerConnectionTimeout = WorkerConnectionTimeout ServiceId
@@ -87,17 +85,6 @@ data WorkerLauncher j = WorkerLauncher
   , serviceHoldMap    :: Maybe HoldMap
   }
 
-addFstSndStatic :: RemoteTable -> RemoteTable
-addFstSndStatic =
-  registerStatic "$fst" (toDynamic (fst :: (ANY1, ANY2) -> ANY1)) .
-  registerStatic "$snd" (toDynamic (snd :: (ANY1, ANY2) -> ANY2))
-
-fstStatic :: Static ((a,b) -> a)
-fstStatic = staticLabel "$fst"
-
-sndStatic :: Static ((a,b) -> b)
-sndStatic = staticLabel "$snd"
-
 runProcessLocallyDefault :: Process a -> IO a
 runProcessLocallyDefault = runProcessLocally Node.initRemoteTable ports
   where
@@ -110,10 +97,9 @@ runProcessLocally rtable ports process = do
   takeMVar resultVar
 
 runProcessLocally_ :: RemoteTable -> [ServiceName] -> Process () -> IO ()
-runProcessLocally_ rtable' ports process = do
+runProcessLocally_ rtable ports process = do
   host  <- getHostName
   let
-    rtable = addFstSndStatic rtable'
     tryPort port = MaybeT $
       timeout (5*1000*1000)
       (createTransport host port (\port' -> (host, port')) defaultTCPParameters) >>= \case
@@ -219,11 +205,8 @@ getClosure s = do
 
 -- | The type of a function that takes a SerializableClosureProcess and
 -- runs the Closure on a remote machine.
-type RemoteProcessRunner = forall a . (Binary a, Typeable a) => SerializableClosureProcess a -> Process a
-
--- | A monadic function, together with SerializableDicts for its input
--- and output
-type RemoteFunction a b = (a -> Process b, (SerializableDict a, SerializableDict b))
+type RemoteProcessRunner =
+  forall a . (Binary a, Typeable a) => SerializableClosureProcess (Either String a) -> Process a
 
 -- | Start a new remote worker and provide a function for running
 -- closures on that worker.
@@ -233,12 +216,13 @@ withRemoteRunProcess
   -> (RemoteProcessRunner -> Process a)
   -> Process a
 withRemoteRunProcess workerLauncher go =
-  catch goWithRemote $ \e@(RemoteAsyncError sId _) -> do
+  catch goWithRemote $ \e@(RemoteError sId _) -> do
   case serviceHoldMap workerLauncher of
     Just holdMap -> do
       -- In the event of an error, add the offending serviceId to the
       -- HoldMap. We then block until someone releases the service by
       -- sending a request to the HoldServer.
+      Log.err e
       Log.info "Remote process failed; initiating hold" sId
       blockUntilReleased holdMap (serviceIdToText sId)
       Log.info "Hold released; retrying" sId
@@ -252,17 +236,67 @@ withRemoteRunProcess workerLauncher go =
       c <- getClosure s
       a <- wait =<< async (remoteTask (staticSDict s) workerNodeId c)
       case a of
-        AsyncDone r       -> return r
-        AsyncFailed r     -> Log.throw $ RemoteAsyncError serviceId $ RemoteAsyncFailed r
-        AsyncLinkFailed r -> Log.throw $ RemoteAsyncError serviceId $ RemoteAsyncLinkFailed r
-        AsyncCancelled    -> Log.throw $ RemoteAsyncError serviceId $ RemoteAsyncCancelled
-        AsyncPending      -> Log.throw $ RemoteAsyncError serviceId $ RemoteAsyncPending
+        AsyncDone (Right result) -> return result
+        -- By throwing an exception out of withService, we ensure that
+        -- the offending worker will be sent the ShutDown signal,
+        -- since withService uses 'bracket'
+        AsyncDone (Left err)     -> throwM $ RemoteError serviceId $ RemoteException err
+        AsyncFailed reason       -> throwM $ RemoteError serviceId $ RemoteAsyncFailed reason
+        AsyncLinkFailed reason   -> throwM $ RemoteError serviceId $ RemoteAsyncLinkFailed reason
+        AsyncCancelled           -> throwM $ RemoteError serviceId $ RemoteAsyncCancelled
+        AsyncPending             -> throwM $ RemoteError serviceId $ RemoteAsyncPending
+
+-- | A monadic function, together with SerializableDicts for its input
+-- and output. In the output type 'Either String b', String represents
+-- an error in remote execution.
+data RemoteFunction a b = RemoteFunction
+  { remoteFunctionRun :: a -> Process (Either String b)
+  , sDictIn           :: SerializableDict a
+  , sDictOut          :: SerializableDict (Either String b)
+  }
+
+remoteFn
+  :: (Binary a, Typeable a, Binary b, Typeable b)
+  => (a -> Process b)
+  -> RemoteFunction a b
+remoteFn f = RemoteFunction f' SerializableDict SerializableDict
+  where
+    -- Catch any exception, log it, and return as a string. In this
+    -- way, errors will be logged by the worker where they occurred,
+    -- and also sent up the tree.
+    f' a = try (f a) >>= \case
+      Left (e :: SomeException) -> do
+        Log.err e
+        return (Left (show e))
+      Right b ->
+        return (Right b)
+
+remoteFnIO
+  :: (Binary a, Typeable a, Binary b, Typeable b)
+  => (a -> IO b)
+  -> RemoteFunction a b
+remoteFnIO f = remoteFn (liftIO . f)
+
+remoteFunctionRunStatic
+  :: (Typeable a, Typeable b)
+  => Static (RemoteFunction a b -> a -> Process (Either String b))
+remoteFunctionRunStatic = staticPtr (static remoteFunctionRun)
+
+sDictInStatic
+  :: (Typeable a, Typeable b)
+  => Static (RemoteFunction a b -> SerializableDict a)
+sDictInStatic = staticPtr (static sDictIn)
+
+sDictOutStatic
+  :: (Typeable a, Typeable b)
+  => Static (RemoteFunction a b -> SerializableDict (Either String b))
+sDictOutStatic = staticPtr (static sDictOut)
 
 bindRemoteStatic
   :: (Binary a, Typeable a, Typeable b)
   => Process a
   -> StaticPtr (RemoteFunction a b)
-  -> Process (SerializableClosureProcess b)
+  -> Process (SerializableClosureProcess (Either String b))
 bindRemoteStatic ma kRemotePtr = do
   v <- liftIO newEmptyMVar
   return SerializableClosureProcess
@@ -275,25 +309,13 @@ bindRemoteStatic ma kRemotePtr = do
       a <- ma
       return $ closure (f `staticCompose` staticDecode aDict) (encode a)
     s     = staticPtr kRemotePtr
-    f     = fstStatic `staticApply` s
-    aDict = fstStatic `staticApply` (sndStatic `staticApply` s)
-    bDict = sndStatic `staticApply` (sndStatic `staticApply` s)
+    f     = remoteFunctionRunStatic `staticApply` s
+    aDict = sDictInStatic  `staticApply` s
+    bDict = sDictOutStatic `staticApply` s
 
 applyRemoteStatic
   :: (Binary a, Typeable a, Typeable b)
   => StaticPtr (RemoteFunction a b)
   -> a
-  -> Process (SerializableClosureProcess b)
+  -> Process (SerializableClosureProcess (Either String b))
 applyRemoteStatic k a = return a `bindRemoteStatic` k
-
-remoteFn
-  :: (Binary a, Typeable a, Binary b, Typeable b)
-  => (a -> Process b)
-  -> RemoteFunction a b
-remoteFn f = (f, (SerializableDict, SerializableDict))
-
-remoteFnIO
-  :: (Binary a, Typeable a, Binary b, Typeable b)
-  => (a -> IO b)
-  -> RemoteFunction a b
-remoteFnIO f = remoteFn (liftIO . f)
