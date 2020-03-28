@@ -85,6 +85,12 @@ mapConcurrently f = doConcurrently . fmap f
 mapConcurrently_ :: (Applicative (Concurrently m), Foldable t, Functor t) => (a -> m b) -> t a -> m ()
 mapConcurrently_ f = doConcurrently_ . fmap f
 
+forConcurrently :: (Applicative (Concurrently m), Traversable t) => t a -> (a -> m b) -> m (t b)
+forConcurrently = flip mapConcurrently
+
+forConcurrently_ :: (Applicative (Concurrently m), Foldable t, Functor t) => t a -> (a -> m b) -> m ()
+forConcurrently_ = flip mapConcurrently_
+
 replicateConcurrently :: Applicative (Concurrently m) => Int -> m a -> m [a]
 replicateConcurrently n = doConcurrently . replicate n
 
