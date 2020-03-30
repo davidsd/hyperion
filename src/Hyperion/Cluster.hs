@@ -72,7 +72,7 @@ instance HasWorkerLauncher ClusterEnv where
 data MPIJob = MPIJob
   { mpiNodes         :: Int
   , mpiNTasksPerNode :: Int
-  } deriving (Show)
+  } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
 runCluster clusterEnv h = do
