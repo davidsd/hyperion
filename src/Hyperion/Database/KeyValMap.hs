@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -5,20 +8,22 @@
 module Hyperion.Database.KeyValMap where
 
 import           Control.Lens                     (views)
+import           Control.Monad.Catch              (MonadCatch)
 import           Control.Monad.IO.Class           (MonadIO)
 import           Control.Monad.Reader             (MonadReader)
-import           Control.Monad.Catch              (MonadCatch)
 import           Data.Aeson                       (FromJSON, ToJSON)
 import qualified Data.Aeson                       as Aeson
+import           Data.Binary                      (Binary)
 import qualified Data.ByteString.Lazy             as LBS
+import           Data.Data                        (Data, Typeable)
 import           Data.Text                        (Text)
 import qualified Data.Text.Encoding               as T
 import           Data.Time.Clock                  (UTCTime)
-import           Data.Typeable                    (Typeable)
 import qualified Database.SQLite.Simple           as Sql
 import qualified Database.SQLite.Simple.FromField as Sql
 import qualified Database.SQLite.Simple.Ok        as Sql
 import qualified Database.SQLite.Simple.ToField   as Sql
+import           GHC.Generics                     (Generic)
 import           Hyperion.Database.HasDB
 import           Prelude                          hiding (lookup)
 
@@ -34,6 +39,7 @@ import           Prelude                          hiding (lookup)
 -- constraint.
 
 newtype KeyValMap a b = KeyValMap { kvMapName :: Text }
+  deriving (Eq, Ord, Show, Data, Typeable, Generic, Binary, FromJSON, ToJSON)
 
 instance Sql.ToField (KeyValMap a b) where
   toField = Sql.toField . kvMapName
