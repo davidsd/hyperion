@@ -17,6 +17,7 @@ import           Prelude                hiding (lookup)
 data DatabaseConfig = DatabaseConfig
   { dbPool      :: Pool.Pool Sql.Connection
   , dbProgramId :: ProgramId
+  , dbRetries   :: Int
   }
 
 class HasDB env where
@@ -47,5 +48,6 @@ withConnectionRetry
   :: forall m env a . (MonadIO m, MonadReader env m, HasDB env, MonadCatch m)
   => (Sql.Connection -> IO a)
   -> m a
-withConnectionRetry =
-  retryRepeated 10 (try @m @Sql.SQLError) . withConnection
+withConnectionRetry go = do
+  retries <- views dbConfigLens dbRetries
+  retryRepeated retries (try @m @Sql.SQLError) (withConnection go)

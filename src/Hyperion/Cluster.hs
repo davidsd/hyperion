@@ -37,17 +37,18 @@ import           System.Directory            (createDirectoryIfMissing)
 import           System.FilePath.Posix       ((<.>), (</>))
 
 data ProgramInfo = ProgramInfo
-  { programId       :: ProgramId
-  , programDatabase :: FilePath
-  , programLogDir   :: FilePath
-  , programDataDir  :: FilePath
+  { programId              :: ProgramId
+  , programDatabase        :: FilePath
+  , programLogDir          :: FilePath
+  , programDataDir         :: FilePath
   } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON)
 
 data ClusterEnv = ClusterEnv
-  { clusterWorkerLauncher :: SbatchOptions -> ProgramInfo -> WorkerLauncher JobId
-  , clusterProgramInfo    :: ProgramInfo
-  , clusterJobOptions     :: SbatchOptions
-  , clusterDatabasePool   :: DB.Pool
+  { clusterWorkerLauncher  :: SbatchOptions -> ProgramInfo -> WorkerLauncher JobId
+  , clusterProgramInfo     :: ProgramInfo
+  , clusterJobOptions      :: SbatchOptions
+  , clusterDatabasePool    :: DB.Pool
+  , clusterDatabaseRetries :: Int
   }
 
 type Cluster = ReaderT ClusterEnv Process
@@ -56,13 +57,14 @@ instance DB.HasDB ClusterEnv where
   dbConfigLens = lens get set
     where
       get ClusterEnv {..} = DB.DatabaseConfig
-        { DB.dbPool         = clusterDatabasePool
-        , DB.dbProgramId    = programId (clusterProgramInfo)
+        { dbPool      = clusterDatabasePool
+        , dbProgramId = programId (clusterProgramInfo)
+        , dbRetries   = clusterDatabaseRetries
         }
       set h DB.DatabaseConfig {..} = h
-        { clusterDatabasePool = dbPool
-        , clusterProgramInfo  = (clusterProgramInfo h)
-          { programId = dbProgramId }
+        { clusterDatabasePool    = dbPool
+        , clusterProgramInfo     = (clusterProgramInfo h) { programId = dbProgramId }
+        , clusterDatabaseRetries = dbRetries
         }
 
 instance HasWorkerLauncher ClusterEnv where
@@ -105,10 +107,14 @@ setJobType MPIJob{..} = modifyJobOptions $ \opts -> opts
 setSlurmPartition :: Text -> ClusterEnv -> ClusterEnv
 setSlurmPartition p = modifyJobOptions $ \opts -> opts { partition = Just p }
 
+defaultDBRetries :: Int
+defaultDBRetries = 20
+
 dbConfigFromProgramInfo :: ProgramInfo -> IO DB.DatabaseConfig
 dbConfigFromProgramInfo pInfo = do
   dbPool <- DB.newDefaultPool (programDatabase pInfo)
   let dbProgramId = programId pInfo
+      dbRetries = defaultDBRetries
   return DB.DatabaseConfig{..}
 
 runDBWithProgramInfo :: ProgramInfo -> ReaderT DB.DatabaseConfig IO a -> IO a

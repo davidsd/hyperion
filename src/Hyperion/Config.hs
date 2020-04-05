@@ -41,6 +41,7 @@ newClusterEnv HyperionConfig{..} = do
   let clusterJobOptions = defaultSbatchOptions
       clusterProgramInfo = ProgramInfo {..}
       clusterWorkerLauncher = slurmWorkerLauncher hyperionExec holdMap
+      clusterDatabaseRetries = defaultDBRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   return (ClusterEnv{..}, hyperionExec, holdMap)
 
