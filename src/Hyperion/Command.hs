@@ -14,12 +14,14 @@ import           Options.Applicative
 -- Note: The argument list in hyperionWorkerCommand and the workerOpts
 -- parser must be kept in sync.
 
+-- | Haskell representation of arguments passed to the worker process.
 data Worker = Worker
   { workerMasterAddress :: Text
   , workerService       :: ServiceId
   , workerLogFile       :: FilePath
   } deriving Show
 
+-- | Parses worker command-line arguments. Essentially inverse to 'hyperionWorkerCommand'.
 workerOpts :: Parser Worker
 workerOpts = do
   workerMasterAddress <- T.pack <$>
@@ -36,6 +38,7 @@ workerOpts = do
                <> help "Path for worker log file")
   return Worker{..}
 
+-- | Returns the @(command, [arguments])@ to run the worker process
 hyperionWorkerCommand :: FilePath -> NodeId -> ServiceId -> FilePath -> (String, [String])
 hyperionWorkerCommand hyperionExecutable masterNode masterService logFile =
   (hyperionExecutable, map T.unpack args)
