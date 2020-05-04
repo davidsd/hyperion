@@ -6,8 +6,6 @@
 
 module Hyperion.Main where
 
-import           Control.Concurrent        (forkIO, killThread)
-import           Control.Concurrent.MVar   (newMVar, readMVar)
 import           Control.Monad             (unless)
 import           Data.Maybe                (isJust)
 import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
@@ -16,7 +14,7 @@ import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
 import           Hyperion.Command          (Worker (..), workerOpts)
 import           Hyperion.Config           (HyperionConfig (..), newClusterEnv)
 import qualified Hyperion.Database         as DB
-import           Hyperion.HoldServer       (runHoldServer)
+import           Hyperion.HoldServer       (withHoldServer)
 import qualified Hyperion.Log              as Log
 import           Hyperion.Remote           (addressToNodeId,
                                             runProcessLocallyDefault, worker)
@@ -50,8 +48,9 @@ hyperionOpts programOpts = subparser $ mconcat
     progDesc "Run a master process"
   ]
 
--- | Same as 'hyperionOpts' but with added @--help@ option and wrapped into 'ParserInfo' (by adding program description).
--- This now can be used in 'execParser' from "Options.Applicative".
+-- | Same as 'hyperionOpts' but with added @--help@ option and wrapped
+-- into 'ParserInfo' (by adding program description).  This now can be
+-- used in 'execParser' from "Options.Applicative".
 opts :: Parser a -> ParserInfo (HyperionOpts a)
 opts programOpts = info (helper <*> hyperionOpts programOpts) fullDesc
 
@@ -92,28 +91,22 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     let progId = programId clusterProgramInfo
         masterLogFile = programLogDir clusterProgramInfo </> "master.log"
     pid <- getProcessID
-    -- Initially try to start hold server on this port. If connection
-    -- fails, the port number will be incremented until it succeeds.
-    portVar <- newMVar 11132
-    -- Need to run the hold server first to fill portVar with the
-    -- right value. Capture the threadId so it can be killed later.
-    -- TODO: currently, there is a race condition on portVar with holdServerThread
-    holdServerThread <- forkIO $ runHoldServer holdMap portVar
-    let logMasterInfo = do
-          Log.info "Program id" progId
-          Log.info "Process id" pid
-          Log.info "Program arguments" args
-          Log.info "Using database" (programDatabase clusterProgramInfo)
-          port <- readMVar portVar
-          Log.info "Running hold server on port" port
-    logMasterInfo
-    Log.info "Logging to" masterLogFile
-    Log.flush
-    Log.redirectToFile masterLogFile
-    logMasterInfo
-    runDBWithProgramInfo clusterProgramInfo DB.setupKeyValTable
-    runCluster clusterEnv (clusterProgram args)
-    unless (isJust (hyperionCommand hyperionConfig)) $ removeFile hyperionExecutable
-    killThread holdServerThread
+    -- run the hold server on an available port
+    withHoldServer holdMap $ \holdServerPort -> do
+      let logMasterInfo = do
+            Log.info "Program id" progId
+            Log.info "Process id" pid
+            Log.info "Program arguments" args
+            Log.info "Using database" (programDatabase clusterProgramInfo)
+            Log.info "Running hold server on port" holdServerPort
+      logMasterInfo
+      Log.info "Logging to" masterLogFile
+      Log.flush
+      Log.redirectToFile masterLogFile
+      logMasterInfo
+      runDBWithProgramInfo clusterProgramInfo DB.setupKeyValTable
+      runCluster clusterEnv (clusterProgram args)
+      unless (isJust (hyperionCommand hyperionConfig)) $
+        removeFile hyperionExecutable
     Log.info "Finished" progId
 

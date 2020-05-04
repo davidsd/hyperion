@@ -7,13 +7,12 @@
 
 module Hyperion.HoldServer where
 
-import           Control.Concurrent.MVar     (MVar, modifyMVar_, newEmptyMVar,
+import           Control.Concurrent.MVar     (MVar, newEmptyMVar,
                                               readMVar, tryPutMVar)
 import           Control.Concurrent.STM      (atomically)
 import           Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO,
                                               readTVarIO)
 import           Control.Monad               (when)
-import           Control.Monad.Catch         (catchIOError)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Data.Map                    (Map)
 import qualified Data.Map                    as Map
@@ -22,7 +21,7 @@ import           Data.Proxy                  (Proxy (..))
 import qualified Data.Text                   as T
 import qualified Hyperion.Log                as Log
 import           Network.Wai                 ()
-import           Network.Wai.Handler.Warp    (run)
+import qualified Network.Wai.Handler.Warp    as Warp
 import           Servant
 
 type HoldApi =
@@ -62,12 +61,11 @@ blockUntilReleased (HoldMap holdMap) service = liftIO $ do
   atomically $ modifyTVar holdMap (Map.insert service holdVar)
   readMVar holdVar
 
--- | Start the hold server. Initially try the port number in
--- portVar. In case of exception, increment portVar and try again.
-runHoldServer :: HoldMap -> MVar Int -> IO ()
-runHoldServer holdMap portVar = do
-  port <- readMVar portVar
-  run port (serve (Proxy @HoldApi) (server holdMap))
-    `catchIOError` (\_ -> do
-                       modifyMVar_ portVar (return . succ)
-                       runHoldServer holdMap portVar)
+-- | Start the hold server on an available port and pass the port
+-- number to the given action. The server is killed after the action
+-- finishes.
+--
+withHoldServer :: HoldMap -> (Int -> IO a) -> IO a
+withHoldServer holdMap = Warp.withApplication (pure app) 
+  where
+    app = serve (Proxy @HoldApi) (server holdMap)
