@@ -75,7 +75,8 @@ withConnection go = do
 
 -- | Tries 'withConnection' until succeeds. Failure means that 'Sql.SQLError' is
 -- thrown during execution of the function. Otherwise execution is deemed successful.
--- Tries at most 10 times. If last attempt is a failure, the last exception propagates
+-- The number of attempts is determined by DatabaseConfig in the environment. 
+-- If last attempt is a failure, the last exception propagates
 -- outside of 'withConnectionRetry'. Uses 'retryRepeated' internally.
 withConnectionRetry
   :: forall m env a . (MonadIO m, MonadReader env m, HasDB env, MonadCatch m)

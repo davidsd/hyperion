@@ -46,6 +46,10 @@ import           Network.Transport                   (EndPointAddress (..))
 import           Network.Transport.TCP
 import           System.Timeout                      (timeout)
 
+-- * Types
+
+-- | Type for service id. 'ServiceId' is typically a random string that 
+-- is assigned to a worker. (Maybe to other things too?)
 newtype ServiceId = ServiceId String
   deriving (Eq, Show, Generic, Data, Binary)
 
@@ -55,12 +59,15 @@ serviceIdToText = pack . serviceIdToString
 serviceIdToString :: ServiceId -> String
 serviceIdToString (ServiceId s) = s
 
+-- | Type for basic master to worker messaging 
 data WorkerMessage = Connected | ShutDown
   deriving (Read, Show, Generic, Data, Binary)
 
 data RemoteError = RemoteError ServiceId RemoteErrorType
   deriving (Show, Exception)
 
+-- | Detailed type for 'RemoteError'. The constructors correspond to various
+-- possible 'AsyncResult's.
 data RemoteErrorType
   = RemoteAsyncFailed DiedReason
   | RemoteAsyncLinkFailed DiedReason
@@ -72,30 +79,45 @@ data RemoteErrorType
 data WorkerConnectionTimeout = WorkerConnectionTimeout ServiceId
   deriving (Show, Exception)
 
+-- | 'WorkerLauncher' type parametrized by a type for job id. 
 data WorkerLauncher j = WorkerLauncher
-  { -- A function that launches a worker for the given ServiceId on
-    -- the master NodeId and supplies its JobId to the given
+  { -- | A function that launches a worker for the given 'ServiceId' on
+    -- the master 'NodeId' and supplies its job id to the given
     -- continuation
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (j -> Process b) -> Process b
-    -- Timeout for the worker to connect. If the worker is launched
+    -- | Timeout for the worker to connect. If the worker is launched
     -- into a Slurm queue, it may take a very long time to connect. In
-    -- that case, it is recommended to set connectionTimeout =
-    -- Nothing.
+    -- that case, it is recommended to set 'connectionTimeout' =
+    -- 'Nothing'.
   , connectionTimeout :: Maybe NominalDiffTime
+    -- | The 'HoldMap' which we can use to block on errors. If set to
+    -- 'Nothing', then the "Hyperion.HoldServer" functionality won't be used.
   , serviceHoldMap    :: Maybe HoldMap
   }
 
+-- * Functions for running a worker
+
+-- | 'runProcessLocally' with default 'RemoteTable' and trying ports 
+-- @[10090 .. 10990]@. See 'runProcessLocally' and 'runProcessLocally_'.
 runProcessLocallyDefault :: Process a -> IO a
 runProcessLocallyDefault = runProcessLocally Node.initRemoteTable ports
   where
     ports = map show [10090 .. 10990 :: Int]
 
+-- | Same as 'runProcessLocally_', but returns allows a return value for the 
+-- 'Process'.
 runProcessLocally :: RemoteTable -> [ServiceName] -> Process a -> IO a
 runProcessLocally rtable ports process = do
   resultVar <- newEmptyMVar
   runProcessLocally_ rtable ports $ process >>= liftIO . putMVar resultVar
   takeMVar resultVar
 
+-- | Spawns a new local "Control.Distributed.Process.Node" 
+-- with the given 'RemoteTable' and runs the given 'Process'
+-- on it. Waits for the process to finish.
+--
+-- It tries to bind the node to the given list ['ServiceName'] of ports, 
+-- attempting them one-by-one, and waiting for 5 seconds before timing the port out.
 runProcessLocally_ :: RemoteTable -> [ServiceName] -> Process () -> IO ()
 runProcessLocally_ rtable ports process = do
   host  <- getHostName
@@ -115,16 +137,28 @@ runProcessLocally_ rtable ports process = do
       Log.info "Running on node" (Node.localNodeId node)
       Node.runProcess node process
 
+-- | Convert a 'Text' representation of 'EndPointAddress' to 'NodeId'.
+-- The format for the end point address is \"TCP host:TCP port:endpoint id\"
 addressToNodeId :: Text -> NodeId
 addressToNodeId = NodeId . EndPointAddress . E.encodeUtf8
 
+-- | Inverse to 'addressToNodeId'
 nodeIdToAddress :: NodeId -> Text
 nodeIdToAddress (NodeId (EndPointAddress addr)) = E.decodeUtf8 addr
 
--- | Repeatedly send our own nodeId to a masterNode until it replies
--- 'Connected'.  Then wait for a 'ShutDown' signal.  While waiting,
--- other processes will be run in a different thread.
-worker :: NodeId -> ServiceId -> Process ()
+-- | The main worker process.
+--
+-- Repeatedly (at most 5 times) send our own 'ProcessId' and the send end of a typed channel
+-- ('SendPort' 'WorkerMessage') to a master node until it replies
+-- 'Connected' (timeout 10 seconds for each attempt). 
+-- Then 'expect' a 'ShutDown' signal.  
+--
+-- While waiting, other processes will be run in a different thread,
+-- invoked by master through our 'NodeId' (which it extracts from 'ProcessId')
+worker 
+  :: NodeId     -- ^ 'NodeId' of the master node 
+  -> ServiceId  -- ^ 'ServiceId' of master 'Process' (should be 'register'ed)
+  -> Process ()
 worker masterNode serviceId@(ServiceId masterService) = do
   self <- getSelfPid
   (sendPort, receivePort) <- newChan
@@ -142,6 +176,9 @@ worker masterNode serviceId@(ServiceId masterService) = do
         ShutDown  -> Log.text "Shutting down."
     _ -> Log.text "Couldn't connect to master" >> die ()
 
+-- | Registers ('register') the current process under a random 'ServiceId', then
+-- runs the given function on this 'ServiceId'. After the function returns,
+-- unregisters ('unregister') the 'ServiceId'.
 withServiceId :: (ServiceId -> Process a) -> Process a
 withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
   where
@@ -150,8 +187,14 @@ withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
       getSelfPid >>= register s
       return (ServiceId s)
 
--- | Start a new remote worker and call go with the NodeId of that
--- worker
+-- | Start a new remote worker using 'WorkerLauncher' and call a function
+-- with the 'NodeId' and 'ServiceId' of that worker.
+--
+-- Throws ('throwM') a 'WorkerConnectionTimeout' if worker times out (timeout
+-- described in 'WorkerLauncher')
+--
+-- The call to the user function is 'bracket'ed by worker startup and shutdown
+-- procedures.
 withService
   :: Show j
   => WorkerLauncher j
@@ -162,7 +205,7 @@ withService WorkerLauncher{..} go = withServiceId $ \serviceId -> do
   -- fire up a remote worker with instructions to contact this node
   withLaunchedWorker self serviceId $ \jobId -> do
     Log.info "Deployed worker" (serviceId, jobId)
-    -- Wait for a worker to connect and send its id
+    -- Wait for the worker to connect and send its id
     let
       awaitWorker = do
         connectionResult <- case connectionTimeout of
@@ -185,13 +228,15 @@ withService WorkerLauncher{..} go = withServiceId $ \serviceId -> do
         send workerId ShutDown
     bracket awaitWorker shutdownWorker (\wId -> go (processNodeId wId) serviceId)
 
--- | A process that generates the Closure to be run on a remote machine.
+-- * Functions related to running remote functions
+
+-- | A process that generates the 'Closure' to be run on a remote machine.
 data SerializableClosureProcess a = SerializableClosureProcess
   { -- | Process to generate closure
     runClosureProcess :: Process (Closure (Process a))
-    -- | Dict for seralizing result
+    -- | Dict for serializing result
   , staticSDict       :: Static (SerializableDict a)
-    -- | MVar for memoizing closure so we don't run process more than once
+    -- | 'MVar' for memoizing closure so we don't run process more than once
   , closureVar        :: MVar (Closure (Process a))
   }
 
@@ -203,13 +248,21 @@ getClosure s = do
     liftIO $ putMVar (closureVar s) c
   liftIO $ readMVar (closureVar s)
 
--- | The type of a function that takes a SerializableClosureProcess and
--- runs the Closure on a remote machine.
+-- | The type of a function that takes a 'SerializableClosureProcess' and
+-- runs the 'Closure' on a remote machine. In case the remote machine returns
+-- a 'Left' value (i.e. an error), throws this value wrapped in 'RemoteError'
+-- of type 'RemoteException'. May throw other 'RemoteError's if remote execution 
+-- fails in any way.
 type RemoteProcessRunner =
   forall a . (Binary a, Typeable a) => SerializableClosureProcess (Either String a) -> Process a
 
--- | Start a new remote worker and provide a function for running
--- closures on that worker.
+-- | Starts a new remote worker and runs a user function, which is 
+-- supplied with 'RemoteProcessRunner' for running
+-- closures on that worker. If 'WorkerLauncher' has a 'HoldMap', then
+-- 'RemoteError' exceptions propagating out of the supplied user function
+-- are logged and 'withRemoteRunProcess' blocks until the 'ServiceId' is released 
+-- by 'HoldServer'. Then 'withRemoteRunProcess' restarts (generating new 'ServiceId').
+-- If no 'HoldMap' is available, then the exception propagates out of 'withRemoteRunProcess'.
 withRemoteRunProcess
   :: Show j
   => WorkerLauncher j
@@ -255,6 +308,10 @@ data RemoteFunction a b = RemoteFunction
   , sDictOut          :: SerializableDict (Either String b)
   }
 
+-- | Produces a 'RemoteFunction' from a monadic function. Exception handling is added
+-- by catching any exception @e@, logging @e@ with 'Log.err' (on the worker), 
+-- and returning a 'Left' result with the textual representation of @e@ from 
+-- 'Show' instance.
 remoteFn
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => (a -> Process b)
@@ -271,27 +328,46 @@ remoteFn f = RemoteFunction f' SerializableDict SerializableDict
       Right b ->
         return (Right b)
 
+-- | Same as 'remoteFn' but takes a function in 'IO' monad.
 remoteFnIO
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => (a -> IO b)
   -> RemoteFunction a b
 remoteFnIO f = remoteFn (liftIO . f)
 
+-- | 'remoteFunctionRun' of 'RemoteFunction' wrapped in 'Static'.
 remoteFunctionRunStatic
   :: (Typeable a, Typeable b)
   => Static (RemoteFunction a b -> a -> Process (Either String b))
 remoteFunctionRunStatic = staticPtr (static remoteFunctionRun)
 
+-- | 'sDictIn' of 'RemoteFunction' wrapped in 'Static'.
 sDictInStatic
   :: (Typeable a, Typeable b)
   => Static (RemoteFunction a b -> SerializableDict a)
 sDictInStatic = staticPtr (static sDictIn)
 
+-- | 'sDictOut' of 'RemoteFunction' wrapped in 'Static'.
 sDictOutStatic
   :: (Typeable a, Typeable b)
   => Static (RemoteFunction a b -> SerializableDict (Either String b))
 sDictOutStatic = staticPtr (static sDictOut)
 
+-- | Constructs 'SerializableClosureProcess' given an action that constructs
+-- the argument to the 'RemoteFunction', and a 'StaticPtr' to the remote function.
+-- The action that constructs the argument is embedded into 'runClosureProcess'
+-- of the resulting 'SerializableClosureProcess'.
+-- 
+-- 'StaticPtr' to the remote function can be constructed by using the keyword 'static'
+-- from @StaticPointers@ extention. E.g., 
+-- 
+-- > static $ remoteFn f 
+--
+-- Note, however, that @f@ should be either a top-level definition or a closed 
+-- local definition in order for 'static' to work. Closed local definitions are 
+-- local definitions that could in principle be defined at top-level.
+-- A necessary condition is that the whole object to which 'static' is applied 
+-- to is known at compile time.
 bindRemoteStatic
   :: (Binary a, Typeable a, Typeable b)
   => Process a
@@ -313,6 +389,8 @@ bindRemoteStatic ma kRemotePtr = do
     aDict = sDictInStatic  `staticApply` s
     bDict = sDictOutStatic `staticApply` s
 
+-- | Same as 'bindRemoteStatic' where the argument to 'RemoteFunction' is 
+-- constructed by 'return' from the supplied argument.
 applyRemoteStatic
   :: (Binary a, Typeable a, Typeable b)
   => StaticPtr (RemoteFunction a b)
