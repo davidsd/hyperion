@@ -90,8 +90,9 @@ data WorkerLauncher j = WorkerLauncher
     -- that case, it is recommended to set 'connectionTimeout' =
     -- 'Nothing'.
   , connectionTimeout :: Maybe NominalDiffTime
-    -- | The 'HoldMap' which we can use to block on errors. If set to
-    -- 'Nothing', then the "Hyperion.HoldServer" functionality won't be used.
+    -- | If a 'HoldMap' is present, a remote process that throws an
+    -- error will be added to the 'HoldMap'. It can be restarted later
+    -- by connecting to the "Hyperion.HoldServer" via 'curl'.
   , serviceHoldMap    :: Maybe HoldMap
   }
 
@@ -177,8 +178,8 @@ worker masterNode serviceId@(ServiceId masterService) = do
     _ -> Log.text "Couldn't connect to master" >> die ()
 
 -- | Registers ('register') the current process under a random 'ServiceId', then
--- runs the given function on this 'ServiceId'. After the function returns,
--- unregisters ('unregister') the 'ServiceId'.
+-- passes the 'ServiceId' to the given continuation on this 'ServiceId'. 
+-- After the continuation returns, unregisters ('unregister') the 'ServiceId'.
 withServiceId :: (ServiceId -> Process a) -> Process a
 withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
   where
@@ -232,11 +233,16 @@ withService WorkerLauncher{..} go = withServiceId $ \serviceId -> do
 
 -- | A process that generates the 'Closure' to be run on a remote machine.
 data SerializableClosureProcess a = SerializableClosureProcess
-  { -- | Process to generate closure
+  { -- | Process to generate a closure. This process will be run when
+    -- a remote location has been identified that the closure can be
+    -- sent to.
     runClosureProcess :: Process (Closure (Process a))
-    -- | Dict for serializing result
+    -- | Dict for seralizing the result.
   , staticSDict       :: Static (SerializableDict a)
-    -- | 'MVar' for memoizing closure so we don't run process more than once
+    -- | If a remote computation fails, it may be added to the 'HoldMap'
+    -- to be tried again. In that case, we don't want to evaluate
+    -- 'runClosureProcess' again, so we use an 'MVar' to memoize the
+    -- result of 'runClosureProcess'.
   , closureVar        :: MVar (Closure (Process a))
   }
 
