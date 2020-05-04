@@ -73,15 +73,18 @@ data WorkerConnectionTimeout = WorkerConnectionTimeout ServiceId
   deriving (Show, Exception)
 
 data WorkerLauncher j = WorkerLauncher
-  { -- A function that launches a worker for the given ServiceId on
+  { -- | A function that launches a worker for the given ServiceId on
     -- the master NodeId and supplies its JobId to the given
     -- continuation
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (j -> Process b) -> Process b
-    -- Timeout for the worker to connect. If the worker is launched
+    -- | Timeout for the worker to connect. If the worker is launched
     -- into a Slurm queue, it may take a very long time to connect. In
     -- that case, it is recommended to set connectionTimeout =
     -- Nothing.
   , connectionTimeout :: Maybe NominalDiffTime
+    -- | If a HoldMap is present, a remote process that throws an
+    -- error will be added to the HoldMap. It can be restarted later
+    -- by connecting to the HoldServer via 'curl'.
   , serviceHoldMap    :: Maybe HoldMap
   }
 
@@ -142,6 +145,10 @@ worker masterNode serviceId@(ServiceId masterService) = do
         ShutDown  -> Log.text "Shutting down."
     _ -> Log.text "Couldn't connect to master" >> die ()
 
+-- | Create a new 'Control.Distributed.Process' service with a
+-- randomly generated id and pass it to the given continuation. The
+-- service is unregistered when the continuation finishes.
+--
 withServiceId :: (ServiceId -> Process a) -> Process a
 withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
   where
@@ -150,8 +157,7 @@ withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
       getSelfPid >>= register s
       return (ServiceId s)
 
--- | Start a new remote worker and call go with the NodeId of that
--- worker
+-- | Start a new remote worker pass its 'NodeId' to the continuation 'go'.
 withService
   :: Show j
   => WorkerLauncher j
@@ -187,11 +193,16 @@ withService WorkerLauncher{..} go = withServiceId $ \serviceId -> do
 
 -- | A process that generates the Closure to be run on a remote machine.
 data SerializableClosureProcess a = SerializableClosureProcess
-  { -- | Process to generate closure
+  { -- | Process to generate a closure. This process will be run when
+    -- a remote location has been identified that the closure can be
+    -- sent to.
     runClosureProcess :: Process (Closure (Process a))
-    -- | Dict for seralizing result
+    -- | Dict for seralizing the result.
   , staticSDict       :: Static (SerializableDict a)
-    -- | MVar for memoizing closure so we don't run process more than once
+    -- | If a remote computation fails, it may be added to the HoldMap
+    -- to be tried again. In that case, we don't want to evaluate
+    -- 'runClosureProcess' again, so we use an MVar to memoize the
+    -- result of 'runClosureProcess'.
   , closureVar        :: MVar (Closure (Process a))
   }
 
