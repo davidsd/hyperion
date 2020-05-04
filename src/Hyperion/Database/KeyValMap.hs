@@ -27,23 +27,48 @@ import           GHC.Generics                     (Generic)
 import           Hyperion.Database.HasDB
 import           Prelude                          hiding (lookup)
 
--- The database table for a KeyValMap can contain multiple entries
+-- * General comments
+-- $
+-- "Hyperion.Database.KeyValMap" provides various actions with Sqlite DB using 'withConnection' from 
+-- "Hyperion.Database.HasDB". 
+-- 
+-- The DB contains entries for 'KeyValMap': given 'kvMapName' and a key, DB can produce value or values for the key.
+-- We think about this as a map, i.e. there is a preferred value for each key for a given 'KeyValMap', even if DB contains the
+-- key several times. This is described below.
+--
+-- The keys and values are represented by JSON encoding of Haskell values. "Data.Aeson" is used to perform encoding/decoding.
+-- Thus, the keys and the values should implement 'ToJSON'/'FromJSON' appropriately.
+
+
+-- * Convention on DB entries with the same key
+-- $
+-- The database table for a 'KeyValMap' can contain multiple entries
 -- with the same key. In this case, the newest entry is the active
 -- one. Older entries are always ignored. Thus, an update can be
 -- achieved by inserting a new key val pair.
-
+--
 -- The reason for this choice is that newer programs should not modify
 -- data associated with old programs. However, a new program may
 -- lookup data from old programs. This convention allows one to change
 -- the data that a new program sees without violating the above
 -- constraint.
 
+
+-- | Type for 'KeyValMap' holds the types of key and value, but only contains 'kvMapName' the name of the map
 newtype KeyValMap a b = KeyValMap { kvMapName :: Text }
   deriving (Eq, Ord, Show, Data, Typeable, Generic, Binary, FromJSON, ToJSON)
 
+-- | 'KeyValMap' is an instance of 'ToField' in order to use with Sqlite
 instance Sql.ToField (KeyValMap a b) where
   toField = Sql.toField . kvMapName
 
+-- | 'setupKeyValTable' creates the table "hyperion_key_val" if it doesn't yet exist.
+--   This table will hold the map-key-val entries.
+--
+-- The entry format is @program_id, kv_map, key, val, created_at@. 
+-- These are the program id, map name, key, value, and timestamp, respectively.
+-- 
+-- @program_id@ is not used in lookups
 setupKeyValTable
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m)
   => m ()
@@ -61,6 +86,8 @@ setupKeyValTable = withConnectionRetry $ \conn -> do
 
 newtype JsonField a = JsonField a
 
+-- | Make 'JsonField' an instance of 'FromField'. First turns the field into Text and then tries to decode JSON.
+-- Returns 'Sql.Errors' or 'Sql.Ok' with the result.
 instance (Typeable a, FromJSON a) => Sql.FromField (JsonField a) where
   fromField f = case Sql.fromField f of
     Sql.Ok txt -> case Aeson.eitherDecode (LBS.fromStrict (T.encodeUtf8 txt)) of
@@ -68,9 +95,13 @@ instance (Typeable a, FromJSON a) => Sql.FromField (JsonField a) where
       Right result -> Sql.Ok (JsonField result)
     Sql.Errors err -> Sql.Errors err
 
+-- | Make 'JsonField' an instance of 'ToField'. 
 instance ToJSON a => Sql.ToField (JsonField a) where
   toField (JsonField a) = Sql.SQLText $ T.decodeUtf8 $ LBS.toStrict $ Aeson.encode a
 
+-- | Inserts an map-key-val entry into the database. 
+-- 
+-- If fails, retries using 'withConnectionRetry'
 insert
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, ToJSON b)
   => KeyValMap a b
@@ -90,6 +121,10 @@ insert kvMap key val = do
       "insert into hyperion_key_val(program_id, kv_map, key, val) \
       \values (?, ?, ?, ?)"
 
+-- | Looks up a value in the database given the map name and the key. Takes the most recent matching entry according to 
+-- the convention. 
+-- 
+-- If fails, retries using 'withConnectionRetry'
 lookup
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, Typeable b, FromJSON b)
   => KeyValMap a b
@@ -107,6 +142,10 @@ lookup kvMap key = withConnectionRetry $ \conn -> do
       \order by created_at desc \
       \limit 1"
 
+-- | Returns the list of all kev-value pairs for a given map. Again only keeps the latest versino of the value accroding to 
+-- the convention.
+-- 
+-- If fails, retries using 'withConnectionRetry'
 lookupAll
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, Typeable a, FromJSON a, Typeable b, FromJSON b)
   => KeyValMap a b
@@ -121,6 +160,7 @@ lookupAll kvMap = withConnectionRetry $ \conn -> do
       \group by key \
       \order by created_at"
 
+-- | Same as 'lookup' but with a default value provided
 lookupDefault
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, Typeable b, FromJSON b)
   => KeyValMap a b
@@ -131,9 +171,12 @@ lookupDefault kvMap def key = lookup kvMap key >>= \case
   Just v -> return v
   Nothing -> return def
 
+-- | This implements memoization using the DB. 
+-- Given a function, it first tries to look up the function result in the DB
+-- and if no result is available, runs the function and inserts the result into the DB
 memoizeWithMap
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, ToJSON b, Typeable b, FromJSON b)
-  => KeyValMap a b
+  => KeyValMap a b -- ^ The 'KeyValMap' in which to memoize
   -> (a -> m b)
   -> a
   -> m b

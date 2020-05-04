@@ -58,6 +58,7 @@ server (HoldMap holdMap) = releaseHold :<|> releaseAllHolds :<|> listHolds
 blockUntilReleased :: MonadIO m => HoldMap -> T.Text -> m ()
 blockUntilReleased (HoldMap holdMap) service = liftIO $ do
   holdVar <- newEmptyMVar
+  -- This will loose the blocking MVar if service is already blocked
   atomically $ modifyTVar holdMap (Map.insert service holdVar)
   readMVar holdVar
 

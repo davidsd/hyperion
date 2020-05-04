@@ -18,12 +18,21 @@ import           System.Posix.Files    (readSymbolicLink)
 import           System.Random         (randomRIO)
 import qualified Text.ShellEscape      as Esc
 
+-- | 'IO' action that returns a random string of given length 
 randomString :: Int -> IO String
 randomString len = replicateM len $ toAlpha <$> randomRIO (0, 51)
   where toAlpha n | n < 26    = toEnum (n + fromEnum 'A')
                   | otherwise = toEnum (n - 26 + fromEnum 'a')
 
-retryRepeated :: (Show e, MonadIO m) => Int -> (m a -> m (Either e a)) -> m a -> m a
+-- | @retryRepeated n doTry m@ tries to run @doTry m@ n-1 times, after which it 
+-- runs @m@ 1 time. After each failure waits 15-90 seconds randomly. Returns on first success.
+-- Failure is represented by a 'Left' value. 
+retryRepeated 
+  :: (Show e, MonadIO m) 
+  => Int -- ^ If this is 0 (or less), then it attempt @doTry m@ indefinitely.
+  -> (m a -> m (Either e a))
+  -> m a
+  -> m a
 retryRepeated n doTry m = go n
   where
     go 1 = m
@@ -36,6 +45,8 @@ retryRepeated n doTry m = go n
       Log.warn "Waiting for" t
       liftIO $ threadDelay $ t*1000*1000
 
+-- | Takes a path and a list of 'String' arguments, shell-escapes the arguments,
+-- and combines everything into a single string.
 shellEsc :: FilePath -> [String] -> String
 shellEsc cmd args = unwords $ cmd : map (B.unpack . Esc.bytes . Esc.sh . B.pack) args
 
@@ -78,8 +89,11 @@ nominalDiffTimeToMicroseconds t = ceiling (t*1000*1000)
 myExecutable :: IO FilePath
 myExecutable = readSymbolicLink "/proc/self/exe"
 
--- Determine the path to this executable and save a copy with idString appended
-savedExecutable :: FilePath -> String -> IO FilePath
+-- | Determine the path to this executable and save a copy with a string appended
+savedExecutable 
+  :: FilePath 
+  -> String -- ^ the string to append
+  -> IO FilePath
 savedExecutable dir idString = do
   selfExec <- myExecutable
   createDirectoryIfMissing True dir
@@ -87,11 +101,15 @@ savedExecutable dir idString = do
   copyFile selfExec savedExec
   return savedExec
 
+-- | Replaces all non-allowed characters by @\'_\'@. Allowed characters are alphanumerics and .,-,_
 sanitizeFileString :: String -> FilePath
 sanitizeFileString = map (\c -> if c `notElem` allowed then '_' else c)
   where
     allowed = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ".-_"
 
+-- | Truncates a string to a string of at most given length, replacing dropped
+-- characters by a hash. The hash takes up 11 symbols (depends on @'maxBound'::'Int'@),
+-- so asking for a smaller length will not work.
 hashTruncateString :: Int -> String -> String
 hashTruncateString len s | length s <= len = s
 hashTruncateString len s =
@@ -102,11 +120,12 @@ hashTruncateString len s =
     h       = abs (hashWithSalt 0 (drop numTake s))
     hString = map (chars !!) (digits (length chars) h)
 
+-- | Synonim for @'hashTruncateString' 230@
 hashTruncateFileName :: String -> String
 hashTruncateFileName = hashTruncateString 230
 
------------------ Tuples ----------------------
-
+-- *  Tuples 
+-- $
 -- These currying/uncurrying routines are useful because remote
 -- functions can only take a single argument
 
