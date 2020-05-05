@@ -89,7 +89,8 @@ nominalDiffTimeToMicroseconds t = ceiling (t*1000*1000)
 myExecutable :: IO FilePath
 myExecutable = readSymbolicLink "/proc/self/exe"
 
--- | Determine the path to this executable and save a copy with a string appended
+-- | Determine the path to this executable and save a copy to the specified dir
+-- with a string appended to filename.
 savedExecutable 
   :: FilePath 
   -> String -- ^ the string to append
