@@ -13,15 +13,17 @@ import qualified Data.Text            as T
 import           Data.Time.Clock      (NominalDiffTime)
 import qualified Hyperion.Log         as Log
 import           Hyperion.Slurm.JobId (JobId (..))
-import           Hyperion.Util        (retryRepeated)
-import           Hyperion.Util        (hour)
+import           Hyperion.Util        (retryRepeated, hour)
 import           System.Directory     (createDirectoryIfMissing)
 import           System.Exit          (ExitCode (..))
 import           System.Process       (readCreateProcessWithExitCode, shell)
 
+-- | Error from running @sbatch@. The 'String's are the contents of 'stdout'
+-- and 'stderr' from @sbatch@.
 data SbatchError = SbatchError (ExitCode, String, String)
   deriving (Show, Exception)
 
+-- | Type representing possible options for @sbatch@
 data SbatchOptions = SbatchOptions
   { jobName       :: Maybe Text
   , chdir         :: Maybe FilePath
@@ -35,6 +37,8 @@ data SbatchOptions = SbatchOptions
   , partition     :: Maybe Text
   } deriving (Show)
 
+-- | Default 'SbatchOptions'. Request 1 task on 1 node for 24 hrs, everything else
+-- unspecified.
 defaultSbatchOptions :: SbatchOptions
 defaultSbatchOptions = SbatchOptions
   { jobName         = Nothing
@@ -49,6 +53,7 @@ defaultSbatchOptions = SbatchOptions
   , partition       = Nothing
   }
 
+-- Convert 'SbatchOptions' to a string of options for @sbatch@
 sBatchOptionString :: SbatchOptions -> String
 sBatchOptionString SbatchOptions{..} =
   unwords [ opt ++ " " ++ val | (opt, Just val) <- optPairs]
@@ -71,6 +76,9 @@ sBatchOptionString SbatchOptions{..} =
 sbatchOutputParser :: Parser JobId
 sbatchOutputParser = JobById <$> ("Submitted batch job " *> takeWhile1 (not . isSpace) <* "\n")
 
+-- | Runs @sbatch@ on a batch file with options pulled from 'SbatchOptions' and
+-- script given as the 'String' input parameter. If 'sbatch' exists with failure
+-- then throws 'SbatchError'.
 sbatchScript :: SbatchOptions -> String -> IO JobId
 sbatchScript opts script = do
   maybe (return ()) (createDirectoryIfMissing True) (chdir opts)
@@ -82,6 +90,7 @@ sbatchScript opts script = do
     pipeToSbatch = "printf '" ++ wrappedScript ++ "' | sbatch " ++ sBatchOptionString opts
     wrappedScript = "#!/bin/sh\n " ++ script
 
+-- | Formats 'NominalDiffTime' into @hh:mm:ss@. 
 formatRuntime :: NominalDiffTime -> String
 formatRuntime t = padNum h ++ ":" ++ padNum m ++ ":" ++ padNum s
   where
@@ -100,8 +109,11 @@ formatRuntime t = padNum h ++ ":" ++ padNum m ++ ":" ++ padNum s
     remBy d n = n - (fromInteger f) * d where
       f = quotBy d n
 
+-- | Runs the command given by 'FilePath' with arguments @['Text']@ 
+-- in @sbatch@ script via 'sbatchScript'. If 'sbatchScript' throws
+-- 'SbatchError', retries for a total of 3 attempts (via 'retryRepeated'). 
 sbatchCommand :: SbatchOptions -> FilePath -> [Text] -> IO JobId
-sbatchCommand opts cmd args = do
+sbatchCommand opts cmd args =
   retryRepeated 3 (try @IO @SbatchError) (sbatchScript opts script)
   where
     script = cmd ++ " " ++ unwords (map quote args)
