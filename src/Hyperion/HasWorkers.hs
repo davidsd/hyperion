@@ -1,6 +1,6 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans  #-}
 {-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE RankNTypes      #-}
+{-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards       #-}
@@ -49,8 +49,11 @@ class HasWorkerLauncher env where
 instance HasWorkerLauncher env => HasWorkers (ReaderT env Process) where
   getWorkerLauncher = asks toWorkerLauncher
 
--- | Uses the WorkerLauncher to get a RemoteProcessRunner and pass it
+-- | Uses the 'WorkerLauncher' to get a 'RemoteProcessRunner' and pass it
 -- to the given continuation.
+--
+-- This function is essentially a composition of 'getWorkerLauncher' with
+-- 'withRemoteRunProcess', lifted from 'Process' to 'm' using 'MonadBaseControl'.
 --
 -- We use the machinery of 'MonadBaseControl' because
 -- 'withRemoteRunProcess' expects something that runs in the 'Process'
@@ -71,11 +74,18 @@ withRemoteRun go = do
 -- | Evaluate 'ma' to get an argument, and pass that argument to the
 -- given 'RemoteFunction', evaluating the result at a remote
 -- location. The result is automatically serialized and sent back over
--- the wire. If you squint and replace 'StaticPtr (RemoteFunction a
--- b)' with 'a -> m b', then the type becomes 'm a -> (a -> m b) -> m
--- b', which is the type of bind ('>>='); hence the name 'remoteBind'.
+-- the wire. If you squint and replace @'StaticPtr' ('RemoteFunction' a
+-- b)@ with @a -> m b@, then the type becomes @m a -> (a -> m b) -> m
+-- b@, which is the type of bind ('>>='); hence the name 'remoteBind'.
+--
+-- This function essentially uses 'withRemoteRun' to get a 'RemoteProcessRunner',
+-- and 'bindRemoteStatic' to produce a 'SerializableClosureProcess' that is fed
+-- to the 'RemoteProcessRunner'. All lifted to 'm'.
 remoteBind
   :: ( Binary a, Typeable a, Binary b, Typeable b, HasWorkers m
+    -- We need the following constraints because we use RunInBase to turn 'm a'
+    -- into 'Process a'. 'ReaderT' instance satisfies these. In some sense we want
+    -- 'm' to be a stateless transformation of 'Process'.
      , StM m (SerializableClosureProcess (Either String b)) ~ SerializableClosureProcess (Either String b)
      , StM m a ~ a
      )
@@ -92,6 +102,8 @@ remoteBind ma kRemotePtr = do
 -- the wire. If you squint and replace 'StaticPtr (RemoteFunction a
 -- b)' with 'a -> m b', then the type becomes '(a -> m b) -> a -> m
 -- b', which is just function application.
+--
+-- Shorthand for 'remoteBind' appopriately composed with @'return' :: a -> m a@.
 remoteEval
   :: ( Binary a, Typeable a, Binary b, Typeable b, HasWorkers m
      , StM m (SerializableClosureProcess (Either String b)) ~ SerializableClosureProcess (Either String b)

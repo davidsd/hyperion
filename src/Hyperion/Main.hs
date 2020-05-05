@@ -70,7 +70,12 @@ opts programOpts = info (helper <*> hyperionOpts programOpts) fullDesc
 --
 --  2. If command-line arguments start with command @worker@ then 
 --
---      - TODO
+--      - Extracts 'Worker' from the rest of the command-line args.
+--      - Logs 'ServiceId' of the worker and the system environment to worker log file.
+--      - Runs @'worker' (...) :: 'Process' ()@ that connects to the master and waits for a 
+--        'Hyperion.Remote.ShutDown' message (see 'worker' for details). 
+--        While waiting, the master can run computations on the node. Low-level
+--        functions for this are implemented in "Hyperion.Remote".
 hyperionMain
   :: Show a
   => Parser a

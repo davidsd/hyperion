@@ -178,7 +178,7 @@ worker masterNode serviceId@(ServiceId masterService) = do
     _ -> Log.text "Couldn't connect to master" >> die ()
 
 -- | Registers ('register') the current process under a random 'ServiceId', then
--- passes the 'ServiceId' to the given continuation on this 'ServiceId'. 
+-- passes the 'ServiceId' to the given continuation. 
 -- After the continuation returns, unregisters ('unregister') the 'ServiceId'.
 withServiceId :: (ServiceId -> Process a) -> Process a
 withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
@@ -188,8 +188,9 @@ withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
       getSelfPid >>= register s
       return (ServiceId s)
 
--- | Start a new remote worker using 'WorkerLauncher' and call a function
--- with the 'NodeId' and 'ServiceId' of that worker.
+-- | Start a new remote worker using 'WorkerLauncher' and call a continuation
+-- with the 'NodeId' and 'ServiceId' of that worker. The continuation is
+-- run in the process that is registered under the 'ServiceId' (see 'withServiceId').
 --
 -- Throws ('throwM') a 'WorkerConnectionTimeout' if worker times out (timeout
 -- described in 'WorkerLauncher')
