@@ -259,7 +259,7 @@ remoteBindJob ma k = do
   programInfo <- asks clusterProgramInfo
   fmap (\a -> (a, programInfo)) ma `remoteBind` k
 
--- Shorthand for 'remoteBindJob' appopriately composed with @'return' :: a -> m a@.
+-- | Shorthand for 'remoteBindJob' appopriately composed with @'return' :: a -> m a@.
 remoteEvalJob
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => StaticPtr (RemoteFunction (a, ProgramInfo) b)
