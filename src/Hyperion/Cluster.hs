@@ -61,29 +61,37 @@ import           System.FilePath.Posix       ((<.>), (</>))
 --
 -- This has the following consequences.
 --
---     * Each time 'Cluster' runs a remote function, it will schedule a new job
---       with @SLURM@. If you run a lot of small remote functions (e.g., using
---       "Hyperion.Concurrently") in 'Cluster' monad, it means that you will 
---       schedule a lot of small jobs with @SLURM@. If your cluster's scheduling
---       prioritizes small jobs, this may be a fine mode of operation (for 
---       example, this was the case on the now-defunct @Hyperion@ cluster at IAS).
---       More likely though, it will lead to your jobs pending and the computation
---       running slowly, especially if the remote functions are not run at
---       the same time, but new ones are run when old ones finish (for example,
---       if you try to perform a lot of parallel binary searches). For such cases
+--     * Each time 'Cluster' runs a remote function, it will schedule
+--       a new job with @SLURM@. If you run a lot of small remote
+--       functions (e.g., using "Hyperion.Concurrently") in 'Cluster'
+--       monad, it means that you will schedule a lot of small jobs
+--       with @SLURM@. If your cluster's scheduling prioritizes small
+--       jobs, this may be a fine mode of operation (for example, this
+--       was the case on the now-defunct @Hyperion@ cluster at IAS).
+--       More likely though, it will lead to your jobs pending and the
+--       computation running slowly, especially if the remote
+--       functions are not run at the same time, but new ones are run
+--       when old ones finish (for example, if you try to perform a
+--       lot of parallel binary searches). For such cases
 --       'Hyperion.Job.Job' monad should be used.
---     * Unless the remote function spawns new workers or an equivalent, 
---       it is pointless to use 'Hyperion.Slurm.Sbatch.nodes' greater than 1.
---       If your remote function does spawn new workers, then it may make sense
---       to use 'Hyperion.Slurm.Sbatch.nodes' greater than 1, but your remote
---       function needs to take into account the fact that the nodes are already
---       allocated. For example, from the 'Cluster' monad, we can run a remote 
---       computation in the 'Job', allocating it more than 1 node. The 'Job' 
---       computation will automagically detect the nodes available to it, the
---       number of CPUs on each node, and will create a 'WorkerCpuPool' that will
---       manage these resources independently of @SLURM@. One can then run 
---       remote functions on these resources from the 'Job' computation without 
---       having to wait for @SLURM@ scheduling. See "Hyperion.Job" for details.
+--     * One should use 'Hyperion.Slurm.Sbatch.nodes' greater than 1
+--       if either: (1) The job runs an external program that uses MPI
+--       or something similar and therefore can access all of the
+--       resources allocated by @SLURM@, or (2) the remote function
+--       spawns new @hyperion@ workers using the 'Job' monad.  If your
+--       remote function does spawn new workers, then it may make
+--       sense to use 'Hyperion.Slurm.Sbatch.nodes' greater than 1,
+--       but your remote function needs to take into account the fact
+--       that the nodes are already allocated. For example, from the
+--       'Cluster' monad, we can run a remote computation in the
+--       'Job', allocating it more than 1 node. The 'Job' computation
+--       will automagically detect the nodes available to it, the
+--       number of CPUs on each node, and will create a
+--       'WorkerCpuPool' that will manage these resources
+--       independently of @SLURM@. One can then run remote functions
+--       on these resources from the 'Job' computation without having
+--       to wait for @SLURM@ scheduling. See "Hyperion.Job" for
+--       details.
 --
 -- The common usecase is that a 'Cluster' computation is ran on the login node.
 -- It then schedules a job with a bunch or resources with @SLURM@. When the job
