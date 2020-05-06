@@ -148,6 +148,8 @@ sshRunCmd addr (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
     sshArgs = [ "-f"
               , "-o"
               , "UserKnownHostsFile /dev/null"
+              , "-o"
+              , "StrictHostKeyChecking no"
               , addr
               , shellEsc "sh"
                 [ "-c"
