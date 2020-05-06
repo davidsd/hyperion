@@ -89,7 +89,7 @@ import           System.FilePath.Posix       ((<.>), (</>))
 -- It then schedules a job with a bunch or resources with @SLURM@. When the job
 -- starts, a 'Job' calculation runs on one of the allocated nodes. It then spawns
 -- 'Process' computations on the resources available to the job, which it manages
--- via 'WorkerCpuPool'. 
+-- via 'Hyperion.WorkerCpuPool.WorkerCpuPool'. 
 --
 -- Besides the 'Cluster' monad, this module defines 'slurmWorkerLauncher' and
 -- some utility functions for working with 'ClusterEnv' and 'ProgramInfo', along 

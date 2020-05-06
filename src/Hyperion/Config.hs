@@ -36,14 +36,14 @@ data HyperionConfig = HyperionConfig
   , initialDatabase      :: Maybe FilePath
   }
 
--- Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
+-- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
 -- and a new 'HoldMap.
 --
 -- Things to note: 
 --
 --     * 'programId' is generated randomly.
 --     * If 'hyperionCommand' is specified in 'HyperionConfig', then
---       'hyperionExec'@==@'hyperionCommand'. Otherwise the running executable 
+--       'hyperionExec' == 'hyperionCommand'. Otherwise the running executable 
 --       is copied to 'execDir' with a unique name, and that is used as 'hyperionExec'.
 --     * 'newDatabasePath' is used to determine 'programDatabase' from 'initialDatabase'
 --       and 'databaseDir', 'programId'.
