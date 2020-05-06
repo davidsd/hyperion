@@ -48,9 +48,9 @@ import           System.Process              (createProcess, proc)
 -- together with 'JobEnv' environment. 
 --
 -- The 'JobEnv' environment represents the environment of a job running under
--- @SLURM@. We should thing about a computation in 'Job' as being run on a
+-- @SLURM@. We should think about a computation in 'Job' as being run on a
 -- node allocated for the job by @SLURM@ and running remote computations on the 
--- resources allocated the job. The 'JobEnv' environment
+-- resources allocated to the job. The 'JobEnv' environment
 -- contains 
 --
 --     * information about the master program that scheduled the job,
@@ -60,13 +60,13 @@ import           System.Process              (createProcess, proc)
 --     * 'jobTaskLauncher', which allocates 'jobTaskCpus' CPUs on some node from  
 --       the resources available to the job and launches a worker on that node. 
 --       That worker is then allowed to use the allocated number of CPUs.
---       Thanks to 'jobTaskLauncher', 'Job' is an instance of 'HasWorkers' and 
---       we can use functions such as 'remoteEval'. 
+--       Thanks to 'jobTaskLauncher', 'Job' is an instance of 'Hyperion.Remote.HasWorkers' and 
+--       we can use functions such as 'Hyperion.Remote.remoteEval'. 
 --
 -- The common usecase is that the 'Job' computation is spawned from a 'Cluster'
 -- calculation on login node via, e.g., 'remoteEvalJob' (which acquires job
 -- resources from @SLURM@). The 'Job' computation then manages the job resources
--- and runs remote computations in the allocation via, e.g., 'remoteEval'.
+-- and runs remote computations in the allocation via, e.g., 'Hyperion.Remote.remoteEval'.
 
 -- * Documentation
 -- $

@@ -43,7 +43,7 @@ data HyperionConfig = HyperionConfig
 --
 --     * 'programId' is generated randomly.
 --     * If 'hyperionCommand' is specified in 'HyperionConfig', then
---       'hyperionExec'@==@'hyperionCommand'. Otherwise the running executable 
+--       'hyperionExec' == 'hyperionCommand'. Otherwise the running executable 
 --       is copied to 'execDir' with a unique name, and that is used as 'hyperionExec'.
 --     * 'newDatabasePath' is used to determine 'programDatabase' from 'initialDatabase'
 --       and 'databaseDir', 'programId'.
