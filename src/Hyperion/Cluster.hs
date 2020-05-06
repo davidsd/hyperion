@@ -30,7 +30,8 @@ import           Hyperion.ProgramId
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..), SbatchOptions (..),
                                               sbatchCommand)
-import Hyperion.HoldServer (HoldMap)
+import           Hyperion.WorkerCpuPool      (SSHCommand)
+import           Hyperion.HoldServer         (HoldMap)
 import           Hyperion.Util               (hashTruncateFileName,
                                               randomString, sanitizeFileString)
 import           System.Directory            (createDirectoryIfMissing)
@@ -113,6 +114,7 @@ data ProgramInfo = ProgramInfo
   , programDatabase        :: FilePath
   , programLogDir          :: FilePath
   , programDataDir         :: FilePath
+  , programSSHCommand      :: SSHCommand
   } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON)
 
 -- | The environment for 'Cluster' monad. 

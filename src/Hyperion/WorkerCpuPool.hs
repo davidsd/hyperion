@@ -16,13 +16,14 @@ import           Control.Monad.Catch         (MonadMask, bracket, try)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Data.List.Extra             (maximumOn)
 import           Data.Map.Strict             (Map)
+import           Data.Maybe                  (fromMaybe)
 import qualified Data.Map.Strict             as Map
 import qualified Hyperion.Log                as Log
 import qualified Hyperion.Slurm              as Slurm
 import           Hyperion.Util               (retryRepeated, shellEsc)
 import           System.Exit                 (ExitCode (..))
-import           System.Process              (proc)
-import           System.Process              (readCreateProcessWithExitCode)
+import           System.Process              (readCreateProcessWithExitCode
+                                             , proc)
 
 -- * General comments
 -- $
@@ -121,6 +122,8 @@ withWorkerAddr WorkerCpuPool{..} cpus go =
 data SSHError = SSHError String (ExitCode, String, String)
   deriving (Show, Exception)
 
+type SSHCommand = Maybe (String, [String])
+
 -- | Runs a given command on remote host (given by the first 'String') with the
 -- given arguments via @ssh@. Makes at most 10 attempts via 'retryRepeated'.
 -- If fails, propagates 'SSHError' outside.
@@ -138,22 +141,24 @@ data SSHError = SSHError String (ExitCode, String, String)
 --
 -- PK: Note that @\"UserKnownHostsFile \/dev\/null\"@ doesn't seem to work on Helios,
 -- need further testing. Using instead @\"StrictHostKeyChecking=no\"@ seems to work. 
-sshRunCmd :: String -> (String, [String]) -> IO ()
-sshRunCmd addr (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
-  result@(exit, _, _) <- readCreateProcessWithExitCode (proc "ssh" sshArgs) ""
+sshRunCmd :: String -> SSHCommand -> (String, [String]) -> IO ()
+sshRunCmd addr sshCmd (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
+  result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
   case exit of
     ExitSuccess -> return ()
     _           -> Log.throw (SSHError addr result)
   where
-    sshArgs = [ "-f"
-              , "-o"
-              , "UserKnownHostsFile /dev/null"
-              , "-o"
-              , "StrictHostKeyChecking no"
-              , addr
-              , shellEsc "sh"
-                [ "-c"
-                , shellEsc "nohup" (cmd : args)
-                  ++ " &"
-                ]
-              ]
+    (ssh, sshOpts) = fromMaybe defaultCmd sshCmd
+    sshArgs = sshOpts ++ [ addr
+                         , shellEsc "sh"
+                           [ "-c"
+                           , shellEsc "nohup" (cmd : args)
+                             ++ " &"
+                           ]
+                         ]
+    defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"])
+--              [ "-f"
+--              , "-o"
+--              , "UserKnownHostsFile /dev/null"
+--              , "-o"
+--              , "StrictHostKeyChecking no"

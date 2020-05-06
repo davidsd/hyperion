@@ -37,7 +37,8 @@ import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
 import qualified Hyperion.Slurm              as Slurm
 import           Hyperion.Util               (myExecutable)
-import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHError, WorkerAddr)
+import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHError, WorkerAddr,
+                                              SSHCommand)
 import qualified Hyperion.WorkerCpuPool      as WCP
 import           System.FilePath.Posix       ((<.>), (</>))
 import           System.Process              (createProcess, proc)
@@ -86,6 +87,12 @@ data JobEnv = JobEnv
   , jobTaskLauncher   :: NumCPUs -> WorkerLauncher JobId
   }
 
+data NodeLauncherConfig = NodeLauncherConfig
+  {
+    nodeLogDir :: FilePath
+  , nodeSshCmd :: SSHCommand
+  }
+
 -- | Make 'JobEnv' an instance of 'DB.HasDB'.
 instance DB.HasDB JobEnv where
   dbConfigLens = lens get set
@@ -119,8 +126,9 @@ runJobLocal programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   nodes <- liftIO WCP.getSlurmAddrs
   nodeCpus <- liftIO Slurm.getNTasksPerNode
-  let logDir = programLogDir programInfo </> "workers" </> "workers"
-  withPoolLauncher logDir nodes $ \poolLauncher -> do
+  let nodeLogDir = programLogDir programInfo </> "workers" </> "workers"
+      nodeSshCmd = programSSHCommand programInfo
+  withPoolLauncher NodeLauncherConfig{..} nodes $ \poolLauncher -> do
     let cfg = JobEnv
           { jobDatabaseConfig = dbConfig
           , jobNodeCpus       = NumCPUs nodeCpus
@@ -153,7 +161,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
     serviceHoldMap = Nothing
   return WorkerLauncher{..}
 
--- | Given a log directory and a 'WorkerAddr' runs the continuation
+-- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the continuation
 -- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher'
 -- 'JobId')@.  Passing 'Nothing' repersents @ssh@ failure.
 -- 
@@ -187,17 +195,17 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 -- machinery of @hyperion@ --- effectively, we keep a connection open
 -- to each node so that we no longer have to use @ssh@.
 withNodeLauncher
-  :: FilePath
+  :: NodeLauncherConfig
   -> WorkerAddr
   -> (Maybe (WorkerAddr, WorkerLauncher JobId) -> Process a)
   -> Process a
-withNodeLauncher logDir addr' go = case addr' of
+withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
   WCP.RemoteAddr addr -> do
-    sshLauncher <- workerLauncherWithRunCmd logDir (liftIO . WCP.sshRunCmd addr)
+    sshLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.sshRunCmd addr nodeSshCmd)
     eitherResult <- try @Process @SSHError $ do
       withRemoteRunProcess sshLauncher $ \remoteRunNode ->
         let runCmdOnNode = remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocal))
-        in workerLauncherWithRunCmd logDir runCmdOnNode >>= \launcher ->
+        in workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
         go (Just (addr', launcher))
     case eitherResult of
       Right result -> return result
@@ -205,7 +213,7 @@ withNodeLauncher logDir addr' go = case addr' of
         Log.warn "Couldn't start launcher" err
         go Nothing
   WCP.LocalHost _ -> do
-    launcher <- workerLauncherWithRunCmd logDir (liftIO . runCmdLocalQuiet)
+    launcher <- workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocalQuiet)
     go (Just (addr', launcher))
   where
     runCmdLocalQuiet :: (String, [String]) -> IO ()
@@ -215,19 +223,19 @@ withNodeLauncher logDir addr' go = case addr' of
       Log.info "Running command" c
       runCmdLocalQuiet c
 
--- | Takes a log directory and a list of addresses. Tries to start
+-- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to start
 -- \"worker-launcher\" workers on these addresses (see 'withNodeLauncher').
 -- Discards addresses on which the this fails. From remaining addresses builds
 -- a worker CPU pool. The continuation is then passed a function that launches
 -- workers in this pool. The 'WorkerLaunchers' that continuation gets have
 -- 'connectionTimeout' and 'serviceHoldMap' set to 'Nothing'.
 withPoolLauncher
-  :: FilePath
+  :: NodeLauncherConfig
   -> [WorkerAddr]
   -> ((NumCPUs -> WorkerLauncher JobId) -> Process a)
   -> Process a
-withPoolLauncher logDir addrs' go = flip runContT return $ do
-  mLaunchers <- mapM (ContT . withNodeLauncher logDir) addrs'
+withPoolLauncher cfg addrs' go = flip runContT return $ do
+  mLaunchers <- mapM (ContT . withNodeLauncher cfg) addrs'
   let launcherMap = Map.fromList (catMaybes mLaunchers)
       addrs = Map.keys launcherMap
   workerCpuPool <- liftIO (WCP.newJobPool addrs)

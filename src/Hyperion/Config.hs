@@ -3,19 +3,20 @@
 
 module Hyperion.Config where
 
-import qualified Data.Text             as T
-import           Data.Time.Format      (defaultTimeLocale, formatTime)
-import           Data.Time.LocalTime   (getZonedTime)
+import qualified Data.Text              as T
+import           Data.Time.Format       (defaultTimeLocale, formatTime)
+import           Data.Time.LocalTime    (getZonedTime)
 import           Hyperion.Cluster
-import qualified Hyperion.Database     as DB
-import           Hyperion.HoldServer   (HoldMap, newHoldMap)
-import qualified Hyperion.Log          as Log
+import qualified Hyperion.Database      as DB
+import           Hyperion.HoldServer    (HoldMap, newHoldMap)
+import qualified Hyperion.Log           as Log
 import           Hyperion.ProgramId
-import           Hyperion.Slurm        (SbatchOptions)
-import           Hyperion.Util         (savedExecutable)
-import           System.Directory      (copyFile, createDirectoryIfMissing)
-import           System.FilePath.Posix (takeBaseName, takeDirectory, (<.>),
-                                        (</>))
+import           Hyperion.Slurm         (SbatchOptions)
+import           Hyperion.Util          (savedExecutable)
+import           Hyperion.WorkerCpuPool (SSHCommand)
+import           System.Directory       (copyFile, createDirectoryIfMissing)
+import           System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>),
+                                         (</>))
 
 -- | Global configuration for "Hyperion" cluster. 
 data HyperionConfig = HyperionConfig
@@ -34,6 +35,9 @@ data HyperionConfig = HyperionConfig
   , hyperionCommand      :: Maybe FilePath
     -- | The database from which to initiate the program database
   , initialDatabase      :: Maybe FilePath
+    -- | The command used to run @ssh@ on nodes. If set to 'Nothing',
+    -- defaults to @(\"ssh\", [\"-f\", \"-o\", , \"UserKnownHostsFile \/dev\/null\"])@
+  , sshRunCommand        :: SSHCommand
   }
 
 -- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
@@ -63,6 +67,7 @@ newClusterEnv HyperionConfig{..} = do
   programDataDir <- timedProgramDir dataDir programId
   holdMap <- newHoldMap
   let clusterJobOptions = defaultSbatchOptions
+      programSSHCommand = sshRunCommand
       clusterProgramInfo = ProgramInfo {..}
       clusterWorkerLauncher = slurmWorkerLauncher hyperionExec holdMap
       clusterDatabaseRetries = defaultDBRetries
