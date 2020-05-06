@@ -36,6 +36,58 @@ import           Hyperion.Util               (hashTruncateFileName,
 import           System.Directory            (createDirectoryIfMissing)
 import           System.FilePath.Posix       ((<.>), (</>))
 
+-- * General comments
+-- $
+-- In this module we define the 'Cluster' monad. It is nothing more than a 
+-- 'Process' with an environment 'ClusterEnv'.
+--
+-- The 'ClusterEnv' environment contains information about
+--
+--     * The 'ProgramId' of the current run
+--     * The paths to database and log/data directories that we should use
+--     * Options to use when using @sbatch@ to spawn cluster jobs
+--     * Data equivalent to 'DB.DatabaseConfig' to handle the database
+--     * A 'WorkerLauncher' to launch remote workers. More precisely, a function
+--       'clusterWorkerLauncher' that takes 'SbatchOptions' and 'ProgramInfo' to
+--       produce a 'WorkerLauncher'. 
+--
+-- A 'ClusterEnv' may be initialized with 'Hyperion.Config.newClusterEnv', which 
+-- use 'slurmWorkerLauncher' to initialize 'clusterWorkerLauncher'. In this 
+-- scenario the 'Cluster' monad will operate in the following way. It will perform
+-- the calculations in the master process until some remote function is invoked,
+-- typically through 'Hyperion.HasWorkers.remoteEval', at which point it will
+-- use @sbatch@ and the current 'SbatchOptions' to allocate a new job and then
+-- it will run a single worker in that allocation. 
+--
+-- This has the following consequences (!! PK: revisit after reviewing 'Hyperion.Job.Job')
+--
+--     * Each time 'Cluster' runs a remote function, it will schedule a new job
+--       with @SLURM@. If you run a lot of small remote functions (e.g., using
+--       "Hyperion.Concurrently") in 'Cluster' monad, it means that you will 
+--       schedule a lot of small jobs with @SLURM@. If your cluster's scheduling
+--       prioritizes small jobs, this may be a fine mode of operation (for 
+--       example, this was the case on the now-defunct @Hyperion@ cluster at IAS).
+--       More likely though, it will lead to your jobs pending and the computation
+--       running slowly, especially if the remote functions are not run at
+--       the same time, but new ones are run when old ones finish (for example,
+--       if you try to perform a lot of parallel binary searches). For such cases
+--       'Hyperion.Job.Job' monad should be used.
+--     * Unless the remote function spawns new workers or an equivalent, 
+--       it is pointless to use 'Hyperion.Slurm.Sbatch.nodes' greater than 1.
+--       If your remote function does spawn new workers, then it may make sense
+--       to use 'Hyperion.Slurm.Sbatch.nodes' greater than 1, but your remote
+--       function needs to take into account the fact that the nodes are already
+--       allocated. 'Hyperion.Job.Job' does this.
+--
+-- Besides the 'Cluster' monad, this module defines 'slurmWorkerLauncher' and
+-- some utility functions for working with 'ClusterEnv' and 'ProgramInfo', along 
+-- with a few others.
+
+
+-- * Documentation
+-- $
+
+-- | Type containing information about our program
 data ProgramInfo = ProgramInfo
   { programId              :: ProgramId
   , programDatabase        :: FilePath
@@ -43,6 +95,7 @@ data ProgramInfo = ProgramInfo
   , programDataDir         :: FilePath
   } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON)
 
+-- | The environment for 'Cluster' monad. 
 data ClusterEnv = ClusterEnv
   { clusterWorkerLauncher  :: SbatchOptions -> ProgramInfo -> WorkerLauncher JobId
   , clusterProgramInfo     :: ProgramInfo
@@ -51,8 +104,11 @@ data ClusterEnv = ClusterEnv
   , clusterDatabaseRetries :: Int
   }
 
+-- | The 'Cluster' monad. It is simply 'Process' with 'ClusterEnv' environment.
 type Cluster = ReaderT ClusterEnv Process
 
+-- | 'ClusterEnv' is an instance of 'HasDB' since it contains info that is
+-- sufficient to build a 'DB.DatabaseConfig'.
 instance DB.HasDB ClusterEnv where
   dbConfigLens = lens get set
     where
@@ -67,10 +123,14 @@ instance DB.HasDB ClusterEnv where
         , clusterDatabaseRetries = dbRetries
         }
 
+-- | We make 'ClusterEnv' an instance of 'HasWorkerLauncher'. This makes 
+-- 'Cluster' an instance of 'HasWorkers' and gives us access to functions in 
+-- "Hyperion.Remote".
 instance HasWorkerLauncher ClusterEnv where
   toWorkerLauncher ClusterEnv{..} =
     clusterWorkerLauncher clusterJobOptions clusterProgramInfo
 
+-- | Type representing resources for an MPI job. 
 data MPIJob = MPIJob
   { mpiNodes         :: Int
   , mpiNTasksPerNode :: Int
@@ -143,11 +203,11 @@ slurmWorkerLauncher hyperionExec holdMap opts progInfo =
       jobId <- liftIO $ sbatchCommand opts' cmd (map T.pack args)
       goJobId jobId
 
--- Generate a working directory for the given object. Working
+-- | Generate a working directory for the given object. Working
 -- directories are (essentially) unique for each call to this
 -- function, due to the use of 'salt'.
 --
--- workDir path's have are length-truncated at 230 (see Util.hs),
+-- workDir path's have are length-truncated at 230 (see 'hashTruncateFileName'),
 -- allowing up to 25 additional characters for file extensions.
 newWorkDir :: Show a => a -> Cluster FilePath
 newWorkDir obj = do
@@ -159,7 +219,7 @@ newWorkDir obj = do
   liftIO $ createDirectoryIfMissing True workDir
   return workDir
 
--- A memoized version of newWorkDir that saves the result to the
+-- | A memoized version of 'newWorkDir' that saves the result to the
 -- database
 newWorkDirPersistent :: (ToJSON a, Show a) => a -> Cluster FilePath
 newWorkDirPersistent = DB.memoizeWithMap (DB.KeyValMap "workDirectories") newWorkDir

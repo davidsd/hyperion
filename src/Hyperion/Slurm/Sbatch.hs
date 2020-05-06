@@ -23,17 +23,29 @@ import           System.Process       (readCreateProcessWithExitCode, shell)
 data SbatchError = SbatchError (ExitCode, String, String)
   deriving (Show, Exception)
 
--- | Type representing possible options for @sbatch@
+-- | Type representing possible options for @sbatch@. Map 1-to-1 to @sbatch@ 
+-- options, so see @man sbatch@ for details.
 data SbatchOptions = SbatchOptions
-  { jobName       :: Maybe Text
+  { 
+  -- | Job name (\"--job-name\")
+    jobName       :: Maybe Text
+  -- | Working directory for the job (\"--D\")
   , chdir         :: Maybe FilePath
+  -- | Where to direct 'stdout' of the job (\"--output\")
   , output        :: Maybe FilePath
+  -- | Number of nodes (\"--nodes\")
   , nodes         :: Int
+  -- | Number of tasks per node (\"--ntasks-per-node\")
   , nTasksPerNode :: Int
+  -- | Job time limit (\"--time\")
   , time          :: NominalDiffTime
+  -- | Memory per node, use suffix K,M,G, or T to define the units. (\"--mem\")
   , mem           :: Maybe Text
+  -- | (\"--mail-type\")
   , mailType      :: Maybe Text
+  -- | (\"--mail-user\")
   , mailUser      :: Maybe Text
+  -- | @SLURM@ partition (\"--partition\")
   , partition     :: Maybe Text
   } deriving (Show)
 
