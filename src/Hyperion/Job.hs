@@ -154,19 +154,38 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
   return WorkerLauncher{..}
 
 -- | Given a log directory and a 'WorkerAddr' runs the continuation
--- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher' 'JobId')@. 
--- Passing 'Nothing' repersents @ssh@ failure.
+-- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher'
+-- 'JobId')@.  Passing 'Nothing' repersents @ssh@ failure.
 -- 
--- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher' launches workers
--- on the node at 'WorkerAddr'. The launcher is derived from 'workerLauncherWithRunCmd',
--- where command runner is either local shell (if 'WorkerAddr' is 'LocalHost')
--- or a 'RemoteFunction' that runs the local shell on 'WorkerAddr' via 
--- 'withRemoteRunProcess' and related functions (if 'WorkerAddr' is 'RemoteAddr').
+-- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher'
+-- launches workers on the node at 'WorkerAddr'. The launcher is
+-- derived from 'workerLauncherWithRunCmd', where command runner is
+-- either local shell (if 'WorkerAddr' is 'LocalHost') or a
+-- 'RemoteFunction' that runs the local shell on 'WorkerAddr' via
+-- 'withRemoteRunProcess' and related functions (if 'WorkerAddr' is
+-- 'RemoteAddr').
 --
--- Note that the process of launching a worker on the remote node will actually
--- spawn an \"utility\" worker there that will launch all new workers in the continuation.
--- This utility worker will have its log in the log dir, identified by some 
--- random 'ServiceId' and put messages like \"Running command ...\".
+-- Note that the process of launching a worker on the remote node will
+-- actually spawn an \"utility\" worker there that will launch all new
+-- workers in the continuation.  This utility worker will have its log
+-- in the log dir, identified by some random 'ServiceId' and put
+-- messages like \"Running command ...\".
+--
+-- The reason that utility workers are used on each Job node is to
+-- minimize the number of calls to @ssh@ or @srun@. The naive way to
+-- launch workers in the 'Job' monad would be to determine what node
+-- they should be run on, and run the hyperion worker command via
+-- @ssh@. Unfortunately, many clusters have flakey @ssh@
+-- configurations that start throwing errors if @ssh@ is called too
+-- many times in quick succession. @ssh@ also has to perform
+-- authentication. Experience shows that @srun@ is also not a good
+-- solution to this problem, since @srun@ talks to @SLURM@ to manage
+-- resources and this can take a long time, affecting
+-- performance. Instead, we @ssh@ exactly once to each node in the Job
+-- (besides the head node), and start utility workers there. These
+-- workers can then communicate with the head node via the usual
+-- machinery of @hyperion@ --- effectively, we keep a connection open
+-- to each node so that we no longer have to use @ssh@.
 withNodeLauncher
   :: FilePath
   -> WorkerAddr
