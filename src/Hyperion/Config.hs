@@ -36,7 +36,7 @@ data HyperionConfig = HyperionConfig
   , initialDatabase      :: Maybe FilePath
   }
 
--- Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
+-- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
 -- and a new 'HoldMap.
 --
 -- Things to note: 
