@@ -62,11 +62,12 @@ opts programOpts = info (helper <*> hyperionOpts programOpts) fullDesc
 --      - Uses the supplied parser to parse the remaining options into type @a@
 --      - Uses the supplied function to extract 'HyperionConfig' from @a@
 --      - The data in 'HyperionConfig' is then used for all following actions
+--      - Depending on 'HyperionConfig', extra actions may be performed, see 'newClusterEnv'.
 --      - Starts a log in 'stderr', and then redirects it to a file
 --      - Starts a hold server from "Hyperion.HoldServer"
 --      - Uses 'DB.setupKeyValTable' to setup a "Hyperion.Database.KeyValMap" in the program database
 --      - Runs the supplied @'Cluster' ()@ action
---      - TODO : comment the stuff with copying/removing executables
+--      - Cleans up the copy of the executable, if exists (see 'newClusterEnv').
 --
 --  2. If command-line arguments start with command @worker@ then 
 --
@@ -75,7 +76,8 @@ opts programOpts = info (helper <*> hyperionOpts programOpts) fullDesc
 --      - Runs @'worker' (...) :: 'Process' ()@ that connects to the master and waits for a 
 --        'Hyperion.Remote.ShutDown' message (see 'worker' for details). 
 --        While waiting, the master can run computations on the node. Low-level
---        functions for this are implemented in "Hyperion.Remote".
+--        functions for this are implemented in "Hyperion.Remote", and some 
+--        higher-level functions in "Hyperion.HasWorkers"
 hyperionMain
   :: Show a
   => Parser a
