@@ -60,7 +60,7 @@ instance HasWorkerLauncher env => HasWorkers (ReaderT env Process) where
 -- monad, not in 'm'. Our main use case is when 'm ~ ReaderT env
 -- Process', where 'env' is an instance of 'HasWorkerLauncher'. In
 -- that case, we would like to capture the 'env' at the beginning, and
--- then use 'flip runReaderT env' to get from 'm' to 'Process' and
+-- then use @flip runReaderT env@ to get from 'm' to 'Process' and
 -- 'lift' to get from 'Process' back to 'm'. This is what the
 -- 'MonadBaseControl' instance for ReaderT does.
 --

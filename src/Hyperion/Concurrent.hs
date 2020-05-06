@@ -1,6 +1,10 @@
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE FlexibleInstances #-}
 
+{-| This module contains copies of several utilities from
+"Control.Concurrent.Async" from the @async@ package, with 'IO'
+replaced by 'Process'.
+-}
 module Hyperion.Concurrent where
 
 import           Control.Applicative         (Alternative (..), liftA2)
@@ -48,6 +52,12 @@ concurrently left right = concurrently' left right (collect [])
 --
 -- Note that the continutation can inspect the results of both threads by emptying
 -- the 'MVar' when appropriate.
+--
+-- TODO: This code was originally copied from the
+-- "Control.Concurrent.Async" module, with 'forkIO' replaced by
+-- 'spawnLocal'. As of @async-2.1@, the code for this function has
+-- changed. Have a look and figure out why, and whether the changes
+-- should be ported here?
 concurrently' :: Process a -> Process b
               -> (MVar (Either SomeException (Either a b)) -> Process r)
               -> Process r
@@ -65,8 +75,11 @@ concurrently' left right collect = do
 
 -- * 'Concurrently' type
 -- $ 
--- @'Concurrently' m a@ represents a computation of type @m a@ that can be run
--- concurrently with other 'Concurrently'-type computations. 
+-- @'Concurrently' m a@ represents a computation of type @m a@ that
+-- can be run concurrently with other 'Concurrently'-type
+-- computations. It is essentially a copy of the 'Concurrently'
+-- applicative from "Control.Concurrent.Async", with 'IO' replaced by
+-- 'Process'.
 --
 -- 'Concurrently' is an instance of several type classes (see below), but
 -- most notable are the instances of 'Applicative' and 'Alternative'. 
@@ -155,6 +168,7 @@ instance Alternative (Concurrently (ReaderT r Process)) where
   Concurrently as <|> Concurrently bs =
     Concurrently $ either id id <$> mapReaderT2 race as bs
 
+-- | Utility function for lifting functions of two variables through ReaderT.
 mapReaderT2 :: (m a -> n b -> o c) -> ReaderT r m a -> ReaderT r n b -> ReaderT r o c
 mapReaderT2 mf (ReaderT ma) (ReaderT mb) =
   ReaderT $ \r -> mf (ma r) (mb r)
@@ -169,26 +183,34 @@ instance (Applicative (Concurrently m), Semigroup a, Monoid a) => Monoid (Concur
 -- * Utility functions using 'Applicative' instance of 'Concurrently'
 -- $
 
+-- | Run several computations in a traversable structure concurrently and collect the results.
 doConcurrently :: (Applicative (Concurrently m), Traversable t) => t (m a) -> m (t a)
 doConcurrently = runConcurrently . sequenceA . fmap Concurrently
 
+-- | Run several computations in a traversable structure concurrently and forget the results.
 doConcurrently_ :: (Applicative (Concurrently m), Foldable t, Functor t) => t (m a) -> m ()
 doConcurrently_ = runConcurrently . sequenceA_ . fmap Concurrently
 
+-- | Concurrently map a function over a traversable structure.
 mapConcurrently :: (Applicative (Concurrently m), Traversable t) => (a -> m b) -> t a -> m (t b)
 mapConcurrently f = doConcurrently . fmap f
 
+-- | Concurrently map a function over a traversable structure and forget the results.
 mapConcurrently_ :: (Applicative (Concurrently m), Foldable t, Functor t) => (a -> m b) -> t a -> m ()
 mapConcurrently_ f = doConcurrently_ . fmap f
 
+-- | Flipped version of 'mapConcurrently'.
 forConcurrently :: (Applicative (Concurrently m), Traversable t) => t a -> (a -> m b) -> m (t b)
 forConcurrently = flip mapConcurrently
 
+-- | Flipped version of 'mapConcurrently_'.
 forConcurrently_ :: (Applicative (Concurrently m), Foldable t, Functor t) => t a -> (a -> m b) -> m ()
 forConcurrently_ = flip mapConcurrently_
 
+-- | Concurrently run @n@ copies of a computation and collect the results in a list.
 replicateConcurrently :: Applicative (Concurrently m) => Int -> m a -> m [a]
 replicateConcurrently n = doConcurrently . replicate n
 
+-- | Concurrently run @n@ copies of a computation and forget the results.
 replicateConcurrently_ :: Applicative (Concurrently m) => Int -> m a -> m ()
 replicateConcurrently_ n = doConcurrently_ . replicate n
