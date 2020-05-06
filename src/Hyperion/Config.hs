@@ -17,16 +17,40 @@ import           System.Directory      (copyFile, createDirectoryIfMissing)
 import           System.FilePath.Posix (takeBaseName, takeDirectory, (<.>),
                                         (</>))
 
+-- | Global configuration for "Hyperion" cluster. 
 data HyperionConfig = HyperionConfig
-  { defaultSbatchOptions :: SbatchOptions
+  { 
+    -- | Default options to use for @sbatch@ submissions
+    defaultSbatchOptions :: SbatchOptions
+    -- | The base directory for working dirs produced by 'newWorkDir'
   , dataDir              :: FilePath
+    -- | The base directory for all the log files 
   , logDir               :: FilePath
+    -- | The base directory for databases
   , databaseDir          :: FilePath
+    -- | The base directory for copies of the main executable
   , execDir              :: FilePath
+    -- | The command to run the main executable. Automatic if 'Nothing' (see 'newClusterEnv')
   , hyperionCommand      :: Maybe FilePath
+    -- | The database from which to initiate the program database
   , initialDatabase      :: Maybe FilePath
   }
 
+-- Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
+-- and a new 'HoldMap.
+--
+-- Things to note: 
+--
+--     * 'programId' is generated randomly.
+--     * If 'hyperionCommand' is specified in 'HyperionConfig', then
+--       'hyperionExec'@==@'hyperionCommand'. Otherwise the running executable 
+--       is copied to 'execDir' with a unique name, and that is used as 'hyperionExec'.
+--     * 'newDatabasePath' is used to determine 'programDatabase' from 'initialDatabase'
+--       and 'databaseDir', 'programId'.
+--     * 'timedProgramDir' is used to determine 'programLogDir' and 'programDataDir' 
+--       from the values in 'HyperionConfig' and 'programId'.
+--     * 'slurmWorkerLauncher' is used for 'clusterWorkerLauncher'
+--     * 'clusterDatabaseRetries' is set to 'defaultDBRetries'.
 newClusterEnv :: HyperionConfig -> IO (ClusterEnv, FilePath, HoldMap)
 newClusterEnv HyperionConfig{..} = do
   programId    <- newProgramId
@@ -45,6 +69,16 @@ newClusterEnv HyperionConfig{..} = do
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   return (ClusterEnv{..}, hyperionExec, holdMap)
 
+-- | Returns the path to a new database, given 'Maybe' inital database filepath
+-- and base directory
+--
+-- If 'ProgramId' id is @XXXXX@ and initial database filename is @original.sqlite@,
+-- then the new filename is @original-XXXXX.sqlite@. If initial database path is
+-- 'Nothing', then the filename is @XXXXX.sqlite@.
+--
+-- The path is in subdirectory @YYYY-mm@ (determined by current date) of base directory. 
+--
+-- If inital database is given, then the new database is initilized with its contents.
 newDatabasePath :: Maybe FilePath -> FilePath -> ProgramId -> IO FilePath
 newDatabasePath mOldDb baseDir progId = do
   let base = case mOldDb of
@@ -60,6 +94,8 @@ newDatabasePath mOldDb baseDir progId = do
       copyFile f newDb
   return newDb
 
+-- | Given base directory and 'ProgramId' (@==XXXXX@), returns the @YYYY-mm/XXXXX@ 
+-- subdirectory of the base directory (determined by current date).
 timedProgramDir :: FilePath -> ProgramId -> IO FilePath
 timedProgramDir baseDir progId = do
   date <- formatTime defaultTimeLocale "%Y-%m" <$> getZonedTime

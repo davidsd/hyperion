@@ -43,11 +43,11 @@ import           System.FilePath.Posix       ((<.>), (</>))
 --
 -- The 'ClusterEnv' environment contains information about
 --
---     * The 'ProgramId' of the current run
---     * The paths to database and log/data directories that we should use
---     * Options to use when using @sbatch@ to spawn cluster jobs
---     * Data equivalent to 'DB.DatabaseConfig' to handle the database
---     * A 'WorkerLauncher' to launch remote workers. More precisely, a function
+--     * the 'ProgramId' of the current run,
+--     * the paths to database and log/data directories that we should use,
+--     * options to use when using @sbatch@ to spawn cluster jobs,
+--     * data equivalent to 'DB.DatabaseConfig' to handle the database,
+--     * a 'WorkerLauncher' to launch remote workers. More precisely, a function
 --       'clusterWorkerLauncher' that takes 'SbatchOptions' and 'ProgramInfo' to
 --       produce a 'WorkerLauncher'. 
 --
@@ -59,7 +59,7 @@ import           System.FilePath.Posix       ((<.>), (</>))
 -- use @sbatch@ and the current 'SbatchOptions' to allocate a new job and then
 -- it will run a single worker in that allocation. 
 --
--- This has the following consequences (!! PK: revisit after reviewing 'Hyperion.Job.Job')
+-- This has the following consequences.
 --
 --     * Each time 'Cluster' runs a remote function, it will schedule a new job
 --       with @SLURM@. If you run a lot of small remote functions (e.g., using
@@ -77,7 +77,19 @@ import           System.FilePath.Posix       ((<.>), (</>))
 --       If your remote function does spawn new workers, then it may make sense
 --       to use 'Hyperion.Slurm.Sbatch.nodes' greater than 1, but your remote
 --       function needs to take into account the fact that the nodes are already
---       allocated. 'Hyperion.Job.Job' does this.
+--       allocated. For example, from the 'Cluster' monad, we can run a remote 
+--       computation in the 'Job', allocating it more than 1 node. The 'Job' 
+--       computation will automagically detect the nodes available to it, the
+--       number of CPUs on each node, and will create a 'WorkerCpuPool' that will
+--       manage these resources independently of @SLURM@. One can then run 
+--       remote functions on these resources from the 'Job' computation without 
+--       having to wait for @SLURM@ scheduling. See "Hyperion.Job" for details.
+--
+-- The common usecase is that a 'Cluster' computation is ran on the login node.
+-- It then schedules a job with a bunch or resources with @SLURM@. When the job
+-- starts, a 'Job' calculation runs on one of the allocated nodes. It then spawns
+-- 'Process' computations on the resources available to the job, which it manages
+-- via 'WorkerCpuPool'. 
 --
 -- Besides the 'Cluster' monad, this module defines 'slurmWorkerLauncher' and
 -- some utility functions for working with 'ClusterEnv' and 'ProgramInfo', along 
@@ -167,8 +179,9 @@ setJobType MPIJob{..} = modifyJobOptions $ \opts -> opts
 setSlurmPartition :: Text -> ClusterEnv -> ClusterEnv
 setSlurmPartition p = modifyJobOptions $ \opts -> opts { partition = Just p }
 
+-- | The default number of retries to use in 'withConnectionRetry'. Set to 20.
 defaultDBRetries :: Int
-defaultDBRetries = 20
+defaultDBRetries = 20 -- update haddock if changing the value
 
 dbConfigFromProgramInfo :: ProgramInfo -> IO DB.DatabaseConfig
 dbConfigFromProgramInfo pInfo = do
@@ -205,7 +218,7 @@ slurmWorkerLauncher hyperionExec holdMap opts progInfo =
 
 -- | Generate a working directory for the given object. Working
 -- directories are (essentially) unique for each call to this
--- function, due to the use of 'salt'.
+-- function, due to the use of 'salt'. They are subdirectories of 'programDataDir'.
 --
 -- workDir path's have are length-truncated at 230 (see 'hashTruncateFileName'),
 -- allowing up to 25 additional characters for file extensions.

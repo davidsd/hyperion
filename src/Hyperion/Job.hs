@@ -42,28 +42,78 @@ import qualified Hyperion.WorkerCpuPool      as WCP
 import           System.FilePath.Posix       ((<.>), (</>))
 import           System.Process              (createProcess, proc)
 
+-- * General comments
+-- $
+-- In this module we define the 'Job' monad. It is nothing more than 'Process'
+-- together with 'JobEnv' environment. 
+--
+-- The 'JobEnv' environment represents the environment of a job running under
+-- @SLURM@. We should thing about a computation in 'Job' as being run on a
+-- node allocated for the job by @SLURM@ and running remote computations on the 
+-- resources allocated the job. The 'JobEnv' environment
+-- contains 
+--
+--     * information about the master program that scheduled the job,
+--     * information about the database used for recording results of the calculations,
+--     * number of CPUs available per node, as well as the number of CPUs to 
+--       use for remote computations spawned from the 'Job' computation ('jobTaskCpus'),
+--     * 'jobTaskLauncher', which allocates 'jobTaskCpus' CPUs on some node from  
+--       the resources available to the job and launches a worker on that node. 
+--       That worker is then allowed to use the allocated number of CPUs.
+--       Thanks to 'jobTaskLauncher', 'Job' is an instance of 'HasWorkers' and 
+--       we can use functions such as 'remoteEval'. 
+--
+-- The common usecase is that the 'Job' computation is spawned from a 'Cluster'
+-- calculation on login node via, e.g., 'remoteEvalJob' (which acquires job
+-- resources from @SLURM@). The 'Job' computation then manages the job resources
+-- and runs remote computations in the allocation via, e.g., 'remoteEval'.
+
+-- * Documentation
+-- $
+
+-- | The environment type for 'Job' monad. 
 data JobEnv = JobEnv
-  { jobDatabaseConfig :: DB.DatabaseConfig
+  { 
+    -- | 'DB.DatabaseConfig' for the database to use
+    jobDatabaseConfig :: DB.DatabaseConfig
+    -- | Number of CPUs available on each node in the job
   , jobNodeCpus       :: NumCPUs
+    -- | Number of CPUs to use for running remote functions
   , jobTaskCpus       :: NumCPUs
+    -- | 'ProgramInfo' inherited from the master
   , jobProgramInfo    :: ProgramInfo
+    -- | a 'WorkerLauncher' that runs workers with the given number of CPUs allocated
   , jobTaskLauncher   :: NumCPUs -> WorkerLauncher JobId
   }
 
+-- | Make 'JobEnv' an instance of 'DB.HasDB'.
 instance DB.HasDB JobEnv where
   dbConfigLens = lens get set
     where
       get = jobDatabaseConfig
       set cfg databaseConfig' = cfg { jobDatabaseConfig = databaseConfig' }
 
+-- | Make 'JobEnv' an instance of 'HasWorkerLauncher'. The 'WorkerLauncher' returned
+-- by 'toWorkerLauncher' launches workers with 'jobTaskCpus' CPUs available to them.
+--
+-- This makes 'Job' an instance of 'HasWorkers' and gives us access to functions in 
+-- "Hyperion.Remote".
 instance HasWorkerLauncher JobEnv where
   toWorkerLauncher JobEnv{..} = jobTaskLauncher jobTaskCpus
 
+-- | 'Job' monad is simply 'Process' with 'JobEnv' environment.
 type Job = ReaderT JobEnv Process
 
+-- | Changses 'jobTaskCpus' in 'JobEnv'
 setTaskCpus :: NumCPUs -> JobEnv -> JobEnv
 setTaskCpus n cfg = cfg { jobTaskCpus = n }
 
+-- | Runs the 'Job' monad locally. In practice it just fills in the environment
+-- 'JobEnv' and calls 'runReaderT'. The environment is mostly constructed from @SLURM@
+-- environment variables and 'ProgramInfo'. The exceptions to these are 
+-- 'jobTaskCpus', which is set to @'NumCPUs' 1@, and 'jobTaskLauncher', 
+-- which is created by 'withPoolLauncher' with logging to 
+-- \"'programLogDir'\/workers\/workers\".
 runJobLocal :: ProgramInfo -> Job a -> Process a
 runJobLocal programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
@@ -80,6 +130,11 @@ runJobLocal programInfo go = do
           }
     runReaderT go cfg
 
+-- | 'WorkerLauncher' that uses the supplied command runner to launch workers.
+-- Sets 'connectionTimeout' and 'serviceHoldMap' to 'Nothing'. Uses the 'ServiceId' 
+-- supplied to 'withLaunchedWorker' to construct 'JobId' (through 'JobByName').
+-- The supplied 'FilePath' is used as log directory for the worker, with the 
+-- log file name derived from 'ServiceId'.
 workerLauncherWithRunCmd
   :: MonadIO m
   => FilePath
@@ -98,6 +153,20 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
     serviceHoldMap = Nothing
   return WorkerLauncher{..}
 
+-- | Given a log directory and a 'WorkerAddr' runs the continuation
+-- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher' 'JobId')@. 
+-- Passing 'Nothing' repersents @ssh@ failure.
+-- 
+-- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher' launches workers
+-- on the node at 'WorkerAddr'. The launcher is derived from 'workerLauncherWithRunCmd',
+-- where command runner is either local shell (if 'WorkerAddr' is 'LocalHost')
+-- or a 'RemoteFunction' that runs the local shell on 'WorkerAddr' via 
+-- 'withRemoteRunProcess' and related functions (if 'WorkerAddr' is 'RemoteAddr').
+--
+-- Note that the process of launching a worker on the remote node will actually
+-- spawn an \"utility\" worker there that will launch all new workers in the continuation.
+-- This utility worker will have its log in the log dir, identified by some 
+-- random 'ServiceId' and put messages like \"Running command ...\".
 withNodeLauncher
   :: FilePath
   -> WorkerAddr
@@ -127,6 +196,12 @@ withNodeLauncher logDir addr' go = case addr' of
       Log.info "Running command" c
       runCmdLocalQuiet c
 
+-- | Takes a log directory and a list of addresses. Tries to start
+-- \"worker-launcher\" workers on these addresses (see 'withNodeLauncher').
+-- Discards addresses on which the this fails. From remaining addresses builds
+-- a worker CPU pool. The continuation is then passed a function that launches
+-- workers in this pool. The 'WorkerLaunchers' that continuation gets have
+-- 'connectionTimeout' and 'serviceHoldMap' set to 'Nothing'.
 withPoolLauncher
   :: FilePath
   -> [WorkerAddr]
@@ -146,6 +221,7 @@ withPoolLauncher logDir addrs' go = flip runContT return $ do
     , serviceHoldMap    = Nothing
     }
 
+-- | Lifts 'remoteFn' to 'Job' monad using 'runJobLocal'.
 remoteFnJob
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => (a -> Job b)
@@ -153,6 +229,8 @@ remoteFnJob
 remoteFnJob f = remoteFn $ \(a, programInfo) -> do
   runJobLocal programInfo (f a)
 
+-- | Runs a remote function of the type returned by 'remoteFnJob' remotely from the
+-- 'Cluster' monad. Similar to 'remoteBind'.
 remoteBindJob
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => Cluster a
@@ -162,6 +240,7 @@ remoteBindJob ma k = do
   programInfo <- asks clusterProgramInfo
   fmap (\a -> (a, programInfo)) ma `remoteBind` k
 
+-- Shorthand for 'remoteBindJob' appopriately composed with @'return' :: a -> m a@.
 remoteEvalJob
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => StaticPtr (RemoteFunction (a, ProgramInfo) b)

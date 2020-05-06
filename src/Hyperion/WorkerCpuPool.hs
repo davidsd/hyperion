@@ -122,7 +122,10 @@ data SSHError = SSHError String (ExitCode, String, String)
   deriving (Show, Exception)
 
 -- | Runs a given command on remote host (given by the first 'String') with the
--- given arguments via @ssh@. @ssh@ needs to be able to authenticate on the remote
+-- given arguments via @ssh@. Makes at most 10 attempts via 'retryRepeated'.
+-- If fails, propagates 'SSHError' outside.
+--
+-- @ssh@ needs to be able to authenticate on the remote
 -- node without a password. In practice you will probably need to set up public
 -- key authentiticaion. @ssh@ is run as 
 --
@@ -133,7 +136,7 @@ data SSHError = SSHError String (ExitCode, String, String)
 -- failures. We use @-f@ to force @ssh@ to go to the background before executing
 -- the @sh@ call. This allows for a faster return from 'readCreateProcessWithExitCode'.
 --
--- PK: Note that @\"UserKnownHostsFile /dev/null\"@ doesn't seem to work on Helios,
+-- PK: Note that @\"UserKnownHostsFile \/dev\/null\"@ doesn't seem to work on Helios,
 -- need further testing. Using instead @\"StrictHostKeyChecking=no\"@ seems to work. 
 sshRunCmd :: String -> (String, [String]) -> IO ()
 sshRunCmd addr (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
