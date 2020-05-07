@@ -48,7 +48,9 @@ programOpts = do
 mkHyperionConfig :: ProgramOptions -> HyperionConfig
 mkHyperionConfig ProgramOptions{..} = 
   let 
-    defaultSbatchOptions  = Slurm.defaultSbatchOptions
+    defaultSbatchOptions  = Slurm.defaultSbatchOptions {
+      Slurm.output = Just $ baseDirectory </> "slurmOutput" </> "work-%j.out"
+    }
     dataDir               = baseDirectory </> "dataDir"
     logDir                = baseDirectory </> "logDir"
     databaseDir           = baseDirectory </> "databaseDir"
