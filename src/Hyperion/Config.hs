@@ -35,8 +35,8 @@ data HyperionConfig = HyperionConfig
   , hyperionCommand      :: Maybe FilePath
     -- | The database from which to initiate the program database
   , initialDatabase      :: Maybe FilePath
-    -- | The command used to run @ssh@ on nodes. If set to 'Nothing',
-    -- defaults to @(\"ssh\", [\"-f\", \"-o\", , \"UserKnownHostsFile \/dev\/null\"])@
+    -- | The command used to run @ssh@ on nodes. Usually can be safely set to
+    -- 'Nothing'. See 'SSHCommand' for details.
   , sshRunCommand        :: SSHCommand
   }
 

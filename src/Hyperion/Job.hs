@@ -87,9 +87,12 @@ data JobEnv = JobEnv
   , jobTaskLauncher   :: NumCPUs -> WorkerLauncher JobId
   }
 
+-- | Configuration for 'withNodeLauncher'.
 data NodeLauncherConfig = NodeLauncherConfig
   {
+    -- | The directory to which the workers shall log.
     nodeLogDir :: FilePath
+    -- | The command used to run @ssh@. See 'SSHCommand' for description.
   , nodeSshCmd :: SSHCommand
   }
 

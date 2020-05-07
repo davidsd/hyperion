@@ -122,25 +122,38 @@ withWorkerAddr WorkerCpuPool{..} cpus go =
 data SSHError = SSHError String (ExitCode, String, String)
   deriving (Show, Exception)
 
+-- | The type for the command used to run @ssh@. If a 'Just' value, then 
+-- the first 'String' gives the name of @ssh@ executable, e.g. @\"ssh\"@, and the
+-- list of 'String's gives the options to pass to @ssh@. For example, with
+-- 'SSHCommand' given by @(\"XX\", [\"-a\", \"-b\"])@, @ssh@ is run as
+--
+-- > XX -a -b <addr> <command>
+--
+-- where @<addr>@ is the remote address and @<command>@ is the command we need
+-- to run there.
+--
+-- The value of 'Nothing' is equivalent to using
+-- 
+-- > ssh -f -o "UserKnownHostsFile /dev/null" <command>
+-- 
+-- We need @-o \"...\"@ option to deal with host key verification
+-- failures. We use @-f@ to force @ssh@ to go to the background before executing
+-- the @sh@ call. This allows for a faster return from 'readCreateProcessWithExitCode'.
+--
+-- Note that @\"UserKnownHostsFile \/dev\/null\"@ doesn't seem to work on Helios. 
+-- Using instead @\"StrictHostKeyChecking=no\"@ seems to work. 
 type SSHCommand = Maybe (String, [String])
 
--- | Runs a given command on remote host (given by the first 'String') with the
--- given arguments via @ssh@. Makes at most 10 attempts via 'retryRepeated'.
+-- | Runs a given command on remote host (with address given by the first 'String') with the
+-- given arguments via @ssh@ using the 'SSHCommand'. Makes at most 10 attempts via 'retryRepeated'.
 -- If fails, propagates 'SSHError' outside.
 --
 -- @ssh@ needs to be able to authenticate on the remote
 -- node without a password. In practice you will probably need to set up public
--- key authentiticaion. @ssh@ is run as 
+-- key authentiticaion. 
 --
--- > ssh -f -o "UserKnownHostsFile /dev/null" ...
---
--- where \"...\" is a call to @sh@ that calls @nohup@ to run the supplied command
--- in background. We need @-o \"...\"@ option to deal with host key verification
--- failures. We use @-f@ to force @ssh@ to go to the background before executing
--- the @sh@ call. This allows for a faster return from 'readCreateProcessWithExitCode'.
---
--- PK: Note that @\"UserKnownHostsFile \/dev\/null\"@ doesn't seem to work on Helios,
--- need further testing. Using instead @\"StrictHostKeyChecking=no\"@ seems to work. 
+-- @ssh@ is invoked to run @sh@ that calls @nohup@ to run the supplied command
+-- in background.
 sshRunCmd :: String -> SSHCommand -> (String, [String]) -> IO ()
 sshRunCmd addr sshCmd (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
   result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
@@ -156,9 +169,5 @@ sshRunCmd addr sshCmd (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
                              ++ " &"
                            ]
                          ]
-    defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"])
---              [ "-f"
---              , "-o"
---              , "UserKnownHostsFile /dev/null"
---              , "-o"
---              , "StrictHostKeyChecking no"
+    -- update SSHCommand haddock if changing this default.
+    defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"]) 
