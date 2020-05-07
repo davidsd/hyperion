@@ -1,6 +1,7 @@
 flags: {}
 packages:
 - '.'
+- './example'
 extra-deps:
 - network-transport-tcp-0.6.0
 - shell-escape-0.2.0@sha256:05e7abba1936b9bd3c13aa28da92ee73f0a08be439a78999697f8fc5baf726e6,1482
