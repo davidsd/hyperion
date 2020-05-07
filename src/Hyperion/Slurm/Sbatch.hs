@@ -5,28 +5,30 @@
 
 module Hyperion.Slurm.Sbatch where
 
-import           Control.Monad.Catch  (Exception, try)
-import           Data.Attoparsec.Text (Parser, parseOnly, takeWhile1)
-import           Data.Char            (isSpace)
-import           Data.Text            (Text)
-import qualified Data.Text            as T
-import           Data.Time.Clock      (NominalDiffTime)
-import qualified Hyperion.Log         as Log
-import           Hyperion.Slurm.JobId (JobId (..))
-import           Hyperion.Util        (retryRepeated, hour)
-import           System.Directory     (createDirectoryIfMissing)
-import           System.Exit          (ExitCode (..))
-import           System.Process       (readCreateProcessWithExitCode, shell)
+import           Control.Monad.Catch   (Exception, try)
+import           Data.Attoparsec.Text  (Parser, parseOnly, takeWhile1)
+import           Data.Char             (isSpace)
+import           Data.Maybe            (catMaybes)
+import           Data.Text             (Text)
+import qualified Data.Text             as T
+import           Data.Time.Clock       (NominalDiffTime)
+import qualified Hyperion.Log          as Log
+import           Hyperion.Slurm.JobId  (JobId (..))
+import           Hyperion.Util         (hour, retryRepeated)
+import           System.Directory      (createDirectoryIfMissing)
+import           System.Exit           (ExitCode (..))
+import           System.FilePath.Posix (takeDirectory)
+import           System.Process        (readCreateProcessWithExitCode, shell)
 
 -- | Error from running @sbatch@. The 'String's are the contents of 'stdout'
 -- and 'stderr' from @sbatch@.
 data SbatchError = SbatchError (ExitCode, String, String)
   deriving (Show, Exception)
 
--- | Type representing possible options for @sbatch@. Map 1-to-1 to @sbatch@ 
+-- | Type representing possible options for @sbatch@. Map 1-to-1 to @sbatch@
 -- options, so see @man sbatch@ for details.
 data SbatchOptions = SbatchOptions
-  { 
+  {
   -- | Job name (\"--job-name\")
     jobName       :: Maybe Text
   -- | Working directory for the job (\"--D\")
@@ -93,7 +95,10 @@ sbatchOutputParser = JobById <$> ("Submitted batch job " *> takeWhile1 (not . is
 -- then throws 'SbatchError'.
 sbatchScript :: SbatchOptions -> String -> IO JobId
 sbatchScript opts script = do
-  maybe (return ()) (createDirectoryIfMissing True) (chdir opts)
+  mapM_ (createDirectoryIfMissing True) $
+    catMaybes [ chdir opts
+              , fmap takeDirectory (output opts)
+              ]
   result@(exit, out, _) <- readCreateProcessWithExitCode (shell pipeToSbatch) ""
   case (exit, parseOnly sbatchOutputParser (T.pack out)) of
     (ExitSuccess, Right j) -> return j
@@ -102,7 +107,7 @@ sbatchScript opts script = do
     pipeToSbatch = "printf '" ++ wrappedScript ++ "' | sbatch " ++ sBatchOptionString opts
     wrappedScript = "#!/bin/sh\n " ++ script
 
--- | Formats 'NominalDiffTime' into @hh:mm:ss@. 
+-- | Formats 'NominalDiffTime' into @hh:mm:ss@.
 formatRuntime :: NominalDiffTime -> String
 formatRuntime t = padNum h ++ ":" ++ padNum m ++ ":" ++ padNum s
   where
@@ -121,9 +126,9 @@ formatRuntime t = padNum h ++ ":" ++ padNum m ++ ":" ++ padNum s
     remBy d n = n - (fromInteger f) * d where
       f = quotBy d n
 
--- | Runs the command given by 'FilePath' with arguments @['Text']@ 
+-- | Runs the command given by 'FilePath' with arguments @['Text']@
 -- in @sbatch@ script via 'sbatchScript'. If 'sbatchScript' throws
--- 'SbatchError', retries for a total of 3 attempts (via 'retryRepeated'). 
+-- 'SbatchError', retries for a total of 3 attempts (via 'retryRepeated').
 sbatchCommand :: SbatchOptions -> FilePath -> [Text] -> IO JobId
 sbatchCommand opts cmd args =
   retryRepeated 3 (try @IO @SbatchError) (sbatchScript opts script)

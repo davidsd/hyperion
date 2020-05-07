@@ -19,8 +19,8 @@ import            GHC.StaticPtr
 
 type Bracket = (Double, Double)
 
-binarySearchFunction :: (Double -> Double) -> Double -> Bracket -> Double -> Bracket
-binarySearchFunction f x bracket eps = go bracket
+binarySearchInverse :: (Double -> Double) -> Double -> Bracket -> Double -> Bracket
+binarySearchInverse f x bracket eps = go bracket
   where
     go (down, up) | up - down < eps = (down, up)
                   | f mid >= x      = go (down, mid)
@@ -31,7 +31,7 @@ binarySearchFunction f x bracket eps = go bracket
 rootBinarySearch :: MonadIO m => Int -> Double -> Bracket -> Double -> m Bracket
 rootBinarySearch n x brckt eps = do
   Log.info "Running binary search at " (x, brckt, eps)
-  let result = binarySearchFunction (^n) x brckt eps
+  let result = binarySearchInverse (^n) x brckt eps
   Log.info "Computed bracket ------- " result
   return result
 
@@ -62,12 +62,12 @@ runRemoteBinarySearchJob = curry3 $ remoteEvalJob binarySearchJobStatic
 clusterComputation :: ProgramOptions -> Cluster ()
 clusterComputation ProgramOptions{..} = do
   Log.text "Running an example computation"
-  let
+  mapConcurrently_ runRootNJob [2,3,4]
+  where
     point i = fromIntegral i * (xMax - xMin)/(fromIntegral nPoints - 1) + xMin
     points = map point [0 .. nPoints-1]
     runRootNJob n = local (setJobType MPIJob{ mpiNodes = 2, mpiNTasksPerNode = 2 }) $
       runRemoteBinarySearchJob n points eps
-  mapConcurrently_ runRootNJob [2,3,4]
 
 data ProgramOptions = ProgramOptions
   { xMin          :: Double
