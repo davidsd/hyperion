@@ -15,7 +15,9 @@ import            Control.Monad.IO.Class
 import            Control.Monad.Reader
 import            Control.Distributed.Process
 import            Data.Monoid
-import            System.FilePath.Posix  ((</>))
+import            Data.Maybe             (fromMaybe)
+import            System.FilePath.Posix  ((</>), takeDirectory)
+import            System.Directory       (createDirectoryIfMissing)
 import            GHC.StaticPtr
 
 type RealType = Double
@@ -60,6 +62,13 @@ mkHyperionConfig ProgramOptions{..} =
     sshRunCommand         = Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
   in HyperionConfig{..}
 
+createDirectories :: Cluster ()
+createDirectories = do
+  outputDir <- asks $ Slurm.output . clusterJobOptions
+  liftIO $ maybe (return ()) 
+                 (createDirectoryIfMissing True . takeDirectory) 
+                 outputDir
+
 rootBinarySearch :: (Monad m, MonadIO m) => Int -> RealType -> Bracket -> RealType -> m Bracket
 rootBinarySearch n x brckt eps = 
   do
@@ -103,6 +112,7 @@ runRemoteBinarySearchJob = curry3 $ remoteEvalJob binarySearchJobStatic
 clusterComputation :: ProgramOptions -> Cluster ()
 clusterComputation ProgramOptions{..} = do
   Log.text "Running an example computation"
+  createDirectories
   let
     point i = fromIntegral i * (xMax - xMin)/(fromIntegral nPoints - 1) + xMin
     points = map point [0 .. nPoints-1]

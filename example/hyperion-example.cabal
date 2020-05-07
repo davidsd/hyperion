@@ -17,3 +17,4 @@ executable hyperion-example
     , monad-control
     , distributed-process
     , mtl
+    , directory
