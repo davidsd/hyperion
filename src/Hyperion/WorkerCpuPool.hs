@@ -129,12 +129,12 @@ data SSHError = SSHError String (ExitCode, String, String)
 --
 -- > XX -a -b <addr> <command>
 --
--- where @<addr>@ is the remote address and @<command>@ is the command we need
+-- where @\<addr\>@ is the remote address and @\<command\>@ is the command we need
 -- to run there.
 --
 -- The value of 'Nothing' is equivalent to using
 -- 
--- > ssh -f -o "UserKnownHostsFile /dev/null" <command>
+-- > ssh -f -o "UserKnownHostsFile /dev/null" <addr> <command>
 -- 
 -- We need @-o \"...\"@ option to deal with host key verification
 -- failures. We use @-f@ to force @ssh@ to go to the background before executing
