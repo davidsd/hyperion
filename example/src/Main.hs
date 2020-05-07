@@ -36,11 +36,11 @@ programOpts = do
       <> help "The base directory for all the stuff (use an absolute path).")
   xMin <- 
     option auto (long "xMin" <> metavar "NUM" <> help "Lower end of the interval")
-  xMax <- read <$>
+  xMax <-
     option auto (long "xMax" <> metavar "NUM" <> help "Upper end of the interval")
-  eps <- read <$>
+  eps <-
     option auto (long "eps" <> metavar "NUM" <> help "Desired precision")
-  nPoints <- read <$>
+  nPoints <-
     option auto (long "nPoints" <> metavar "INT" 
       <> help "Number of points to sample in the interval")
   pure ProgramOptions{..}
@@ -90,7 +90,7 @@ binarySearchJob n points eps = do
     runSearch :: Int -> RealType -> Job Bracket
     runSearch n x = runRemoteRootBinarySearch n x (0, max 1 x) eps
     runSearchMemoized = curry $ memoizeWithMap kvmap $ uncurry runSearch
-    kvmap = KeyValMap "binary_sqrt_search"
+    kvmap = KeyValMap "binary_root_search"
 
 binarySearchJobStatic :: StaticPtr (RemoteFunction ((Int, [RealType], RealType), ProgramInfo) [Bracket])
 binarySearchJobStatic = static (remoteFnJob $ uncurry3 binarySearchJob)
