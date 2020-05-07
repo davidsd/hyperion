@@ -1,0 +1,88 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: f71ebe43bc6f1a94baf0a26eba83a9c8fe000d5d4b25500443938d539a065ce7
+
+name:           hyperion
+version:        0.1.0.0
+author:         David Simmons-Duffin
+maintainer:     davidsd@gmail.com
+license:        MIT
+build-type:     Simple
+
+library
+  exposed-modules:
+      Hyperion
+      Hyperion.Cluster
+      Hyperion.Command
+      Hyperion.Concurrent
+      Hyperion.Config
+      Hyperion.Database
+      Hyperion.Database.HasDB
+      Hyperion.Database.KeyValMap
+      Hyperion.HasWorkers
+      Hyperion.HoldServer
+      Hyperion.Job
+      Hyperion.Log
+      Hyperion.Main
+      Hyperion.ProgramId
+      Hyperion.Remote
+      Hyperion.Slurm
+      Hyperion.Slurm.Environment
+      Hyperion.Slurm.JobId
+      Hyperion.Slurm.Sbatch
+      Hyperion.Slurm.Scancel
+      Hyperion.Util
+      Hyperion.WorkerCpuPool
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2
+  build-depends:
+      aeson
+    , attoparsec
+    , base
+    , binary
+    , bytestring
+    , concurrent-output
+    , containers
+    , digits
+    , directory
+    , distributed-process
+    , distributed-process-async
+    , distributed-static
+    , exceptions
+    , extra
+    , filepath
+    , ghc-prim
+    , hashable
+    , lens
+    , monad-control
+    , mtl
+    , network
+    , network-transport
+    , network-transport-tcp
+    , optparse-applicative
+    , pretty
+    , pretty-show
+    , process
+    , random
+    , rank1dynamic
+    , resource-pool
+    , servant
+    , servant-server
+    , shell-escape
+    , sqlite-simple
+    , stm
+    , text
+    , time
+    , transformers
+    , transformers-base
+    , unix
+    , wai
+    , warp
+  default-language: Haskell2010
