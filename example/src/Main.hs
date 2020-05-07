@@ -13,18 +13,66 @@ import            Hyperion.Database.KeyValMap
 import            Options.Applicative
 import            Control.Monad.IO.Class
 import            Control.Monad.Reader
-import            Control.Distributed.Process
 import            Data.Monoid
 import            System.FilePath.Posix  ((</>))
 import            GHC.StaticPtr
 
-type RealType = Double
-type Bracket = (RealType, RealType)
+type Bracket = (Double, Double)
+
+binarySearchFunction :: (Double -> Double) -> Double -> Bracket -> Double -> Bracket
+binarySearchFunction f x bracket eps = go bracket
+  where
+    go (down, up) | up - down < eps = (down, up)
+                  | f mid >= x      = go (down, mid)
+                  | otherwise       = go (mid, up)
+      where
+        mid = (down + up) / 2
+
+rootBinarySearch :: MonadIO m => Int -> Double -> Bracket -> Double -> m Bracket
+rootBinarySearch n x brckt eps = do
+  Log.info "Running binary search at " (x, brckt, eps)
+  let result = binarySearchFunction (^n) x brckt eps
+  Log.info "Computed bracket ------- " result
+  return result
+
+rootBinarySearchStatic :: StaticPtr (RemoteFunction (Int, Double, Bracket, Double) Bracket)
+rootBinarySearchStatic = static (remoteFn $ uncurry4 rootBinarySearch)
+
+runRemoteRootBinarySearch :: Int -> Double -> Bracket -> Double -> Job Bracket
+runRemoteRootBinarySearch = curry4 $ remoteEval rootBinarySearchStatic
+
+binarySearchJob :: Int -> [Double] -> Double -> Job [Bracket]
+binarySearchJob n points eps = do
+  Log.info "Computing inverse to x^n with n" n
+  Log.info "Running binary searches at     " points
+  Log.info "Stopping searches at precision " eps
+  mapConcurrently (runSearchMemoized n) points
+  where
+    runSearch :: Int -> Double -> Job Bracket
+    runSearch m x = runRemoteRootBinarySearch m x (0, max 1 x) eps
+    runSearchMemoized = curry $ memoizeWithMap kvmap $ uncurry runSearch
+    kvmap = KeyValMap "binary_root_search"
+
+binarySearchJobStatic :: StaticPtr (RemoteFunction ((Int, [Double], Double), ProgramInfo) [Bracket])
+binarySearchJobStatic = static (remoteFnJob $ uncurry3 binarySearchJob)
+
+runRemoteBinarySearchJob :: Int -> [Double] -> Double -> Cluster [Bracket]
+runRemoteBinarySearchJob = curry3 $ remoteEvalJob binarySearchJobStatic
+
+clusterComputation :: ProgramOptions -> Cluster ()
+clusterComputation ProgramOptions{..} = do
+  Log.text "Running an example computation"
+  let
+    point i = fromIntegral i * (xMax - xMin)/(fromIntegral nPoints - 1) + xMin
+    points = map point [0 .. nPoints-1]
+    runRootNJob n = local (setJobType MPIJob{ mpiNodes = 2, mpiNTasksPerNode = 2 }) $
+      runRemoteBinarySearchJob n points eps
+  mapConcurrently_ runRootNJob [2,3,4]
 
 data ProgramOptions = ProgramOptions
-  { xMin          :: RealType
-  , xMax          :: RealType
-  , eps           :: RealType
+  { xMin          :: Double
+  , xMax          :: Double
+  , eps           :: Double
   , nPoints       :: Int
   , baseDirectory :: FilePath
   } deriving (Show)
@@ -59,56 +107,6 @@ mkHyperionConfig ProgramOptions{..} =
     initialDatabase       = Nothing
     sshRunCommand         = Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
   in HyperionConfig{..}
-
-rootBinarySearch :: (Monad m, MonadIO m) => Int -> RealType -> Bracket -> RealType -> m Bracket
-rootBinarySearch n x brckt eps = 
-  do
-    Log.info "Running binary search at " (x, brckt, eps)
-    let result = recurseBinary brckt
-    Log.info "Computed bracket ------- " result
-    return result
-  where
-    recurseBinary :: Bracket -> Bracket
-    recurseBinary (down, up) | up-down < eps = (down, up)
-                             | f mid >= x   = recurseBinary (down, mid)
-                             | otherwise     = recurseBinary (mid, up)
-      where 
-        mid = (down + up) / 2
-        f x = x^n
-
-rootBinarySearchStatic :: StaticPtr (RemoteFunction (Int, RealType, Bracket, RealType) Bracket)
-rootBinarySearchStatic = static (remoteFn $ uncurry4 rootBinarySearch)
-
-runRemoteRootBinarySearch :: Int -> RealType -> Bracket -> RealType -> Job Bracket
-runRemoteRootBinarySearch = curry4 $ remoteEval rootBinarySearchStatic
-
-binarySearchJob :: Int -> [RealType] -> RealType -> Job [Bracket]
-binarySearchJob n points eps = do
-    Log.info "Computing inverse to x^n with n" n
-    Log.info "Running binary searches at     " points
-    Log.info "Stopping searches at precision " eps
-    mapConcurrently (runSearchMemoized n) points
-  where
-    runSearch :: Int -> RealType -> Job Bracket
-    runSearch n x = runRemoteRootBinarySearch n x (0, max 1 x) eps
-    runSearchMemoized = curry $ memoizeWithMap kvmap $ uncurry runSearch
-    kvmap = KeyValMap "binary_root_search"
-
-binarySearchJobStatic :: StaticPtr (RemoteFunction ((Int, [RealType], RealType), ProgramInfo) [Bracket])
-binarySearchJobStatic = static (remoteFnJob $ uncurry3 binarySearchJob)
-
-runRemoteBinarySearchJob :: Int -> [RealType] -> RealType -> Cluster [Bracket]
-runRemoteBinarySearchJob = curry3 $ remoteEvalJob binarySearchJobStatic
-
-clusterComputation :: ProgramOptions -> Cluster ()
-clusterComputation ProgramOptions{..} = do
-  Log.text "Running an example computation"
-  let
-    point i = fromIntegral i * (xMax - xMin)/(fromIntegral nPoints - 1) + xMin
-    points = map point [0 .. nPoints-1]
-    runRootNJob n = local (setJobType MPIJob{ mpiNodes = 2, mpiNTasksPerNode = 2 }) $
-      runRemoteBinarySearchJob n points eps
-  mapConcurrently_ runRootNJob [2,3,4]
 
 main :: IO ()
 main = hyperionMain programOpts mkHyperionConfig clusterComputation

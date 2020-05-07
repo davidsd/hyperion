@@ -9,4 +9,4 @@ extra-deps:
   commit: 660d554f6acd2dba8b605c84e8fa69e45708bc14
 - git: https://github.com/davidsd/distributed-process-async.git
   commit: d914ebe6401ea4ffc4858bdc87b4f413f81cb476
-resolver: lts-12.18
+resolver: lts-11.22
