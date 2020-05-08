@@ -3,6 +3,43 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE StaticPointers    #-}
 
+-- | This module defines a simple routine 'rootBinarySearch' that
+-- performs a binary search for the n-th root of a number and returns
+-- the result. The function is then run in parallel in multiple SLURM
+-- jobs, and on multiple nodes within each job. Results are stored in
+-- a database and also sent back to the master process for printing.
+--
+-- The structure of this example computation is as follows
+--
+--        Master    <==== Cluster monad
+--        |  |  |
+--   -----   |   -------
+--  |        |          |
+-- Job 1    Job 2      Job 3    <==== Job monad
+--  | |      | |        | |
+--  | |      | |        |  --------------------------------
+--  | |      | |         -----------------------           |
+--  | |      |  ---------------------           |          |
+--  | |       ------------           |          |          |
+--  |  --------           |          |          |          |
+--  |          |          |          |          |          |
+--  Node 1a    Node 1b    Node 2a    Node 2b    Node 3a    Node 3b    <==== IO monad
+--  |          |
+--  2 cores    2 cores    ...
+--
+-- The Master process runs a computation in the Cluster monad, which
+-- can call 'remoteEval' to automatically evaluate a function using a
+-- SLURM job. Each SLURM job runs a computation in the Job monad,
+-- which can call 'remoteEval' to automatically evaluate a function on
+-- one of the nodes available to the Job. The Job monad keeps track of
+-- how many cores are available on each node. In this computation,
+-- each node has 2 cores.
+--
+-- Each job is assigned to compute the n-th root of a list of
+-- numbers. 3 jobs are run concurrently, with n=2,3,4. Within each
+-- job, the numbers are assigned to different cores on different nodes
+-- as they become available.
+--
 module Main where
 
 import           Control.Monad.Reader        (local)
@@ -39,11 +76,8 @@ binarySearchInverse f x bracket eps = go bracket
       where
         mid = (down + up) / 2
 
--- * IO computation
-
 -- | Run a binary search for the inverse of @f(x)=x^n@, printing and
--- returning the result. This IO computation will be run on a node
--- available to a SLURM job.
+-- returning the result.
 rootBinarySearch :: Int -> Double -> Bracket -> Double -> IO Bracket
 rootBinarySearch n x brckt eps = do
   Log.info "Running binary search at " (x, brckt, eps)
