@@ -11,7 +11,7 @@ import qualified Hyperion.Database      as DB
 import           Hyperion.HoldServer    (HoldMap, newHoldMap)
 import qualified Hyperion.Log           as Log
 import           Hyperion.ProgramId
-import           Hyperion.Slurm         (SbatchOptions)
+import qualified Hyperion.Slurm         as Slurm
 import           Hyperion.Util          (savedExecutable)
 import           Hyperion.WorkerCpuPool (SSHCommand)
 import           System.Directory       (copyFile, createDirectoryIfMissing)
@@ -22,7 +22,7 @@ import           System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>),
 data HyperionConfig = HyperionConfig
   { 
     -- | Default options to use for @sbatch@ submissions
-    defaultSbatchOptions :: SbatchOptions
+    defaultSbatchOptions :: Slurm.SbatchOptions
     -- | The base directory for working dirs produced by 'newWorkDir'
   , dataDir              :: FilePath
     -- | The base directory for all the log files 
@@ -38,6 +38,20 @@ data HyperionConfig = HyperionConfig
     -- | The command used to run @ssh@ on nodes. Usually can be safely set to
     -- 'Nothing'. See 'SSHCommand' for details.
   , sshRunCommand        :: SSHCommand
+  }
+
+-- | Default configuration, with all paths built form a single
+-- 'baseDirectory'
+defaultHyperionConfig :: FilePath -> HyperionConfig
+defaultHyperionConfig baseDirectory = HyperionConfig
+  { defaultSbatchOptions = Slurm.defaultSbatchOptions
+  , dataDir              = baseDirectory </> "data"
+  , logDir               = baseDirectory </> "log"
+  , databaseDir          = baseDirectory </> "database"
+  , execDir              = baseDirectory </> "exec"
+  , hyperionCommand      = Nothing
+  , initialDatabase      = Nothing
+  , sshRunCommand        = Nothing
   }
 
 -- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,

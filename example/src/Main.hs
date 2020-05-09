@@ -42,7 +42,6 @@ module Main where
 
 import           Control.Monad.Reader        (local)
 import           Data.Monoid                 ((<>))
-import           GHC.StaticPtr               (StaticPtr)
 import           Hyperion
 import           Hyperion.Database.KeyValMap (KeyValMap(..), memoizeWithMap)
 import qualified Hyperion.Log                as Log
@@ -78,9 +77,9 @@ rootBinarySearch n x bracket eps = do
 runRemoteRootBinarySearch :: Int -> Double -> Bracket -> Double -> Job Bracket
 runRemoteRootBinarySearch = curry4 $ remoteEval rootBinarySearchStatic
   where
-    -- | Create a StaticPtr (RemoteFunction a b) that can be used with
-    -- 'remoteEval'. A 'RemoteFunction' must take one argument, so we
-    -- use 'uncurry4'
+    -- | A StaticPtr (RemoteFunction a b) that can be used with
+    -- 'remoteEval'. A 'RemoteFunction' takes one argument, so we use
+    -- 'uncurry4'
     rootBinarySearchStatic = static (remoteFnIO $ uncurry4 rootBinarySearch)
 
 -- | The main computation for a Slurm job, which runs on the head node
@@ -143,9 +142,9 @@ programOpts :: Parser ProgramOptions
 programOpts = do
   baseDirectory <-
     option str (long "baseDir" <> metavar "PATH"
-                 <> help "The base directory for writing files (absolute path)")
+                <> help "The base directory for writing files (absolute path)")
   xMin    <- option auto (long "xMin" <> metavar "NUM"
-                           <> help "Lower end of the interval")
+                          <> help "Lower end of the interval")
   xMax    <- option auto (long "xMax" <> metavar "NUM"
                           <> help "Upper end of the interval")
   eps     <- option auto (long "eps"  <> metavar "NUM"
