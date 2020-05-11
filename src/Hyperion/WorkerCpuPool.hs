@@ -170,4 +170,4 @@ sshRunCmd addr sshCmd (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
                            ]
                          ]
     -- update SSHCommand haddock if changing this default.
-    defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"]) 
+    defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile=/dev/null"]) 
