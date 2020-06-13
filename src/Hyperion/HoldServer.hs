@@ -17,7 +17,6 @@ import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Data.Map                    (Map)
 import qualified Data.Map                    as Map
 import           Data.Maybe                  (catMaybes)
-import           Data.Proxy                  (Proxy (..))
 import qualified Data.Text                   as T
 import qualified Hyperion.Log                as Log
 import           Network.Wai                 ()

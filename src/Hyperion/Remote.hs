@@ -21,7 +21,7 @@ import           Control.Distributed.Process.Async   (AsyncResult (..), async,
 import           Control.Distributed.Process.Closure (SerializableDict (..),
                                                       staticDecode)
 import qualified Control.Distributed.Process.Node    as Node
-import           Control.Distributed.Static          (closure, staticApply,
+import           Control.Distributed.Static          (staticApply,
                                                       staticCompose, staticPtr)
 import           Control.Monad.Catch                 (Exception, bracket, catch, try,
                                                       throwM, SomeException)
@@ -125,7 +125,7 @@ runProcessLocally_ rtable ports process = do
   let
     tryPort port = MaybeT $
       timeout (5*1000*1000)
-      (createTransport host port (\port' -> (host, port')) defaultTCPParameters) >>= \case
+      (createTransport (defaultTCPAddr host port) defaultTCPParameters) >>= \case
       Nothing -> do
         Log.info "Timeout connecting to port" port
         return Nothing

@@ -18,7 +18,6 @@ import           Control.Monad.Reader
 import           Data.Aeson                  (FromJSON, ToJSON)
 import           Data.Binary                 (Binary)
 import           Data.Data                   (Data)
-import           Data.Monoid                 ((<>))
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
 import           Data.Time.Clock             (NominalDiffTime)

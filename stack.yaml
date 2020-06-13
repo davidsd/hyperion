@@ -3,10 +3,13 @@ packages:
 - '.'
 - './example'
 extra-deps:
-- network-transport-tcp-0.6.0
-- shell-escape-0.2.0@sha256:05e7abba1936b9bd3c13aa28da92ee73f0a08be439a78999697f8fc5baf726e6,1482
-- git: https://github.com/haskell-distributed/distributed-process.git
-  commit: 660d554f6acd2dba8b605c84e8fa69e45708bc14
+- distributed-static-0.3.9
+- sqlite-simple-0.4.18.0
+- direct-sqlite-2.3.26
+- git: https://github.com/davidsd/network-transport-tcp
+  commit: feea8507d25390c57d531c4ab8894f58e716c721
+- git: https://github.com/davidsd/distributed-process.git
+  commit: 144818f5174522ee4a027a4681ec047e0567c11b
 - git: https://github.com/davidsd/distributed-process-async.git
-  commit: d914ebe6401ea4ffc4858bdc87b4f413f81cb476
-resolver: lts-11.22
+  commit: bfb2a156965fe62ed30c7eacfc09a410bb7c3705
+resolver: lts-16.0

@@ -5,7 +5,6 @@
 module Hyperion.Command where
 
 import           Control.Distributed.Process
-import           Data.Monoid                 ((<>))
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
 import           Hyperion.Remote

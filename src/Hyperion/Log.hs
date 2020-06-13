@@ -4,7 +4,6 @@ module Hyperion.Log where
 
 import           Control.Monad.Catch       (Exception, MonadThrow, throwM)
 import           Control.Monad.IO.Class    (MonadIO, liftIO)
-import           Data.Monoid               ((<>))
 import           Data.Text                 (Text)
 import qualified Data.Text                 as T
 import           Data.Time.Format          (defaultTimeLocale, formatTime)

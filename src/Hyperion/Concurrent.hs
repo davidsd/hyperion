@@ -15,7 +15,6 @@ import           Control.Monad               (forever)
 import           Control.Monad.Catch         (catch, mask, onException)
 import           Control.Monad.Reader        (ReaderT (..))
 import           Data.Foldable               (sequenceA_)
-import           Data.Semigroup              (Semigroup (..))
 
 
 -- | Runs the two 'Process'es concurrently and returns the first available result,
