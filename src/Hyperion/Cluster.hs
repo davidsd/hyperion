@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RankNTypes                 #-}
@@ -18,27 +17,26 @@ import           Control.Monad.Reader
 import           Data.Aeson                  (FromJSON, ToJSON)
 import           Data.Binary                 (Binary)
 import           Data.Data                   (Data)
+import           Data.Hashable               (Hashable, hash)
 import           Data.Text                   (Text)
-import qualified Data.Text                   as T
+import qualified Data.Text                   as Text
 import           Data.Time.Clock             (NominalDiffTime)
 import           GHC.Generics                (Generic)
 import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..))
+import           Hyperion.HoldServer         (HoldMap)
 import           Hyperion.ProgramId
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..), SbatchOptions (..),
                                               sbatchCommand)
 import           Hyperion.WorkerCpuPool      (SSHCommand)
-import           Hyperion.HoldServer         (HoldMap)
-import           Hyperion.Util               (hashTruncateFileName,
-                                              randomString, sanitizeFileString)
 import           System.Directory            (createDirectoryIfMissing)
 import           System.FilePath.Posix       ((<.>), (</>))
 
 -- * General comments
 -- $
--- In this module we define the 'Cluster' monad. It is nothing more than a 
+-- In this module we define the 'Cluster' monad. It is nothing more than a
 -- 'Process' with an environment 'ClusterEnv'.
 --
 -- The 'ClusterEnv' environment contains information about
@@ -49,15 +47,15 @@ import           System.FilePath.Posix       ((<.>), (</>))
 --     * data equivalent to 'DB.DatabaseConfig' to handle the database,
 --     * a 'WorkerLauncher' to launch remote workers. More precisely, a function
 --       'clusterWorkerLauncher' that takes 'SbatchOptions' and 'ProgramInfo' to
---       produce a 'WorkerLauncher'. 
+--       produce a 'WorkerLauncher'.
 --
--- A 'ClusterEnv' may be initialized with 'Hyperion.Config.newClusterEnv', which 
--- use 'slurmWorkerLauncher' to initialize 'clusterWorkerLauncher'. In this 
+-- A 'ClusterEnv' may be initialized with 'Hyperion.Config.newClusterEnv', which
+-- use 'slurmWorkerLauncher' to initialize 'clusterWorkerLauncher'. In this
 -- scenario the 'Cluster' monad will operate in the following way. It will perform
 -- the calculations in the master process until some remote function is invoked,
 -- typically through 'Hyperion.HasWorkers.remoteEval', at which point it will
 -- use @sbatch@ and the current 'SbatchOptions' to allocate a new job and then
--- it will run a single worker in that allocation. 
+-- it will run a single worker in that allocation.
 --
 -- This has the following consequences.
 --
@@ -97,10 +95,10 @@ import           System.FilePath.Posix       ((<.>), (</>))
 -- It then schedules a job with a bunch or resources with @SLURM@. When the job
 -- starts, a 'Job' calculation runs on one of the allocated nodes. It then spawns
 -- 'Process' computations on the resources available to the job, which it manages
--- via 'Hyperion.WorkerCpuPool.WorkerCpuPool'. 
+-- via 'Hyperion.WorkerCpuPool.WorkerCpuPool'.
 --
 -- Besides the 'Cluster' monad, this module defines 'slurmWorkerLauncher' and
--- some utility functions for working with 'ClusterEnv' and 'ProgramInfo', along 
+-- some utility functions for working with 'ClusterEnv' and 'ProgramInfo', along
 -- with a few others.
 
 
@@ -109,14 +107,14 @@ import           System.FilePath.Posix       ((<.>), (</>))
 
 -- | Type containing information about our program
 data ProgramInfo = ProgramInfo
-  { programId              :: ProgramId
-  , programDatabase        :: FilePath
-  , programLogDir          :: FilePath
-  , programDataDir         :: FilePath
-  , programSSHCommand      :: SSHCommand
+  { programId         :: ProgramId
+  , programDatabase   :: FilePath
+  , programLogDir     :: FilePath
+  , programDataDir    :: FilePath
+  , programSSHCommand :: SSHCommand
   } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON)
 
--- | The environment for 'Cluster' monad. 
+-- | The environment for 'Cluster' monad.
 data ClusterEnv = ClusterEnv
   { clusterWorkerLauncher  :: SbatchOptions -> ProgramInfo -> WorkerLauncher JobId
   , clusterProgramInfo     :: ProgramInfo
@@ -144,28 +142,22 @@ instance DB.HasDB ClusterEnv where
         , clusterDatabaseRetries = dbRetries
         }
 
--- | We make 'ClusterEnv' an instance of 'HasWorkerLauncher'. This makes 
--- 'Cluster' an instance of 'HasWorkers' and gives us access to functions in 
+-- | We make 'ClusterEnv' an instance of 'HasWorkerLauncher'. This makes
+-- 'Cluster' an instance of 'HasWorkers' and gives us access to functions in
 -- "Hyperion.Remote".
 instance HasWorkerLauncher ClusterEnv where
   toWorkerLauncher ClusterEnv{..} =
     clusterWorkerLauncher clusterJobOptions clusterProgramInfo
 
--- | Type representing resources for an MPI job. 
+-- | Type representing resources for an MPI job.
 data MPIJob = MPIJob
   { mpiNodes         :: Int
   , mpiNTasksPerNode :: Int
-  } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON)
+  } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON, Hashable)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
 runCluster clusterEnv h = do
   runProcessLocallyDefault (runReaderT h clusterEnv)
-
-clusterProgramId :: ClusterEnv -> ProgramId
-clusterProgramId = programId . clusterProgramInfo
-
-clusterProgramDatabase :: ClusterEnv  -> FilePath
-clusterProgramDatabase = programDatabase . clusterProgramInfo
 
 modifyJobOptions :: (SbatchOptions -> SbatchOptions) -> ClusterEnv -> ClusterEnv
 modifyJobOptions f cfg = cfg { clusterJobOptions = f (clusterJobOptions cfg) }
@@ -222,26 +214,38 @@ slurmWorkerLauncher hyperionExec holdMap opts progInfo =
             { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText serviceId
             }
           (cmd, args) = hyperionWorkerCommand hyperionExec nodeId serviceId logFile
-      jobId <- liftIO $ sbatchCommand opts' cmd (map T.pack args)
+      jobId <- liftIO $ sbatchCommand opts' cmd (map Text.pack args)
       goJobId jobId
 
--- | Generate a working directory for the given object. Working
--- directories are (essentially) unique for each call to this
--- function, due to the use of 'salt'. They are subdirectories of 'programDataDir'.
---
--- workDir path's have are length-truncated at 230 (see 'hashTruncateFileName'),
--- allowing up to 25 additional characters for file extensions.
-newWorkDir :: Show a => a -> Cluster FilePath
-newWorkDir obj = do
+-- | An identifier for an object, useful for building filenames and
+-- database entries.
+newtype ObjectId = ObjectId Int
+  deriving (Eq, Ord, Generic, Data, Binary, FromJSON, ToJSON)
+
+-- | Convert an ObjectId to a String. With the current implementation
+-- of 'getObjectId', this string will contain only digits.
+objectIdToString :: ObjectId -> String
+objectIdToString (ObjectId i) = show i
+
+-- | Convert an ObjectId to Text. With the current implementation
+-- of 'getObjectId', this string will contain only digits.
+objectIdToText :: ObjectId -> Text
+objectIdToText = Text.pack . objectIdToString
+
+-- | The ObjectId of an object is the absolute value of its hash. The
+-- first time it is called on a given object, 'getObjectId' comptues
+-- the ObjectId and stores it in the database before returning
+-- it. Subsequent calls read the value from the database.
+getObjectId :: (Hashable a, ToJSON a) => a -> Cluster ObjectId
+getObjectId = DB.memoizeWithMap (DB.KeyValMap "objectIds") (pure . ObjectId . abs . hash)
+
+-- | Construct a working directory for the given object, using its
+-- ObjectId. Will be a subdirectory of 'programDataDir'. Created
+-- automatically, and saved in the database.
+newWorkDir :: (Hashable a, ToJSON a) => a -> Cluster FilePath
+newWorkDir = DB.memoizeWithMap (DB.KeyValMap "workDirectories") $ \obj -> do
   dataDir <- asks (programDataDir . clusterProgramInfo)
-  salt <- liftIO $ randomString 4
-  let slug = sanitizeFileString (filter (/= ' ') (show obj))
-      base = hashTruncateFileName (slug <> "-" <> salt)
-      workDir = dataDir </> base
+  objId <- getObjectId obj
+  let workDir = dataDir </> objectIdToString objId
   liftIO $ createDirectoryIfMissing True workDir
   return workDir
-
--- | A memoized version of 'newWorkDir' that saves the result to the
--- database
-newWorkDirPersistent :: (ToJSON a, Show a) => a -> Cluster FilePath
-newWorkDirPersistent = DB.memoizeWithMap (DB.KeyValMap "workDirectories") newWorkDir
