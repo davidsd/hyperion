@@ -24,8 +24,8 @@ import qualified Network.Wai.Handler.Warp    as Warp
 import           Servant
 
 type HoldApi =
-       "release" :> Capture "service" T.Text :> Get '[JSON] (Maybe T.Text)
-  :<|> "release-all" :> Get '[JSON] [T.Text]
+       "retry" :> Capture "service" T.Text :> Get '[JSON] (Maybe T.Text)
+  :<|> "retry-all" :> Get '[JSON] [T.Text]
   :<|> "list" :> Get '[JSON] [T.Text]
 
 newtype HoldMap = HoldMap (TVar (Map T.Text (MVar ())))
@@ -34,9 +34,9 @@ newHoldMap :: IO HoldMap
 newHoldMap = HoldMap <$> newTVarIO Map.empty
 
 server :: HoldMap -> Server HoldApi
-server (HoldMap holdMap) = releaseHold :<|> releaseAllHolds :<|> listHolds
+server (HoldMap holdMap) = retry :<|> retryAll :<|> listHolds
   where
-    releaseHold service = liftIO $ do
+    retry service = liftIO $ do
       serviceMap <- readTVarIO holdMap
       case Map.lookup service serviceMap of
         Just holdVar -> do
@@ -47,14 +47,14 @@ server (HoldMap holdMap) = releaseHold :<|> releaseAllHolds :<|> listHolds
         Nothing -> return Nothing
     listHolds = do
       liftIO $ fmap Map.keys (readTVarIO holdMap)
-    releaseAllHolds = do
+    retryAll = do
       services <- listHolds
-      fmap catMaybes $ mapM releaseHold services
+      fmap catMaybes $ mapM retry services
 
 -- | Start a hold associated to the given service. Returns an IO action
 -- that blocks until the hold is released
-blockUntilReleased :: MonadIO m => HoldMap -> T.Text -> m ()
-blockUntilReleased (HoldMap holdMap) service = liftIO $ do
+blockUntilRetried :: MonadIO m => HoldMap -> T.Text -> m ()
+blockUntilRetried (HoldMap holdMap) service = liftIO $ do
   holdVar <- newEmptyMVar
   -- This will loose the blocking MVar if service is already blocked
   atomically $ modifyTVar holdMap (Map.insert service holdVar)

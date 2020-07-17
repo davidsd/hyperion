@@ -17,7 +17,7 @@ module Hyperion.Job where
 
 import           Control.Distributed.Process hiding (try)
 import           Control.Lens                (lens)
-import           Control.Monad.Catch         (try)
+import           Control.Monad.Catch         (try, throwM)
 import           Control.Monad.Cont          (ContT (..), runContT)
 import           Control.Monad.Except
 import           Control.Monad.Reader
@@ -141,11 +141,12 @@ runJobLocal programInfo go = do
           }
     runReaderT go cfg
 
--- | 'WorkerLauncher' that uses the supplied command runner to launch workers.
--- Sets 'connectionTimeout' and 'serviceHoldMap' to 'Nothing'. Uses the 'ServiceId' 
--- supplied to 'withLaunchedWorker' to construct 'JobId' (through 'JobByName').
--- The supplied 'FilePath' is used as log directory for the worker, with the 
--- log file name derived from 'ServiceId'.
+-- | 'WorkerLauncher' that uses the supplied command runner to launch
+-- workers.  Sets 'connectionTimeout' to 'Nothing'. Uses the
+-- 'ServiceId' supplied to 'withLaunchedWorker' to construct 'JobId'
+-- (through 'JobByName').  The supplied 'FilePath' is used as log
+-- directory for the worker, with the log file name derived from
+-- 'ServiceId'.
 workerLauncherWithRunCmd
   :: MonadIO m
   => FilePath
@@ -161,7 +162,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
       runCmd (hyperionWorkerCommand hyperionExec nodeId serviceId logFile)
       goJobId jobId
     connectionTimeout = Nothing
-    serviceHoldMap = Nothing
+    onRemoteError e _ = throwM e
   return WorkerLauncher{..}
 
 -- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the continuation
@@ -226,12 +227,13 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
       Log.info "Running command" c
       runCmdLocalQuiet c
 
--- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to start
--- \"worker-launcher\" workers on these addresses (see 'withNodeLauncher').
--- Discards addresses on which the this fails. From remaining addresses builds
--- a worker CPU pool. The continuation is then passed a function that launches
--- workers in this pool. The 'WorkerLaunchers' that continuation gets have
--- 'connectionTimeout' and 'serviceHoldMap' set to 'Nothing'.
+-- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to
+-- start \"worker-launcher\" workers on these addresses (see
+-- 'withNodeLauncher').  Discards addresses on which the this
+-- fails. From remaining addresses builds a worker CPU pool. The
+-- continuation is then passed a function that launches workers in
+-- this pool. The 'WorkerLaunchers' that continuation gets have
+-- 'connectionTimeout' to 'Nothing'.
 withPoolLauncher
   :: NodeLauncherConfig
   -> [WorkerAddr]
@@ -248,7 +250,7 @@ withPoolLauncher cfg addrs' go = flip runContT return $ do
         WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->
         withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
     , connectionTimeout = Nothing
-    , serviceHoldMap    = Nothing
+    , onRemoteError     = \e _ -> throwM e
     }
 
 -- | Lifts 'remoteFn' to 'Job' monad using 'runJobLocal'.
@@ -259,8 +261,8 @@ remoteFnJob
 remoteFnJob f = remoteFn $ \(a, programInfo) -> do
   runJobLocal programInfo (f a)
 
--- | Runs a remote function of the type returned by 'remoteFnJob' remotely from the
--- 'Cluster' monad. Similar to 'remoteBind'.
+-- | Runs a remote function of the type returned by 'remoteFnJob'
+-- remotely from the 'Cluster' monad. Similar to 'remoteBind'.
 remoteBindJob
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => Cluster a
