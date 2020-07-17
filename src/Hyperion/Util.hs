@@ -16,6 +16,10 @@ import           System.Directory
 import           System.FilePath.Posix (replaceDirectory)
 import           System.Posix.Files    (readSymbolicLink)
 import           System.Random         (randomRIO)
+import Data.Text (Text)
+import qualified Data.Text as Text
+import qualified Data.Text.Lazy as LazyText
+import Network.Mail.Mime (Address(..), simpleMail', renderSendMail)
 import qualified Text.ShellEscape      as Esc
 
 -- | 'IO' action that returns a random string of given length 
@@ -24,9 +28,10 @@ randomString len = replicateM len $ toAlpha <$> randomRIO (0, 51)
   where toAlpha n | n < 26    = toEnum (n + fromEnum 'A')
                   | otherwise = toEnum (n - 26 + fromEnum 'a')
 
--- | @retryRepeated n doTry m@ tries to run @doTry m@ n-1 times, after which it 
--- runs @m@ 1 time. After each failure waits 15-90 seconds randomly. Returns on first success.
--- Failure is represented by a 'Left' value. 
+-- | @retryRepeated n doTry m@ tries to run @doTry m@ n-1 times, after
+-- which it runs @m@ 1 time. After each failure waits 15-90 seconds
+-- randomly. Returns on first success.  Failure is represented by a
+-- 'Left' value.
 retryRepeated 
   :: (Show e, MonadIO m) 
   => Int -- ^ If this is 0 (or less), then it attempt @doTry m@ indefinitely.
@@ -41,9 +46,58 @@ retryRepeated n doTry m = go n
       Right b -> return b
     wait e = do
       t <- liftIO $ randomRIO (15, 90)
-      Log.warn "Unsuccessful" e
-      Log.warn "Waiting for" t
+      Log.warn "Unsuccessful" (WaitRetry e t)
       liftIO $ threadDelay $ t*1000*1000
+
+data WaitRetry e = WaitRetry
+  { err :: e
+  , waitTime :: Int
+  } deriving Show
+
+-- | @retryExponential doTry m@ tries to run @doTry m@. After the n-th
+-- successive failure, it waits time 2^n*t0, where t0 is a randomly
+-- chosen time between 10 and 20 seconds.
+retryExponential
+  :: MonadIO m
+  => (m a -> m (Either e a))
+  -> (WaitRetry e -> m ())
+  -> m a
+  -> m a
+retryExponential doTry handleErr m = go 1
+  where
+    go timeMultiplier = doTry m >>= \case
+      Left e -> wait timeMultiplier e >> go (2*timeMultiplier)
+      Right b -> return b
+    wait timeMultiplier e = do
+      t <- liftIO . fmap (* timeMultiplier) $ randomRIO (10, 20)
+      handleErr (WaitRetry e t)
+      liftIO $ threadDelay $ t*1000*1000
+
+-- | Send an email to 'toAddr' with the given 'subject' and 'body'.
+emailMessage
+  :: MonadIO m
+  => Text
+  -> Text
+  -> Text
+  -> m ()
+emailMessage toAddr subject body = liftIO $ renderSendMail mail
+  where
+    mail      = simpleMail' toAddr' fromAddr' subject (LazyText.fromStrict body)
+    toAddr'   = Address Nothing toAddr
+    fromAddr' = Address (Just "Hyperion") toAddr
+
+-- | Send an email to 'toAddr' showing the object 'a'. The subject
+-- line is "msg: ...", where 'msg' is the first argument and "..." is
+-- the first 40 characters of 'show a'.
+email :: (Show a, MonadIO m) => Text -> Text -> a -> m ()
+email msg toAddr a = emailMessage toAddr subject body
+  where
+    subject = "[Hyperion] " <> msg <> ": " <> Text.take 40 (Text.pack (show a))
+    body = Log.prettyShowText a
+
+-- | Send an email with msg "Error"
+emailError :: (Show a, MonadIO m) => Text -> a -> m ()
+emailError = email "Error"
 
 -- | Takes a path and a list of 'String' arguments, shell-escapes the arguments,
 -- and combines everything into a single string.

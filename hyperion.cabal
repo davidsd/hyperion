@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: dda0c5c48806eb7e7624e05d4651ac2a510311cf47b9676ee708d7a2681dc63a
+-- hash: ccc5bcfd9f16a80459523406f800faf9cba8350db1d636158d80fcb154a27df6
 
 name:           hyperion
 version:        0.1.0.0
@@ -61,6 +61,7 @@ library
     , ghc-prim
     , hashable
     , lens
+    , mime-mail
     , monad-control
     , mtl
     , network

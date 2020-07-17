@@ -35,8 +35,6 @@ import qualified Data.Text.Encoding                  as E
 import           Data.Time.Clock                     (NominalDiffTime)
 import           GHC.Generics                        (Generic)
 import           GHC.StaticPtr                       (StaticPtr)
-import           Hyperion.HoldServer                 (HoldMap,
-                                                      blockUntilReleased)
 import qualified Hyperion.Log                        as Log
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
@@ -90,10 +88,10 @@ data WorkerLauncher j = WorkerLauncher
     -- that case, it is recommended to set 'connectionTimeout' =
     -- 'Nothing'.
   , connectionTimeout :: Maybe NominalDiffTime
-    -- | If a 'HoldMap' is present, a remote process that throws an
-    -- error will be added to the 'HoldMap'. It can be restarted later
-    -- by connecting to the "Hyperion.HoldServer" via 'curl'.
-  , serviceHoldMap    :: Maybe HoldMap
+    -- | A handler for 'RemoteError's.  'onRemoteError' can do things
+    -- like blocking before rerunning the remote process, or simply
+    -- rethrowing the error.
+  , onRemoteError     :: forall b . RemoteError -> Process b -> Process b
   }
 
 -- * Functions for running a worker
@@ -255,40 +253,25 @@ getClosure s = do
     liftIO $ putMVar (closureVar s) c
   liftIO $ readMVar (closureVar s)
 
--- | The type of a function that takes a 'SerializableClosureProcess' and
--- runs the 'Closure' on a remote machine. In case the remote machine returns
--- a 'Left' value (i.e. an error), throws this value wrapped in 'RemoteError'
--- of type 'RemoteException'. May throw other 'RemoteError's if remote execution 
--- fails in any way.
+-- | The type of a function that takes a 'SerializableClosureProcess'
+-- and runs the 'Closure' on a remote machine. In case the remote
+-- machine returns a 'Left' value (i.e. an error), throws this value
+-- wrapped in 'RemoteError' of type 'RemoteException'. May throw other
+-- 'RemoteError's if remote execution fails in any way.
 type RemoteProcessRunner =
   forall a . (Binary a, Typeable a) => SerializableClosureProcess (Either String a) -> Process a
 
--- | Starts a new remote worker and runs a user function, which is 
--- supplied with 'RemoteProcessRunner' for running
--- closures on that worker. If 'WorkerLauncher' has a 'HoldMap', then
--- 'RemoteError' exceptions propagating out of the supplied user function
--- are logged and 'withRemoteRunProcess' blocks until the 'ServiceId' is released 
--- by 'HoldServer'. Then 'withRemoteRunProcess' restarts (generating new 'ServiceId').
--- If no 'HoldMap' is available, then the exception propagates out of 'withRemoteRunProcess'.
+-- | Starts a new remote worker and runs a user function, which is
+-- supplied with 'RemoteProcessRunner' for running closures on that
+-- worker. If a 'RemoteError' occurs, it is handled by the
+-- 'onRemoteError' supplied in the 'WorkerLauncher'.
 withRemoteRunProcess
   :: Show j
   => WorkerLauncher j
   -> (RemoteProcessRunner -> Process a)
   -> Process a
 withRemoteRunProcess workerLauncher go =
-  catch goWithRemote $ \e@(RemoteError sId _) -> do
-  case serviceHoldMap workerLauncher of
-    Just holdMap -> do
-      -- In the event of an error, add the offending serviceId to the
-      -- HoldMap. We then block until someone releases the service by
-      -- sending a request to the HoldServer.
-      Log.err e
-      Log.info "Remote process failed; initiating hold" sId
-      blockUntilReleased holdMap (serviceIdToText sId)
-      Log.info "Hold released; retrying" sId
-      withRemoteRunProcess workerLauncher go
-    -- If there is no HoldMap, just rethrow the exception
-    Nothing -> throwM e
+  goWithRemote `catch` \e -> onRemoteError workerLauncher e (withRemoteRunProcess workerLauncher go)
   where
     goWithRemote =
       withService workerLauncher $ \workerNodeId serviceId ->

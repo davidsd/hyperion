@@ -41,7 +41,6 @@
 module Main where
 
 import           Control.Monad.Reader        (local)
-import           Data.Monoid                 ((<>))
 import           Hyperion
 import           Hyperion.Database.KeyValMap (KeyValMap(..), memoizeWithMap)
 import qualified Hyperion.Log                as Log

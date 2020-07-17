@@ -50,6 +50,7 @@ dependencies:
 - servant-server
 - wai
 - warp
+- mime-mail
 
 library:
   source-dirs: src

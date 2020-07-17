@@ -1,19 +1,23 @@
-{-# LANGUAGE DeriveAnyClass             #-}
-{-# LANGUAGE DeriveDataTypeable         #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DeriveDataTypeable    #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DerivingStrategies    #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE TypeFamilies          #-}
 
 module Hyperion.Cluster where
 
-import           Control.Distributed.Process
+import Control.Monad.IO.Class (MonadIO)
+import           Control.Distributed.Process (NodeId, Process)
 import           Control.Lens                (lens)
-import           Control.Monad.Reader
+import           Control.Monad.Catch         (try)
+import           Control.Monad.IO.Class      (liftIO)
+import           Control.Monad.Reader        (ReaderT, asks, runReaderT)
 import           Data.Aeson                  (FromJSON, ToJSON)
 import           Data.Binary                 (Binary)
 import           Data.Data                   (Data)
@@ -25,11 +29,16 @@ import           GHC.Generics                (Generic)
 import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..))
-import           Hyperion.HoldServer         (HoldMap)
-import           Hyperion.ProgramId
-import           Hyperion.Remote
-import           Hyperion.Slurm              (JobId (..), SbatchOptions (..),
-                                              sbatchCommand)
+import           Hyperion.HoldServer         (HoldMap, blockUntilRetried)
+import qualified Hyperion.Log                as Log
+import           Hyperion.ProgramId          (ProgramId, programIdToText)
+import           Hyperion.Remote             (ServiceId, WorkerLauncher (..), RemoteError(..),
+                                              runProcessLocallyDefault,
+                                              serviceIdToString,
+                                              serviceIdToText)
+import           Hyperion.Slurm              (JobId (..), SbatchError,
+                                              SbatchOptions (..), sbatchCommand)
+import           Hyperion.Util               (emailError, retryExponential)
 import           Hyperion.WorkerCpuPool      (SSHCommand)
 import           System.Directory            (createDirectoryIfMissing)
 import           System.FilePath.Posix       ((<.>), (</>))
@@ -205,17 +214,49 @@ slurmWorkerLauncher hyperionExec holdMap opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
-    serviceHoldMap = Just holdMap
+
+    emailAlertUser :: (MonadIO m, Show e) => e -> m ()
+    emailAlertUser e = case mailUser opts of
+      Just toAddr -> emailError toAddr e
+      Nothing -> return ()
+
+    onRemoteError :: forall b . RemoteError -> Process b -> Process b
+    onRemoteError e@(RemoteError sId _) go = do
+      let
+        errInfo = (e, progInfo, msg)
+        msg = mconcat
+          [ "This remote process has been put on hold because of an error. "
+          , "To retry it, run 'curl localhost:<port>/retry/"
+          , serviceIdToText sId
+          , "', where <port> is the port of the HoldServer."
+          ]
+      Log.err errInfo
+      emailAlertUser errInfo
+      blockUntilRetried holdMap (serviceIdToText sId)
+      Log.info "Retrying" sId
+      go
+
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
     withLaunchedWorker nodeId serviceId goJobId = do
-      let progId = programId progInfo
-          logFile = programLogDir progInfo </> "workers" </> serviceIdToString serviceId <.> "log"
-      let opts' = opts
-            { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText serviceId
-            }
-          (cmd, args) = hyperionWorkerCommand hyperionExec nodeId serviceId logFile
-      jobId <- liftIO $ sbatchCommand opts' cmd (map Text.pack args)
+      jobId <- liftIO $
+        -- Repeatedly run sbatch, with exponentially increasing time
+        -- intervals between failures. Email the user on each failure
+        -- (see logSbatchError). We do not allow an SbatchError to
+        -- propagate up from here because there is no obvious way to
+        -- recover. TODO: maybe use the HoldServer?
+        retryExponential (try @IO @SbatchError) logSbatchError $
+        sbatchCommand opts' cmd (map Text.pack args)
       goJobId jobId
+      where
+        progId = programId progInfo
+        logFile = programLogDir progInfo </> "workers" </> serviceIdToString serviceId <.> "log"
+        opts' = opts
+          { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText serviceId
+          }
+        (cmd, args) = hyperionWorkerCommand hyperionExec nodeId serviceId logFile
+        logSbatchError e = do
+          Log.err e
+          emailAlertUser (e, progInfo, nodeId, serviceId)
 
 -- | An identifier for an object, useful for building filenames and
 -- database entries.

@@ -5,7 +5,7 @@
 
 module Hyperion.Slurm.Sbatch where
 
-import           Control.Monad.Catch   (Exception, try)
+import           Control.Monad.Catch   (Exception)
 import           Data.Attoparsec.Text  (Parser, parseOnly, takeWhile1)
 import           Data.Char             (isSpace)
 import           Data.Maybe            (catMaybes)
@@ -14,7 +14,7 @@ import qualified Data.Text             as T
 import           Data.Time.Clock       (NominalDiffTime)
 import qualified Hyperion.Log          as Log
 import           Hyperion.Slurm.JobId  (JobId (..))
-import           Hyperion.Util         (hour, retryRepeated)
+import           Hyperion.Util         (hour)
 import           System.Directory      (createDirectoryIfMissing)
 import           System.Exit           (ExitCode (..))
 import           System.FilePath.Posix (takeDirectory)
@@ -126,12 +126,11 @@ formatRuntime t = padNum h ++ ":" ++ padNum m ++ ":" ++ padNum s
     remBy d n = n - (fromInteger f) * d where
       f = quotBy d n
 
--- | Runs the command given by 'FilePath' with arguments @['Text']@
--- in @sbatch@ script via 'sbatchScript'. If 'sbatchScript' throws
--- 'SbatchError', retries for a total of 3 attempts (via 'retryRepeated').
+-- | Runs the command given by 'FilePath' with arguments @['Text']@ in
+-- @sbatch@ script via 'sbatchScript'. If 'sbatch' fails then throws
+-- 'SbatchError'.
 sbatchCommand :: SbatchOptions -> FilePath -> [Text] -> IO JobId
-sbatchCommand opts cmd args =
-  retryRepeated 3 (try @IO @SbatchError) (sbatchScript opts script)
+sbatchCommand opts cmd args = sbatchScript opts script
   where
     script = cmd ++ " " ++ unwords (map quote args)
     quote a = "\"" ++ T.unpack a ++ "\""
