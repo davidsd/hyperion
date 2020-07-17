@@ -22,8 +22,10 @@ import           System.Process        (readCreateProcessWithExitCode, shell)
 
 -- | Error from running @sbatch@. The 'String's are the contents of 'stdout'
 -- and 'stderr' from @sbatch@.
-data SbatchError = SbatchError (ExitCode, String, String)
-  deriving (Show, Exception)
+data SbatchError = SbatchError
+  { exitCodeStdinStderr :: (ExitCode, String, String)
+  , input :: String
+  } deriving (Show, Exception)
 
 -- | Type representing possible options for @sbatch@. Map 1-to-1 to @sbatch@
 -- options, so see @man sbatch@ for details.
@@ -102,7 +104,7 @@ sbatchScript opts script = do
   result@(exit, out, _) <- readCreateProcessWithExitCode (shell pipeToSbatch) ""
   case (exit, parseOnly sbatchOutputParser (T.pack out)) of
     (ExitSuccess, Right j) -> return j
-    _                      -> Log.throw (SbatchError result)
+    _                      -> Log.throw (SbatchError result pipeToSbatch)
   where
     pipeToSbatch = "printf '" ++ wrappedScript ++ "' | sbatch " ++ sBatchOptionString opts
     wrappedScript = "#!/bin/sh\n " ++ script
