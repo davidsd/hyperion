@@ -38,6 +38,11 @@ data HyperionConfig = HyperionConfig
     -- | The command used to run @ssh@ on nodes. Usually can be safely set to
     -- 'Nothing'. See 'SSHCommand' for details.
   , sshRunCommand        :: SSHCommand
+    -- | Email address for cluster notifications from
+    -- hyperion. Nothing means no emails will be sent. Note that this
+    -- setting can be different from the one in defaultSbatchOptions,
+    -- which controls notifications from SLURM.
+  , emailAddr            :: Maybe T.Text
   }
 
 -- | Default configuration, with all paths built form a single
@@ -52,6 +57,7 @@ defaultHyperionConfig baseDirectory = HyperionConfig
   , hyperionCommand      = Nothing
   , initialDatabase      = Nothing
   , sshRunCommand        = Nothing
+  , emailAddr            = Nothing
   }
 
 -- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
@@ -83,7 +89,7 @@ newClusterEnv HyperionConfig{..} = do
   let clusterJobOptions = defaultSbatchOptions
       programSSHCommand = sshRunCommand
       clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher hyperionExec holdMap
+      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap
       clusterDatabaseRetries = defaultDBRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   return (ClusterEnv{..}, hyperionExec, holdMap)

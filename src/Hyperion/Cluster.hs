@@ -205,18 +205,21 @@ runDBWithProgramInfo pInfo m = do
   dbConfigFromProgramInfo pInfo >>= runReaderT m
 
 slurmWorkerLauncher
-  :: FilePath
-  -> HoldMap
+  :: Maybe Text    -- ^ Email address to send notifications to if sbatch
+                   -- fails or there is an error in a remote
+                   -- job. 'Nothing' means no emails will be sent.
+  -> FilePath      -- ^ Path to this hyperion executable
+  -> HoldMap       -- ^ HoldMap used by the HoldServer
   -> SbatchOptions
   -> ProgramInfo
   -> WorkerLauncher JobId
-slurmWorkerLauncher hyperionExec holdMap opts progInfo =
+slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
 
     emailAlertUser :: (MonadIO m, Show e) => e -> m ()
-    emailAlertUser e = case mailUser opts of
+    emailAlertUser e = case emailAddr of
       Just toAddr -> emailError toAddr e
       Nothing -> return ()
 
