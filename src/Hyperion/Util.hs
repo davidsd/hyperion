@@ -56,7 +56,12 @@ data WaitRetry e = WaitRetry
 
 -- | @retryExponential doTry m@ tries to run @doTry m@. After the n-th
 -- successive failure, it waits time 2^n*t0, where t0 is a randomly
--- chosen time between 10 and 20 seconds.
+-- chosen time between 10 and 20 seconds. Unlike 'retryRepeated',
+-- 'retryExponential' never eventually throws an exception, so it
+-- should only be used when the only way to recover from the exception
+-- without the whole program crashing is to retry until things
+-- work. Typically this means it should only be used in the master
+-- process.
 retryExponential
   :: MonadIO m
   => (m a -> m (Either e a))
