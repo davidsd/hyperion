@@ -270,7 +270,7 @@ newtype ObjectId = ObjectId String
 -- | Convert an ObjectId to a String. With the current implementation
 -- of 'getObjectId', this string will contain only digits.
 objectIdToString :: ObjectId -> String
-objectIdToString (ObjectId i) = i
+objectIdToString (ObjectId i) = "Object_" ++ i
 
 -- | Convert an ObjectId to Text. With the current implementation
 -- of 'getObjectId', this string will contain only digits.
