@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveAnyClass        #-}
-{-# LANGUAGE DeriveDataTypeable    #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DerivingStrategies    #-}
 {-# LANGUAGE FlexibleInstances     #-}
@@ -12,19 +11,19 @@
 
 module Hyperion.Cluster where
 
-import Control.Monad.IO.Class (MonadIO)
 import           Control.Distributed.Process (NodeId, Process)
 import           Control.Lens                (lens)
 import           Control.Monad.Catch         (try)
+import           Control.Monad.IO.Class      (MonadIO)
 import           Control.Monad.IO.Class      (liftIO)
 import           Control.Monad.Reader        (ReaderT, asks, runReaderT)
 import           Data.Aeson                  (FromJSON, ToJSON)
 import           Data.Binary                 (Binary)
 import           Data.BinaryHash             (hashBase64Safe)
-import           Data.Data                   (Data)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as Text
 import           Data.Time.Clock             (NominalDiffTime)
+import           Data.Typeable               (Typeable)
 import           GHC.Generics                (Generic)
 import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
@@ -32,7 +31,8 @@ import           Hyperion.HasWorkers         (HasWorkerLauncher (..))
 import           Hyperion.HoldServer         (HoldMap, blockUntilRetried)
 import qualified Hyperion.Log                as Log
 import           Hyperion.ProgramId          (ProgramId, programIdToText)
-import           Hyperion.Remote             (ServiceId, WorkerLauncher (..), RemoteError(..),
+import           Hyperion.Remote             (RemoteError (..), ServiceId,
+                                              WorkerLauncher (..),
                                               runProcessLocallyDefault,
                                               serviceIdToString,
                                               serviceIdToText)
@@ -42,7 +42,6 @@ import           Hyperion.Util               (emailError, retryExponential)
 import           Hyperion.WorkerCpuPool      (SSHCommand)
 import           System.Directory            (createDirectoryIfMissing)
 import           System.FilePath.Posix       ((<.>), (</>))
-import Data.Typeable (Typeable)
 
 -- * General comments
 -- $
@@ -122,7 +121,7 @@ data ProgramInfo = ProgramInfo
   , programLogDir     :: FilePath
   , programDataDir    :: FilePath
   , programSSHCommand :: SSHCommand
-  } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON)
+  } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 -- | The environment for 'Cluster' monad.
 data ClusterEnv = ClusterEnv
@@ -163,7 +162,7 @@ instance HasWorkerLauncher ClusterEnv where
 data MPIJob = MPIJob
   { mpiNodes         :: Int
   , mpiNTasksPerNode :: Int
-  } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON, Typeable)
+  } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON, Typeable)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
 runCluster clusterEnv h = do
@@ -222,7 +221,7 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
     emailAlertUser :: (MonadIO m, Show e) => e -> m ()
     emailAlertUser e = case emailAddr of
       Just toAddr -> emailError toAddr e
-      Nothing -> return ()
+      Nothing     -> return ()
 
     onRemoteError :: forall b . RemoteError -> Process b -> Process b
     onRemoteError e@(RemoteError sId _) go = do
@@ -265,7 +264,7 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
 -- | An identifier for an object, useful for building filenames and
 -- database entries.
 newtype ObjectId = ObjectId String
-  deriving (Eq, Ord, Generic, Data, Binary, FromJSON, ToJSON)
+  deriving (Eq, Ord, Generic, Binary, FromJSON, ToJSON)
 
 -- | Convert an ObjectId to a String. With the current implementation
 -- of 'getObjectId', this string will contain only digits.

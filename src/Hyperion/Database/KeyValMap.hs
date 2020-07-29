@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveAnyClass      #-}
-{-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
@@ -15,7 +14,7 @@ import           Data.Aeson                       (FromJSON, ToJSON)
 import qualified Data.Aeson                       as Aeson
 import           Data.Binary                      (Binary)
 import qualified Data.ByteString.Lazy             as LBS
-import           Data.Data                        (Data, Typeable)
+import           Data.Data                        (Typeable)
 import           Data.Text                        (Text)
 import qualified Data.Text.Encoding               as T
 import           Data.Time.Clock                  (UTCTime)
@@ -31,7 +30,7 @@ import           Prelude                          hiding (lookup)
 -- $
 -- "Hyperion.Database.KeyValMap" provides various actions with Sqlite
 -- DB using 'withConnection' from "Hyperion.Database.HasDB".
--- 
+--
 -- The DB contains entries for 'KeyValMap': given 'kvMapName' and a
 -- key, DB can produce value or values for the key.  We think about
 -- this as a map, i.e. there is a preferred value for each key for a
@@ -61,7 +60,7 @@ import           Prelude                          hiding (lookup)
 -- | Type for 'KeyValMap' holds the types of key and value, but only
 -- contains 'kvMapName' the name of the map
 newtype KeyValMap a b = KeyValMap { kvMapName :: Text }
-  deriving (Eq, Ord, Show, Data, Typeable, Generic, Binary, FromJSON, ToJSON)
+  deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 -- | 'KeyValMap' is an instance of 'ToField' in order to use with Sqlite
 instance Sql.ToField (KeyValMap a b) where
@@ -73,7 +72,7 @@ instance Sql.ToField (KeyValMap a b) where
 -- The entry format is @program_id, kv_map, key, val, created_at@.
 -- These are the program id, map name, key, value, and timestamp,
 -- respectively.
--- 
+--
 -- @program_id@ is not used in lookups
 setupKeyValTable
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m)
@@ -101,12 +100,12 @@ instance (Typeable a, FromJSON a) => Sql.FromField (JsonField a) where
       Right result -> Sql.Ok (JsonField result)
     Sql.Errors err -> Sql.Errors err
 
--- | Make 'JsonField' an instance of 'ToField'. 
+-- | Make 'JsonField' an instance of 'ToField'.
 instance ToJSON a => Sql.ToField (JsonField a) where
   toField (JsonField a) = Sql.SQLText $ T.decodeUtf8 $ LBS.toStrict $ Aeson.encode a
 
--- | Inserts an map-key-val entry into the database. 
--- 
+-- | Inserts an map-key-val entry into the database.
+--
 -- If fails, retries using 'withConnectionRetry'
 insert
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, ToJSON b)
@@ -130,7 +129,7 @@ insert kvMap key val = do
 -- | Looks up a value in the database given the map name and the
 -- key. Takes the most recent matching entry according to the
 -- convention.
--- 
+--
 -- If fails, retries using 'withConnectionRetry'
 lookup
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a, Typeable b, FromJSON b)
@@ -152,7 +151,7 @@ lookup kvMap key = withConnectionRetry $ \conn -> do
 -- | Returns the list of all kev-value pairs for a given map. Again
 -- only keeps the latest versino of the value accroding to the
 -- convention.
--- 
+--
 -- If fails, retries using 'withConnectionRetry'
 lookupAll
   :: (MonadIO m, MonadReader env m, HasDB env, MonadCatch m, Typeable a, FromJSON a, Typeable b, FromJSON b)

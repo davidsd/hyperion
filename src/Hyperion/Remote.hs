@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveAnyClass      #-}
-{-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
@@ -23,12 +22,13 @@ import           Control.Distributed.Process.Closure (SerializableDict (..),
 import qualified Control.Distributed.Process.Node    as Node
 import           Control.Distributed.Static          (staticApply,
                                                       staticCompose, staticPtr)
-import           Control.Monad.Catch                 (Exception, bracket, catch, try,
-                                                      throwM, SomeException)
+import           Control.Monad.Catch                 (Exception, SomeException,
+                                                      bracket, catch, throwM,
+                                                      try)
 import           Control.Monad.Extra                 (whenM)
 import           Control.Monad.Trans.Maybe           (MaybeT (..))
 import           Data.Binary                         (Binary, encode)
-import           Data.Data                           (Data, Typeable)
+import           Data.Data                           (Typeable)
 import           Data.Foldable                       (asum)
 import           Data.Text                           (Text, pack)
 import qualified Data.Text.Encoding                  as E
@@ -46,10 +46,10 @@ import           System.Timeout                      (timeout)
 
 -- * Types
 
--- | Type for service id. 'ServiceId' is typically a random string that 
+-- | Type for service id. 'ServiceId' is typically a random string that
 -- is assigned to a worker. (Maybe to other things too?)
 newtype ServiceId = ServiceId String
-  deriving (Eq, Show, Generic, Data, Binary)
+  deriving (Eq, Show, Generic, Binary)
 
 serviceIdToText :: ServiceId -> Text
 serviceIdToText = pack . serviceIdToString
@@ -57,9 +57,9 @@ serviceIdToText = pack . serviceIdToString
 serviceIdToString :: ServiceId -> String
 serviceIdToString (ServiceId s) = s
 
--- | Type for basic master to worker messaging 
+-- | Type for basic master to worker messaging
 data WorkerMessage = Connected | ShutDown
-  deriving (Read, Show, Generic, Data, Binary)
+  deriving (Read, Show, Generic, Binary)
 
 data RemoteError = RemoteError ServiceId RemoteErrorType
   deriving (Show, Exception)
@@ -77,7 +77,7 @@ data RemoteErrorType
 data WorkerConnectionTimeout = WorkerConnectionTimeout ServiceId
   deriving (Show, Exception)
 
--- | 'WorkerLauncher' type parametrized by a type for job id. 
+-- | 'WorkerLauncher' type parametrized by a type for job id.
 data WorkerLauncher j = WorkerLauncher
   { -- | A function that launches a worker for the given 'ServiceId' on
     -- the master 'NodeId' and supplies its job id to the given
@@ -96,14 +96,14 @@ data WorkerLauncher j = WorkerLauncher
 
 -- * Functions for running a worker
 
--- | 'runProcessLocally' with default 'RemoteTable' and trying ports 
+-- | 'runProcessLocally' with default 'RemoteTable' and trying ports
 -- @[10090 .. 10990]@. See 'runProcessLocally' and 'runProcessLocally_'.
 runProcessLocallyDefault :: Process a -> IO a
 runProcessLocallyDefault = runProcessLocally Node.initRemoteTable ports
   where
     ports = map show [10090 .. 10990 :: Int]
 
--- | Same as 'runProcessLocally_', but returns allows a return value for the 
+-- | Same as 'runProcessLocally_', but returns allows a return value for the
 -- 'Process'.
 runProcessLocally :: RemoteTable -> [ServiceName] -> Process a -> IO a
 runProcessLocally rtable ports process = do
@@ -111,11 +111,11 @@ runProcessLocally rtable ports process = do
   runProcessLocally_ rtable ports $ process >>= liftIO . putMVar resultVar
   takeMVar resultVar
 
--- | Spawns a new local "Control.Distributed.Process.Node" 
+-- | Spawns a new local "Control.Distributed.Process.Node"
 -- with the given 'RemoteTable' and runs the given 'Process'
 -- on it. Waits for the process to finish.
 --
--- It tries to bind the node to the given list ['ServiceName'] of ports, 
+-- It tries to bind the node to the given list ['ServiceName'] of ports,
 -- attempting them one-by-one, and waiting for 5 seconds before timing the port out.
 runProcessLocally_ :: RemoteTable -> [ServiceName] -> Process () -> IO ()
 runProcessLocally_ rtable ports process = do
@@ -149,13 +149,13 @@ nodeIdToAddress (NodeId (EndPointAddress addr)) = E.decodeUtf8 addr
 --
 -- Repeatedly (at most 5 times) send our own 'ProcessId' and the send end of a typed channel
 -- ('SendPort' 'WorkerMessage') to a master node until it replies
--- 'Connected' (timeout 10 seconds for each attempt). 
--- Then 'expect' a 'ShutDown' signal.  
+-- 'Connected' (timeout 10 seconds for each attempt).
+-- Then 'expect' a 'ShutDown' signal.
 --
 -- While waiting, other processes will be run in a different thread,
 -- invoked by master through our 'NodeId' (which it extracts from 'ProcessId')
-worker 
-  :: NodeId     -- ^ 'NodeId' of the master node 
+worker
+  :: NodeId     -- ^ 'NodeId' of the master node
   -> ServiceId  -- ^ 'ServiceId' of master 'Process' (should be 'register'ed)
   -> Process ()
 worker masterNode serviceId@(ServiceId masterService) = do
@@ -176,7 +176,7 @@ worker masterNode serviceId@(ServiceId masterService) = do
     _ -> Log.text "Couldn't connect to master" >> die ()
 
 -- | Registers ('register') the current process under a random 'ServiceId', then
--- passes the 'ServiceId' to the given continuation. 
+-- passes the 'ServiceId' to the given continuation.
 -- After the continuation returns, unregisters ('unregister') the 'ServiceId'.
 withServiceId :: (ServiceId -> Process a) -> Process a
 withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
@@ -299,8 +299,8 @@ data RemoteFunction a b = RemoteFunction
   }
 
 -- | Produces a 'RemoteFunction' from a monadic function. Exception handling is added
--- by catching any exception @e@, logging @e@ with 'Log.err' (on the worker), 
--- and returning a 'Left' result with the textual representation of @e@ from 
+-- by catching any exception @e@, logging @e@ with 'Log.err' (on the worker),
+-- and returning a 'Left' result with the textual representation of @e@ from
 -- 'Show' instance.
 remoteFn
   :: (Binary a, Typeable a, Binary b, Typeable b)
@@ -347,16 +347,16 @@ sDictOutStatic = staticPtr (static sDictOut)
 -- the argument to the 'RemoteFunction', and a 'StaticPtr' to the remote function.
 -- The action that constructs the argument is embedded into 'runClosureProcess'
 -- of the resulting 'SerializableClosureProcess'.
--- 
--- 'StaticPtr' to the remote function can be constructed by using the keyword 'static'
--- from @StaticPointers@ extention. E.g., 
--- 
--- > static $ remoteFn f 
 --
--- Note, however, that @f@ should be either a top-level definition or a closed 
--- local definition in order for 'static' to work. Closed local definitions are 
+-- 'StaticPtr' to the remote function can be constructed by using the keyword 'static'
+-- from @StaticPointers@ extention. E.g.,
+--
+-- > static $ remoteFn f
+--
+-- Note, however, that @f@ should be either a top-level definition or a closed
+-- local definition in order for 'static' to work. Closed local definitions are
 -- local definitions that could in principle be defined at top-level.
--- A necessary condition is that the whole object to which 'static' is applied 
+-- A necessary condition is that the whole object to which 'static' is applied
 -- to is known at compile time.
 bindRemoteStatic
   :: (Binary a, Typeable a, Typeable b)
@@ -379,7 +379,7 @@ bindRemoteStatic ma kRemotePtr = do
     aDict = sDictInStatic  `staticApply` s
     bDict = sDictOutStatic `staticApply` s
 
--- | Same as 'bindRemoteStatic' where the argument to 'RemoteFunction' is 
+-- | Same as 'bindRemoteStatic' where the argument to 'RemoteFunction' is
 -- constructed by 'return' from the supplied argument.
 applyRemoteStatic
   :: (Binary a, Typeable a, Typeable b)
