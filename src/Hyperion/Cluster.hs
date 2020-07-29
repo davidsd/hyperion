@@ -20,8 +20,8 @@ import           Control.Monad.IO.Class      (liftIO)
 import           Control.Monad.Reader        (ReaderT, asks, runReaderT)
 import           Data.Aeson                  (FromJSON, ToJSON)
 import           Data.Binary                 (Binary)
+import           Data.BinaryHash             (hashBase64Safe)
 import           Data.Data                   (Data)
-import           Data.Hashable               (Hashable, hash)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as Text
 import           Data.Time.Clock             (NominalDiffTime)
@@ -42,6 +42,7 @@ import           Hyperion.Util               (emailError, retryExponential)
 import           Hyperion.WorkerCpuPool      (SSHCommand)
 import           System.Directory            (createDirectoryIfMissing)
 import           System.FilePath.Posix       ((<.>), (</>))
+import Data.Typeable (Typeable)
 
 -- * General comments
 -- $
@@ -162,7 +163,7 @@ instance HasWorkerLauncher ClusterEnv where
 data MPIJob = MPIJob
   { mpiNodes         :: Int
   , mpiNTasksPerNode :: Int
-  } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON, Hashable)
+  } deriving (Eq, Ord, Show, Generic, Data, Binary, FromJSON, ToJSON, Typeable)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
 runCluster clusterEnv h = do
@@ -263,13 +264,13 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
 
 -- | An identifier for an object, useful for building filenames and
 -- database entries.
-newtype ObjectId = ObjectId Int
+newtype ObjectId = ObjectId String
   deriving (Eq, Ord, Generic, Data, Binary, FromJSON, ToJSON)
 
 -- | Convert an ObjectId to a String. With the current implementation
 -- of 'getObjectId', this string will contain only digits.
 objectIdToString :: ObjectId -> String
-objectIdToString (ObjectId i) = show i
+objectIdToString (ObjectId i) = i
 
 -- | Convert an ObjectId to Text. With the current implementation
 -- of 'getObjectId', this string will contain only digits.
@@ -280,13 +281,13 @@ objectIdToText = Text.pack . objectIdToString
 -- first time it is called on a given object, 'getObjectId' comptues
 -- the ObjectId and stores it in the database before returning
 -- it. Subsequent calls read the value from the database.
-getObjectId :: (Hashable a, ToJSON a) => a -> Cluster ObjectId
-getObjectId = DB.memoizeWithMap (DB.KeyValMap "objectIds") (pure . ObjectId . abs . hash)
+getObjectId :: (Binary a, Typeable a, ToJSON a) => a -> Cluster ObjectId
+getObjectId = DB.memoizeWithMap (DB.KeyValMap "objectIds") (pure . ObjectId . hashBase64Safe)
 
 -- | Construct a working directory for the given object, using its
 -- ObjectId. Will be a subdirectory of 'programDataDir'. Created
 -- automatically, and saved in the database.
-newWorkDir :: (Hashable a, ToJSON a) => a -> Cluster FilePath
+newWorkDir :: (Binary a, Typeable a, ToJSON a) => a -> Cluster FilePath
 newWorkDir = DB.memoizeWithMap (DB.KeyValMap "workDirectories") $ \obj -> do
   dataDir <- asks (programDataDir . clusterProgramInfo)
   objId <- getObjectId obj

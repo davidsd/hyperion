@@ -26,7 +26,6 @@ dependencies:
 - unix
 - binary
 - transformers
-- hashable
 - stm
 - ghc-prim
 - directory
@@ -51,6 +50,7 @@ dependencies:
 - wai
 - warp
 - mime-mail
+- binaryhash
 
 library:
   source-dirs: src

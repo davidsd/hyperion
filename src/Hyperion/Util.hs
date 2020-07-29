@@ -8,8 +8,7 @@ import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.Except
 import qualified Data.ByteString.Char8 as B
-import           Data.Digits           (digits)
-import           Data.Hashable         (hashWithSalt)
+import           Data.BinaryHash       (hashBase64Safe)
 import           Data.Time.Clock       (NominalDiffTime)
 import qualified Hyperion.Log as Log
 import           System.Directory
@@ -168,17 +167,15 @@ sanitizeFileString = map (\c -> if c `notElem` allowed then '_' else c)
     allowed = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ".-_"
 
 -- | Truncates a string to a string of at most given length, replacing dropped
--- characters by a hash. The hash takes up 11 symbols (depends on @'maxBound'::'Int'@),
--- so asking for a smaller length will not work.
+-- characters by a hash. The hash takes up 43 symbols,
+-- so asking for a smaller length will still return 43 symbols.
 hashTruncateString :: Int -> String -> String
 hashTruncateString len s | length s <= len = s
 hashTruncateString len s =
   take numTake s ++ (if numTake > 0 then "-" else "") ++ hString
   where
-    numTake = len - 12
-    chars   = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']
-    h       = abs (hashWithSalt 0 (drop numTake s))
-    hString = map (chars !!) (digits (length chars) h)
+    numTake = len - 44
+    hString  = hashBase64Safe (drop numTake s)
 
 -- | Synonim for @'hashTruncateString' 230@
 hashTruncateFileName :: String -> String

@@ -12,4 +12,6 @@ extra-deps:
   commit: 144818f5174522ee4a027a4681ec047e0567c11b
 - git: https://github.com/davidsd/distributed-process-async.git
   commit: bfb2a156965fe62ed30c7eacfc09a410bb7c3705
+- git: https://gitlab.com/pkravchuk/binaryhash.git
+  commit: f5760f1912b97bdb9fe5ed5ce635010065c0c612
 resolver: lts-16.0
