@@ -33,7 +33,7 @@ import qualified Hyperion.Log                as Log
 import           Hyperion.ProgramId          (ProgramId, programIdToText)
 import           Hyperion.Remote             (RemoteError (..), ServiceId,
                                               WorkerLauncher (..),
-                                              runProcessLocallyDefault,
+                                              runProcessLocal,
                                               serviceIdToString,
                                               serviceIdToText)
 import           Hyperion.Slurm              (JobId (..), SbatchError,
@@ -165,8 +165,7 @@ data MPIJob = MPIJob
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON, Typeable)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
-runCluster clusterEnv h = do
-  runProcessLocallyDefault (runReaderT h clusterEnv)
+runCluster clusterEnv h = runProcessLocal (runReaderT h clusterEnv)
 
 modifyJobOptions :: (SbatchOptions -> SbatchOptions) -> ClusterEnv -> ClusterEnv
 modifyJobOptions f cfg = cfg { clusterJobOptions = f (clusterJobOptions cfg) }

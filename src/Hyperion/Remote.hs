@@ -39,10 +39,8 @@ import qualified Hyperion.Log                        as Log
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
 import           Network.BSD                         (getHostName)
-import           Network.Socket                      (ServiceName)
 import           Network.Transport                   (EndPointAddress (..))
-import           Network.Transport.TCP
-import           System.Timeout                      (timeout)
+import qualified Network.Transport.TCP               as NT
 
 -- * Types
 
@@ -96,42 +94,25 @@ data WorkerLauncher j = WorkerLauncher
 
 -- * Functions for running a worker
 
--- | 'runProcessLocally' with default 'RemoteTable' and trying ports
--- @[10090 .. 10990]@. See 'runProcessLocally' and 'runProcessLocally_'.
-runProcessLocallyDefault :: Process a -> IO a
-runProcessLocallyDefault = runProcessLocally Node.initRemoteTable ports
-  where
-    ports = map show [10090 .. 10990 :: Int]
-
--- | Same as 'runProcessLocally_', but returns allows a return value for the
+-- | Run a Process locally using the default
+-- 'RemoteTable'. Additionally allows a return value for the
 -- 'Process'.
-runProcessLocally :: RemoteTable -> [ServiceName] -> Process a -> IO a
-runProcessLocally rtable ports process = do
+runProcessLocal :: Process a -> IO a
+runProcessLocal process = do
   resultVar <- newEmptyMVar
-  runProcessLocally_ rtable ports $ process >>= liftIO . putMVar resultVar
+  runProcessLocal_ Node.initRemoteTable $ process >>= liftIO . putMVar resultVar
   takeMVar resultVar
 
--- | Spawns a new local "Control.Distributed.Process.Node"
--- with the given 'RemoteTable' and runs the given 'Process'
--- on it. Waits for the process to finish.
+-- | Spawns a new local "Control.Distributed.Process.Node" and runs
+-- the given 'Process' on it. Waits for the process to finish.
 --
--- It tries to bind the node to the given list ['ServiceName'] of ports,
--- attempting them one-by-one, and waiting for 5 seconds before timing the port out.
-runProcessLocally_ :: RemoteTable -> [ServiceName] -> Process () -> IO ()
-runProcessLocally_ rtable ports process = do
+-- Binds to the first available port by specifying port 0.
+runProcessLocal_ :: RemoteTable -> Process () -> IO ()
+runProcessLocal_ rtable process = do
   host  <- getHostName
-  let
-    tryPort port = MaybeT $
-      timeout (5*1000*1000)
-      (createTransport (defaultTCPAddr host port) defaultTCPParameters) >>= \case
-      Nothing -> do
-        Log.info "Timeout connecting to port" port
-        return Nothing
-      Just (Left _) -> return Nothing
-      Just (Right t) -> return (Just t)
-  runMaybeT (asum (map tryPort ports)) >>= \case
-    Nothing -> Log.throwError $ "Couldn't bind to ports: " ++ show ports
-    Just t -> do
+  NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
+    Left e -> Log.throw e
+    Right t -> do
       node <- Node.newLocalNode t rtable
       Log.info "Running on node" (Node.localNodeId node)
       Node.runProcess node process

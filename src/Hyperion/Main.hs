@@ -17,7 +17,7 @@ import qualified Hyperion.Database         as DB
 import           Hyperion.HoldServer       (withHoldServer)
 import qualified Hyperion.Log              as Log
 import           Hyperion.Remote           (addressToNodeId,
-                                            runProcessLocallyDefault, worker)
+                                            runProcessLocal, worker)
 import           Options.Applicative
 import           System.Console.Concurrent (withConcurrentOutput)
 import           System.Directory          (removeFile)
@@ -25,17 +25,21 @@ import           System.Environment        (getEnvironment)
 import           System.FilePath.Posix     ((</>))
 import           System.Posix.Process      (getProcessID)
 
--- | The type for command-line options to 'hyperionMain'. Here @a@ is the type for program-specific options.
--- In practice we want @a@ to be an instance of 'Show'
+-- | The type for command-line options to 'hyperionMain'. Here @a@ is
+-- the type for program-specific options.  In practice we want @a@ to
+-- be an instance of 'Show'
 data HyperionOpts a = 
-    HyperionMaster a      -- ^ Constructor for the case of a master process, holds program-specific options
-  | HyperionWorker Worker -- ^ Constructor for the case of a worker process, holds 'Worker' which is parsed
+    HyperionMaster a      -- ^ Constructor for the case of a master
+                          -- process, holds program-specific options
+  | HyperionWorker Worker -- ^ Constructor for the case of a worker
+                          -- process, holds 'Worker' which is parsed
                           -- by 'workerOpts'
 
 
--- | Main command-line option parser for 'hyperionMain'. 
--- Returns a 'Parser' that supports commands "worker" and "master",
--- and uses 'workerOpts' or the supplied parser, respectively, to parse the remaining options
+-- | Main command-line option parser for 'hyperionMain'.  Returns a
+-- 'Parser' that supports commands "worker" and "master", and uses
+-- 'workerOpts' or the supplied parser, respectively, to parse the
+-- remaining options
 hyperionOpts 
   :: Parser a -- ^ 'Parser' for program-specific options
   -> Parser (HyperionOpts a)
@@ -90,7 +94,7 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     Log.redirectToFile workerLogFile
     Log.info "Starting service" workerService
     Log.info "Environment" =<< getEnvironment
-    runProcessLocallyDefault
+    runProcessLocal
       (worker (addressToNodeId workerMasterAddress) workerService)
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args

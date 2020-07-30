@@ -63,7 +63,7 @@ binarySearchInverse f x bracket eps = go bracket
       where
         mid = (down + up) / 2
 
--- | Search for inverse of f(x)=x^n, and print the result.
+-- | Search for inverse of 'f(x)=x^n', and print the result.
 rootBinarySearch :: Int -> Double -> Bracket -> Double -> IO Bracket
 rootBinarySearch n x bracket eps = do
   Log.info "Running binary search at " (x, bracket, eps)
@@ -165,6 +165,7 @@ mkHyperionConfig ProgramOptions{..} =
     execDir               = baseDirectory </> "execDir"
     hyperionCommand       = Nothing
     initialDatabase       = Nothing
+    emailAddr             = Nothing
     sshRunCommand         = Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
   in HyperionConfig{..}
 

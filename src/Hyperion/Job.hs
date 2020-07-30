@@ -118,14 +118,15 @@ type Job = ReaderT JobEnv Process
 setTaskCpus :: NumCPUs -> JobEnv -> JobEnv
 setTaskCpus n cfg = cfg { jobTaskCpus = n }
 
--- | Runs the 'Job' monad locally. In practice it just fills in the environment
--- 'JobEnv' and calls 'runReaderT'. The environment is mostly constructed from @SLURM@
--- environment variables and 'ProgramInfo'. The exceptions to these are 
--- 'jobTaskCpus', which is set to @'NumCPUs' 1@, and 'jobTaskLauncher', 
--- which is created by 'withPoolLauncher' with logging to 
--- \"'programLogDir'\/workers\/workers\".
-runJobLocal :: ProgramInfo -> Job a -> Process a
-runJobLocal programInfo go = do
+-- | Runs the 'Job' monad assuming we are inside a SLURM job. In
+-- practice it just fills in the environment 'JobEnv' and calls
+-- 'runReaderT'. The environment is mostly constructed from @SLURM@
+-- environment variables and 'ProgramInfo'. The exceptions to these
+-- are 'jobTaskCpus', which is set to @'NumCPUs' 1@, and
+-- 'jobTaskLauncher', which is created by 'withPoolLauncher' with
+-- logging to \"'programLogDir'\/workers\/workers\".
+runJobSlurm :: ProgramInfo -> Job a -> Process a
+runJobSlurm programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   nodes <- liftIO WCP.getSlurmAddrs
   nodeCpus <- liftIO Slurm.getNTasksPerNode
@@ -140,6 +141,27 @@ runJobLocal programInfo go = do
           , jobProgramInfo    = programInfo
           }
     runReaderT go cfg
+
+-- | Runs the 'Job' locally in IO without using any information from a
+-- SLURM environment, with some basic default settings. This function
+-- is provided primarily for testing.
+runJobLocal :: ProgramInfo -> Job a -> IO a
+runJobLocal programInfo go = runProcessLocal $ do
+  dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
+  let
+    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
+    withLaunchedWorker nodeId serviceId goJobId = do
+      _ <- spawnLocal (worker nodeId serviceId)
+      goJobId (JobByName (serviceIdToText serviceId))
+    connectionTimeout = Nothing
+    onRemoteError e _ = throwM e
+  runReaderT go $ JobEnv
+    { jobDatabaseConfig = dbConfig
+    , jobNodeCpus       = NumCPUs 1
+    , jobTaskCpus       = NumCPUs 1
+    , jobTaskLauncher   = const WorkerLauncher{..}
+    , jobProgramInfo    = programInfo
+    }
 
 -- | 'WorkerLauncher' that uses the supplied command runner to launch
 -- workers.  Sets 'connectionTimeout' to 'Nothing'. Uses the
@@ -208,7 +230,7 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
     sshLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.sshRunCmd addr nodeSshCmd)
     eitherResult <- try @Process @SSHError $ do
       withRemoteRunProcess sshLauncher $ \remoteRunNode ->
-        let runCmdOnNode = remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocal))
+        let runCmdOnNode = remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocalLog))
         in workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
         go (Just (addr', launcher))
     case eitherResult of
@@ -217,15 +239,16 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
         Log.warn "Couldn't start launcher" err
         go Nothing
   WCP.LocalHost _ -> do
-    launcher <- workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocalQuiet)
+    launcher <- workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocal)
     go (Just (addr', launcher))
   where
-    runCmdLocalQuiet :: (String, [String]) -> IO ()
-    runCmdLocalQuiet (cmd, args) =
-      void $ createProcess $ proc cmd args
-    runCmdLocal c = do
+    runCmdLocalLog c = do
       Log.info "Running command" c
-      runCmdLocalQuiet c
+      runCmdLocal c
+
+runCmdLocal :: (String, [String]) -> IO ()
+runCmdLocal (cmd, args) =
+  void $ createProcess $ proc cmd args
 
 -- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to
 -- start \"worker-launcher\" workers on these addresses (see
@@ -253,13 +276,13 @@ withPoolLauncher cfg addrs' go = flip runContT return $ do
     , onRemoteError     = \e _ -> throwM e
     }
 
--- | Lifts 'remoteFn' to 'Job' monad using 'runJobLocal'.
+-- | Lifts 'remoteFn' to 'Job' monad using 'runJobSlurm'.
 remoteFnJob
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => (a -> Job b)
   -> RemoteFunction (a, ProgramInfo) b
 remoteFnJob f = remoteFn $ \(a, programInfo) -> do
-  runJobLocal programInfo (f a)
+  runJobSlurm programInfo (f a)
 
 -- | Runs a remote function of the type returned by 'remoteFnJob'
 -- remotely from the 'Cluster' monad. Similar to 'remoteBind'.
