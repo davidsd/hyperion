@@ -1,22 +1,15 @@
 module Hyperion
-  ( module Hyperion.ProgramId
-  , module Hyperion.Cluster
-  , module Hyperion.Job
-  , module Hyperion.Config
-  , module Hyperion.HasWorkers
-  , module Hyperion.Remote
-  , module Hyperion.WorkerCpuPool
-  , module Hyperion.Concurrent
-  , module Hyperion.Main
+  ( module Exports
   ) where
 
-import           Hyperion.Cluster
-import           Hyperion.Concurrent
-import           Hyperion.Config
-import           Hyperion.HasWorkers
-import           Hyperion.Job
-import           Hyperion.Main
-import           Hyperion.ProgramId
-import           Hyperion.Remote
-import           Hyperion.WorkerCpuPool
+import           Hyperion.Cluster       as Exports
+import           Hyperion.Concurrent    as Exports
+import           Hyperion.Config        as Exports
+import           Hyperion.HasWorkers    as Exports
+import           Hyperion.Job           as Exports
+import           Hyperion.Main          as Exports
+import           Hyperion.ObjectId      as Exports
+import           Hyperion.ProgramId     as Exports
+import           Hyperion.Remote        as Exports
+import           Hyperion.WorkerCpuPool as Exports
 

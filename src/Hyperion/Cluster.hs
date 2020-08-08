@@ -16,10 +16,10 @@ import           Control.Lens                (lens)
 import           Control.Monad.Catch         (try)
 import           Control.Monad.IO.Class      (MonadIO)
 import           Control.Monad.IO.Class      (liftIO)
-import           Control.Monad.Reader        (ReaderT, asks, runReaderT)
+import           Control.Monad.Reader        (ReaderT, asks,
+                                              runReaderT)
 import           Data.Aeson                  (FromJSON, ToJSON)
 import           Data.Binary                 (Binary)
-import           Data.BinaryHash             (hashBase64Safe)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as Text
 import           Data.Time.Clock             (NominalDiffTime)
@@ -30,6 +30,7 @@ import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..))
 import           Hyperion.HoldServer         (HoldMap, blockUntilRetried)
 import qualified Hyperion.Log                as Log
+import           Hyperion.ObjectId           (getObjectId, objectIdToString)
 import           Hyperion.ProgramId          (ProgramId, programIdToText)
 import           Hyperion.Remote             (RemoteError (..), ServiceId,
                                               WorkerLauncher (..),
@@ -259,28 +260,6 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
         logSbatchError e = do
           Log.err e
           emailAlertUser (e, progInfo, nodeId, serviceId)
-
--- | An identifier for an object, useful for building filenames and
--- database entries.
-newtype ObjectId = ObjectId String
-  deriving (Eq, Ord, Generic, Binary, FromJSON, ToJSON)
-
--- | Convert an ObjectId to a String. With the current implementation
--- of 'getObjectId', this string will contain only digits.
-objectIdToString :: ObjectId -> String
-objectIdToString (ObjectId i) = "Object_" ++ i
-
--- | Convert an ObjectId to Text. With the current implementation
--- of 'getObjectId', this string will contain only digits.
-objectIdToText :: ObjectId -> Text
-objectIdToText = Text.pack . objectIdToString
-
--- | The ObjectId of an object is the absolute value of its hash. The
--- first time it is called on a given object, 'getObjectId' comptues
--- the ObjectId and stores it in the database before returning
--- it. Subsequent calls read the value from the database.
-getObjectId :: (Binary a, Typeable a, ToJSON a) => a -> Cluster ObjectId
-getObjectId = DB.memoizeWithMap (DB.KeyValMap "objectIds") (pure . ObjectId . hashBase64Safe)
 
 -- | Construct a working directory for the given object, using its
 -- ObjectId. Will be a subdirectory of 'programDataDir'. Created
