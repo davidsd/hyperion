@@ -37,7 +37,7 @@ import           Hyperion.Remote             (RemoteError (..), ServiceId,
                                               WorkerLauncher (..),
                                               runProcessLocalWithRT,
                                               serviceIdToString,
-                                              serviceIdToText)
+                                              serviceIdToText, RemoteContext (..), registerRemoteContext)
 import           Hyperion.Slurm              (JobId (..), SbatchError,
                                               SbatchOptions (..), sbatchCommand)
 import           Hyperion.Util               (emailError, retryExponential)
@@ -171,7 +171,8 @@ data MPIJob = MPIJob
 runCluster :: ClusterEnv -> Cluster a -> IO a
 runCluster clusterEnv h = runProcessLocalWithRT rtable (runReaderT h clusterEnv)
   where
-    rtable = registerLockMap (clusterLockMap clusterEnv) initRemoteTable
+    rtable = registerRemoteContext Nothing
+           $ registerLockMap (clusterLockMap clusterEnv) initRemoteTable
 
 modifyJobOptions :: (SbatchOptions -> SbatchOptions) -> ClusterEnv -> ClusterEnv
 modifyJobOptions f cfg = cfg { clusterJobOptions = f (clusterJobOptions cfg) }
@@ -244,8 +245,8 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
       Log.info "Retrying" sId
       go
 
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker nodeId serviceId goJobId = do
+    withLaunchedWorker :: forall b . RemoteContext -> ServiceId -> (JobId -> Process b) -> Process b
+    withLaunchedWorker ctx serviceId goJobId = do
       jobId <- liftIO $
         -- Repeatedly run sbatch, with exponentially increasing time
         -- intervals between failures. Email the user on each failure
@@ -261,10 +262,10 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
         opts' = opts
           { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText serviceId
           }
-        (cmd, args) = hyperionWorkerCommand hyperionExec nodeId serviceId logFile
+        (cmd, args) = hyperionWorkerCommand hyperionExec (masterNodeId ctx) (depth ctx) serviceId logFile
         logSbatchError e = do
           Log.err e
-          emailAlertUser (e, progInfo, nodeId, serviceId)
+          emailAlertUser (e, progInfo, masterNodeId ctx, serviceId)
 
 -- | Construct a working directory for the given object, using its
 -- ObjectId. Will be a subdirectory of 'programDataDir'. Created

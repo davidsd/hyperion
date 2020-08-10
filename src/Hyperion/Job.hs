@@ -149,9 +149,9 @@ runJobLocal :: ProgramInfo -> Job a -> IO a
 runJobLocal programInfo go = runProcessLocal $ do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   let
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker nodeId serviceId goJobId = do
-      _ <- spawnLocal (worker nodeId serviceId)
+    withLaunchedWorker :: forall b . RemoteContext -> ServiceId -> (JobId -> Process b) -> Process b
+    withLaunchedWorker ctx serviceId goJobId = do
+      _ <- spawnLocal (worker (masterNodeId ctx) serviceId)
       goJobId (JobByName (serviceIdToText serviceId))
     connectionTimeout = Nothing
     onRemoteError e _ = throwM e
@@ -177,11 +177,11 @@ workerLauncherWithRunCmd
 workerLauncherWithRunCmd logDir runCmd = liftIO $ do
   hyperionExec <- myExecutable
   let
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker nodeId serviceId goJobId = do
+    withLaunchedWorker :: forall b . RemoteContext -> ServiceId -> (JobId -> Process b) -> Process b
+    withLaunchedWorker ctx serviceId goJobId = do
       let jobId = JobByName (serviceIdToText serviceId)
           logFile = logDir </> T.unpack (serviceIdToText serviceId) <.> "log"
-      runCmd (hyperionWorkerCommand hyperionExec nodeId serviceId logFile)
+      runCmd (hyperionWorkerCommand hyperionExec (masterNodeId ctx) (depth ctx) serviceId logFile)
       goJobId jobId
     connectionTimeout = Nothing
     onRemoteError e _ = throwM e

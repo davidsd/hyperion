@@ -11,6 +11,7 @@ import qualified Options.Applicative as Opts
 import Control.Distributed.Process (Process, liftIO)
 import Hyperion.LockMap (readString, putString)
 import Control.Concurrent (threadDelay)
+import Control.Monad.Trans (lift)
 
 data HelloOptions = HelloOptions
   { names   :: [String]
@@ -19,6 +20,7 @@ data HelloOptions = HelloOptions
 
 getGreeting :: String -> Process String
 getGreeting name = do
+  getRemoteContext >>= Log.info "My remote context is "
   Log.info "Generating greeting for" name
   readString >>= Log.info "Read string from master"
   if name == "changer" then do
@@ -37,7 +39,10 @@ remoteGetGreeting = remoteEval (static (remoteFn getGreeting))
 -- | Compute greetings concurrently in separate Slurm jobs and print them
 printGreetings :: HelloOptions -> Cluster ()
 printGreetings options = do
+  (lift getRemoteContext) >>= Log.info "My remote context is "
+  (lift readString) >>= Log.info "Read string from master"
   greetings <- mapConcurrently remoteGetGreeting (names options)
+  (lift readString) >>= Log.info "Read string from master"
   mapM_ (Log.text . Text.pack) greetings
 
 -- | Command-line options parser

@@ -42,6 +42,8 @@ import           Network.BSD                         (getHostName)
 import           Network.Transport                   (EndPointAddress (..))
 import qualified Network.Transport.TCP               as NT
 import Data.Rank1Dynamic (toDynamic)
+import Control.Applicative (liftA2)
+import Data.Maybe (fromMaybe)
 
 -- * Types
 
@@ -81,7 +83,7 @@ data WorkerLauncher j = WorkerLauncher
   { -- | A function that launches a worker for the given 'ServiceId' on
     -- the master 'NodeId' and supplies its job id to the given
     -- continuation
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (j -> Process b) -> Process b
+    withLaunchedWorker :: forall b . RemoteContext -> ServiceId -> (j -> Process b) -> Process b
     -- | Timeout for the worker to connect. If the worker is launched
     -- into a Slurm queue, it may take a very long time to connect. In
     -- that case, it is recommended to set 'connectionTimeout' =
@@ -133,20 +135,40 @@ addressToNodeId = NodeId . EndPointAddress . E.encodeUtf8
 nodeIdToAddress :: NodeId -> Text
 nodeIdToAddress (NodeId (EndPointAddress addr)) = E.decodeUtf8 addr
 
-hyperionNodeIdLabel :: String
-hyperionNodeIdLabel = "hyperionNodeIdLabel"
+data RemoteContext = RemoteContext
+  { masterNodeId :: NodeId
+  , depth        :: Int
+  }
+  deriving (Eq, Ord, Show)
 
-hyperionNodeIdStatic :: Static NodeId
-hyperionNodeIdStatic = staticLabel hyperionNodeIdLabel
+getChildRemoteContext :: Process RemoteContext
+getChildRemoteContext = do
+  masterNodeId <- getSelfNode
+  depth <- succ <$> getDepth
+  return RemoteContext {..}
 
-getHyperionNodeId :: Process NodeId
-getHyperionNodeId = unStatic hyperionNodeIdStatic
+remoteContextLabel :: String
+remoteContextLabel = "remoteContextLabel"
 
-registerHyperionNodeId :: NodeId -> RemoteTable -> RemoteTable
-registerHyperionNodeId nid = registerStatic hyperionNodeIdLabel (toDynamic nid)
+remoteContextStatic :: Static (Maybe RemoteContext)
+remoteContextStatic = staticLabel remoteContextLabel
 
-initWorkerRemoteTable :: NodeId -> RemoteTable
-initWorkerRemoteTable nid = registerHyperionNodeId nid Node.initRemoteTable
+getRemoteContext :: Process (Maybe RemoteContext)
+getRemoteContext = unStatic remoteContextStatic
+
+getMasterNodeId :: Process (Maybe NodeId)
+getMasterNodeId = (fmap masterNodeId) <$> getRemoteContext
+
+getDepth :: Process Int
+getDepth = do
+  mdepth <- (fmap depth) <$> getRemoteContext
+  return $ fromMaybe 0 mdepth
+
+registerRemoteContext :: Maybe RemoteContext -> RemoteTable -> RemoteTable
+registerRemoteContext ctx = registerStatic remoteContextLabel (toDynamic ctx)
+
+initWorkerRemoteTable :: Maybe RemoteContext -> RemoteTable
+initWorkerRemoteTable ctx = registerRemoteContext ctx Node.initRemoteTable
 
 -- | The main worker process.
 --
@@ -204,9 +226,9 @@ withService
   -> (NodeId -> ServiceId -> Process a)
   -> Process a
 withService WorkerLauncher{..} go = withServiceId $ \serviceId -> do
-  self <- getSelfNode
+  ctx <- getChildRemoteContext
   -- fire up a remote worker with instructions to contact this node
-  withLaunchedWorker self serviceId $ \jobId -> do
+  withLaunchedWorker ctx serviceId $ \jobId -> do
     Log.info "Deployed worker" (serviceId, jobId)
     -- Wait for the worker to connect and send its id
     let

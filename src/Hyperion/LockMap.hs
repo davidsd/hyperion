@@ -2,7 +2,7 @@
 
 module Hyperion.LockMap where
 
-import Control.Distributed.Process (Process, unStatic, RemoteTable, liftIO, NodeId, closure, Closure, call)
+import Control.Distributed.Process (Process, unStatic, RemoteTable, liftIO, NodeId, closure, Closure, call, getSelfNode)
 import Control.Distributed.Static (Static, staticLabel, registerStatic, staticPtr)
 import Control.Concurrent.STM (TVar, readTVarIO, atomically, writeTVar, newTVarIO)
 import Data.Rank1Dynamic (toDynamic)
@@ -10,8 +10,10 @@ import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy.Char8 (pack, unpack)
 import Data.Binary (encode, Binary)
 import Control.Distributed.Process.Serializable (SerializableDict (..), Serializable)
-import Hyperion.Remote (getHyperionNodeId)
+import Hyperion.Remote (getMasterNodeId)
 import Data.Typeable (Typeable)
+import Data.Maybe (fromMaybe)
+import Control.Applicative (liftA2)
 
 type LockMap = TVar String
 
@@ -26,7 +28,6 @@ getLockMap = unStatic lockMapStatic
 
 newLockMap :: IO LockMap
 newLockMap = newTVarIO "Hello lock maps"
-
 registerLockMap :: TVar String -> RemoteTable -> RemoteTable
 registerLockMap var = registerStatic lockMapLabel (toDynamic var)
 
@@ -51,7 +52,7 @@ callOnMaster :: (Binary a, Typeable a)
   -> Closure (Process a)
   -> Process a
 callOnMaster d c = do
-  nid <- getHyperionNodeId
+  nid <- (liftA2 fromMaybe) getSelfNode getMasterNodeId
   call d nid c
 
 readString :: Process String

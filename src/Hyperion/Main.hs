@@ -17,7 +17,7 @@ import qualified Hyperion.Database         as DB
 import           Hyperion.HoldServer       (withHoldServer)
 import qualified Hyperion.Log              as Log
 import           Hyperion.Remote           (addressToNodeId,
-                                            runProcessLocal, worker, runProcessLocalWithRT, initWorkerRemoteTable)
+                                            runProcessLocal, worker, runProcessLocalWithRT, initWorkerRemoteTable, RemoteContext (..))
 import           Options.Applicative
 import           System.Console.Concurrent (withConcurrentOutput)
 import           System.Directory          (removeFile)
@@ -96,7 +96,8 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     Log.info "Environment" =<< getEnvironment
     let
       nid = (addressToNodeId workerMasterAddress)
-    runProcessLocalWithRT (initWorkerRemoteTable nid)
+      ctx = RemoteContext nid workerDepth
+    runProcessLocalWithRT (initWorkerRemoteTable (Just ctx))
       (worker nid workerService)
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args
