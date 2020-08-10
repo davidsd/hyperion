@@ -25,10 +25,14 @@ getGreeting :: String -> Process String
 getGreeting name = do
   getRemoteContext >>= Log.info "My remote context is "
   Log.info "Generating greeting for" name
-  LM.lockRemote object
+  key <- LM.lockRemote object
   Log.info "Locked " object
-  liftIO $ threadDelay $ 10*1000*1000
-  LM.unlockRemote object
+  if name /= "fail" then 
+    liftIO $ threadDelay $ 10*1000*1000
+  else do
+    liftIO $ threadDelay $ 3*1000*1000
+    error "Planned failure"
+  LM.unlockRemote key
   Log.info "Unlocked " object
   return $ "Hello " ++ name ++ "!"
 
@@ -41,10 +45,10 @@ printGreetings :: HelloOptions -> Cluster ()
 printGreetings options = do
   (lift getRemoteContext) >>= Log.info "My remote context is "
   greetings <- mapConcurrently remoteGetGreeting (names options)
-  lift $ LM.lockRemote object
+  key <- lift $ LM.lockRemote object
   Log.info "Locked " object
   liftIO $ threadDelay $ 10*1000*1000
-  lift $ LM.unlockRemote object
+  lift $ LM.unlockRemote key
   Log.info "Unlocked " object
   mapM_ (Log.text . Text.pack) greetings
 
