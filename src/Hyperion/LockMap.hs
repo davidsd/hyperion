@@ -5,10 +5,7 @@
 {-# LANGUAGE StaticPointers      #-}
 
 module Hyperion.LockMap
-  ( Key,
-    LockMap,
-    lockRemote,
-    unlockRemote,
+  ( LockMap,
     isLockedRemote,
     withLock,
     newLockMap,
@@ -44,7 +41,7 @@ import           Hyperion.Remote                          (getMasterNodeId)
 -- Presence of () value indicates that the lock is locked
 type Lock = STM.TMVar ()
 
-data Key a = Key a
+newtype Key a = Key a
 
 newLockedLock :: STM.STM Lock
 newLockedLock = STM.newTMVar ()
@@ -172,5 +169,5 @@ unlockRemote (Key a) = unlockRemote_ $ serialize a
 isLockedRemote :: (Typeable a, Binary a) => a -> Process Bool
 isLockedRemote = isLockedRemote_ . serialize
 
-withLock :: (Typeable a, Binary a) => a -> (Key a -> Process r) -> Process r
-withLock obj = bracket (lockRemote obj) unlockRemote
+withLock :: (Typeable a, Binary a) => a -> Process r -> Process r
+withLock obj = bracket (lockRemote obj) unlockRemote . const
