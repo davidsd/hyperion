@@ -28,15 +28,15 @@ getGreeting name = do
   Log.info "Generating greeting for" name
   LM.withLock object $ \_ -> do
     Log.info "Locked " object
+    liftIO $ Log.flush
     if | name == "fail" -> do
            liftIO $ threadDelay $ 3*1000*1000
-           pid <- getSelfPid
-           kill pid "Planned failure"
+           fail "Planned failure"
        | name == "kill" -> do
            liftIO $ threadDelay $ 3*1000*1000
            pid <- getSelfPid
            kill pid "Planned suicide"
-       | otherwise -> liftIO . threadDelay $ 3*1000*1000
+       | otherwise -> liftIO . threadDelay $ 60*1000*1000
   Log.info "Unlocked " object
   return $ "Hello " ++ name ++ "!"
 

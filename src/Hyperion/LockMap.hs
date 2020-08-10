@@ -120,16 +120,15 @@ lockRemote_ bs' = do
       catch
         ( do
             link pid
-            liftIO . STM.atomically $ do
-              STM.putTMVar sig ()
-              STM.readTMVar lvar >>= wait
+            liftIO . STM.atomically $ STM.putTMVar sig ()
+            liftIO . STM.atomically $ STM.readTMVar lvar >>= wait
         )
         ( \(ProcessLinkException _ reason) ->
             unless (reason == DiedNormal) $ do
-              Log.warn "Process holding a lock dies, releasing lock." pid
-              liftIO . STM.atomically $ do
+              f <- liftIO . STM.atomically $ do
                 l <- STM.tryReadTMVar lvar
-                maybe (return ()) unlock l
+                maybe (return True) (\v -> unlock v >> return False) l
+              unless f $ Log.warn "Process holding a lock died, released the lock" pid
         )
 
 unlockRemote_ :: ByteString -> Process ()
