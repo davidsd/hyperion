@@ -1,6 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE LambdaCase     #-}
 {-# LANGUAGE StaticPointers #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Hyperion.LockMap
   ( Key,
@@ -19,7 +21,7 @@ import           Control.Distributed.Process              (DiedReason (..), Proc
                                                            RemoteTable, call,
                                                            closure,                                                           getSelfPid, liftIO,
                                                            link, match,                                                           receiveWait, send,
-                                                           spawnLocal, unStatic)
+                                                           spawnLocal, unStatic, ProcessMonitorNotification, monitor)
 import           Control.Distributed.Process.Serializable (SerializableDict (..))
 import           Control.Distributed.Static               (Static,
                                                            registerStatic,
@@ -35,6 +37,7 @@ import qualified Data.Map.Strict                          as Map
 import           Data.Rank1Dynamic                        (toDynamic)
 import           Data.Typeable                            (Typeable, typeOf)
 import           Hyperion.Remote                          (getMasterNodeId)
+import qualified Hyperion.Log as Log
 
 -- Presence of () value indicates that the lock is locked
 type Lock = STM.TMVar ()
@@ -102,8 +105,10 @@ lockRemote_ bs' = do
     watchDog pid pid' l =
       catch
         ( do
-            link pid
+            _ <- monitor pid
             send pid' ()
+            msg <- receiveWait [match $ (\(p :: ProcessMonitorNotification) -> return $ show p)]
+            Log.info "received message" msg
             liftIO . STM.atomically $ wait l
         )
         ( \(ProcessLinkException _ reason) ->
