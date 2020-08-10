@@ -72,4 +72,6 @@ helloOpts = HelloOptions
   <*> Opts.option Opts.str (Opts.long "workDir")
 
 main :: IO ()
-main = hyperionMain helloOpts (defaultHyperionConfig . workDir) printGreetings
+main = hyperionMain helloOpts (
+  \o -> (defaultHyperionConfig . workDir $ o) {sshRunCommand = Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])}
+  ) printGreetings
