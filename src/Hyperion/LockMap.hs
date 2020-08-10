@@ -1,8 +1,8 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE LambdaCase     #-}
-{-# LANGUAGE StaticPointers #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StaticPointers      #-}
 
 module Hyperion.LockMap
   ( Key,
@@ -10,25 +10,27 @@ module Hyperion.LockMap
     lockRemote,
     unlockRemote,
     isLockedRemote,
+    withLock,
     newLockMap,
     registerLockMap
   )
 where
 
 import qualified Control.Concurrent.STM                   as STM
-import           Control.Distributed.Process              (DiedReason (..), Process,                                                           ProcessId,
+import           Control.Distributed.Process              (DiedReason (..),
+                                                           Process, ProcessId,
                                                            ProcessLinkException (..),
                                                            RemoteTable, call,
-                                                           closure,                                                           getSelfPid, liftIO,
-                                                           link, match,                                                           receiveWait, send,
-                                                           spawnLocal, unStatic, ProcessMonitorNotification, monitor)
+                                                           closure, getSelfPid,
+                                                           liftIO, link,
+                                                           spawnLocal, unStatic)
 import           Control.Distributed.Process.Serializable (SerializableDict (..))
 import           Control.Distributed.Static               (Static,
                                                            registerStatic,
                                                            staticLabel,
                                                            staticPtr)
 import           Control.Monad                            (void)
-import           Control.Monad.Catch                      (catch)
+import           Control.Monad.Catch                      (catch, bracket)
 import           Control.Monad.Extra                      (unless)
 import           Data.Binary                              (Binary, decode,
                                                            encode)
@@ -36,8 +38,8 @@ import           Data.ByteString.Lazy                     (ByteString)
 import qualified Data.Map.Strict                          as Map
 import           Data.Rank1Dynamic                        (toDynamic)
 import           Data.Typeable                            (Typeable, typeOf)
+import qualified Hyperion.Log                             as Log
 import           Hyperion.Remote                          (getMasterNodeId)
-import qualified Hyperion.Log as Log
 
 -- Presence of () value indicates that the lock is locked
 type Lock = STM.TMVar ()
@@ -83,36 +85,51 @@ lockRemote_ :: ByteString -> Process ()
 lockRemote_ bs' = do
   getMasterNodeId >>= \case
     Nothing -> do
-      let (pid, bs) = decode bs'
-      lvar <- getLockMap
-      l <- liftIO . STM.atomically $ do
-        lmap <- STM.readTVar lvar
-        let mlock = Map.lookup bs lmap
-            lNew = do
-              l <- newLockedLock
-              STM.writeTVar lvar $ Map.insert bs l lmap
-              return l
-            lOld l = lock l >> return l
-        maybe lNew lOld mlock
-      pid' <- getSelfPid
-      _ <- spawnLocal (watchDog pid pid' l)
-      receiveWait [match $ \() -> return ()]
+      let
+        (pid, bs) = decode bs'
+      -- Make sure there is a cleanup process linked to the original caller
+      sig  <- liftIO . STM.atomically $ STM.newEmptyTMVar
+      lvar <- liftIO . STM.atomically $ STM.newEmptyTMVar
+      _    <- spawnLocal $ cleanup pid lvar sig
+      ()   <- liftIO . STM.atomically $ STM.takeTMVar sig
+
+      lmvar <- getLockMap
+      liftIO . STM.atomically $ do
+        l <- getLockedLock lmvar bs
+        STM.putTMVar lvar l
+
+      return ()
     Just nid ->
       call (staticPtr (static SerializableDict)) nid $
         closure (staticPtr (static lockRemote_)) bs'
   where
-    watchDog :: ProcessId -> ProcessId -> Lock -> Process ()
-    watchDog pid pid' l =
+    getLockedLock :: LockMap -> ByteString -> STM.STM Lock
+    getLockedLock lvar bs = do
+      lmap <- STM.readTVar lvar
+      let
+        mlock = Map.lookup bs lmap
+        lNew = do
+            l <- newLockedLock
+            STM.writeTVar lvar $ Map.insert bs l lmap
+            return l
+        lOld l = lock l >> return l
+      maybe lNew lOld mlock
+
+    cleanup :: ProcessId -> STM.TMVar Lock -> STM.TMVar () -> Process ()
+    cleanup pid lvar sig =
       catch
         ( do
-            _ <- monitor pid
-            send pid' ()
-            msg <- receiveWait [match $ (\(p :: ProcessMonitorNotification) -> return $ show p)]
-            Log.info "received message" msg
-            liftIO . STM.atomically $ wait l
+            link pid
+            liftIO . STM.atomically $ do
+              STM.putTMVar sig ()
+              STM.readTMVar lvar >>= wait
         )
         ( \(ProcessLinkException _ reason) ->
-            unless (reason == DiedNormal) $ liftIO . STM.atomically $ unlock l
+            unless (reason == DiedNormal) $ do
+              Log.warn "Process holding a lock dies, releasing lock." pid
+              liftIO . STM.atomically $ do
+                l <- STM.tryReadTMVar lvar
+                maybe (return ()) unlock l
         )
 
 unlockRemote_ :: ByteString -> Process ()
@@ -155,3 +172,6 @@ unlockRemote (Key a) = unlockRemote_ $ serialize a
 
 isLockedRemote :: (Typeable a, Binary a) => a -> Process Bool
 isLockedRemote = isLockedRemote_ . serialize
+
+withLock :: (Typeable a, Binary a) => a -> (Key a -> Process r) -> Process r
+withLock obj = bracket (lockRemote obj) unlockRemote

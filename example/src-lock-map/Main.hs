@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StaticPointers    #-}
+{-# LANGUAGE MultiWayIf #-}
 
 module Main where
 
@@ -8,7 +9,7 @@ import qualified Data.Text           as Text
 import           Hyperion
 import qualified Hyperion.Log        as Log
 import qualified Options.Applicative as Opts
-import Control.Distributed.Process (Process, liftIO)
+import Control.Distributed.Process (Process, liftIO, getSelfPid, kill)
 import qualified Hyperion.LockMap as LM
 import Control.Concurrent (threadDelay)
 import Control.Monad.Trans (lift)
@@ -25,14 +26,17 @@ getGreeting :: String -> Process String
 getGreeting name = do
   getRemoteContext >>= Log.info "My remote context is "
   Log.info "Generating greeting for" name
-  key <- LM.lockRemote object
-  Log.info "Locked " object
-  if name /= "fail" then 
-    liftIO $ threadDelay $ 10*1000*1000
-  else do
-    liftIO $ threadDelay $ 3*1000*1000
-    error "Planned failure"
-  LM.unlockRemote key
+  LM.withLock object $ \_ -> do
+    Log.info "Locked " object
+    if | name == "fail" -> do
+           liftIO $ threadDelay $ 3*1000*1000
+           pid <- getSelfPid
+           kill pid "Planned failure"
+       | name == "kill" -> do
+           liftIO $ threadDelay $ 3*1000*1000
+           pid <- getSelfPid
+           kill pid "Planned suicide"
+       | otherwise -> liftIO . threadDelay $ 3*1000*1000
   Log.info "Unlocked " object
   return $ "Hello " ++ name ++ "!"
 
