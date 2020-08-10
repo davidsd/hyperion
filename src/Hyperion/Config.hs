@@ -17,6 +17,7 @@ import           Hyperion.WorkerCpuPool (SSHCommand)
 import           System.Directory       (copyFile, createDirectoryIfMissing)
 import           System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>),
                                          (</>))
+import Hyperion.LockMap (newLockMap)
 
 -- | Global configuration for "Hyperion" cluster. 
 data HyperionConfig = HyperionConfig
@@ -92,6 +93,7 @@ newClusterEnv HyperionConfig{..} = do
       clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap
       clusterDatabaseRetries = defaultDBRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
+  clusterLockMap <- newLockMap
   return (ClusterEnv{..}, hyperionExec, holdMap)
 
 -- | Returns the path to a new database, given 'Maybe' inital database filepath
