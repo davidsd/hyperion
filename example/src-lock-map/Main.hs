@@ -9,7 +9,7 @@ import           Hyperion
 import qualified Hyperion.Log        as Log
 import qualified Options.Applicative as Opts
 import Control.Distributed.Process (Process, liftIO)
-import Hyperion.LockMap (readString, putString)
+import qualified Hyperion.LockMap as LM
 import Control.Concurrent (threadDelay)
 import Control.Monad.Trans (lift)
 
@@ -18,18 +18,18 @@ data HelloOptions = HelloOptions
   , workDir :: FilePath
   } deriving (Show)
 
+object :: (Int, String)
+object = (5, "Hello")
+
 getGreeting :: String -> Process String
 getGreeting name = do
   getRemoteContext >>= Log.info "My remote context is "
   Log.info "Generating greeting for" name
-  readString >>= Log.info "Read string from master"
-  if name == "changer" then do
-    Log.text "I'm the changer, changing string"
-    putString "New string!!!"
-  else do
-    Log.text "I'm not the changer, I'm waiting 10 sec"
-    liftIO $ threadDelay $ 10*1000*1000
-  readString >>= Log.info "Read string from master"
+  LM.lockRemote object
+  Log.info "Locked " object
+  liftIO $ threadDelay $ 10*1000*1000
+  LM.unlockRemote object
+  Log.info "Unlocked " object
   return $ "Hello " ++ name ++ "!"
 
 -- | Run a Slurm job to compute a greeting
@@ -40,9 +40,12 @@ remoteGetGreeting = remoteEval (static (remoteFn getGreeting))
 printGreetings :: HelloOptions -> Cluster ()
 printGreetings options = do
   (lift getRemoteContext) >>= Log.info "My remote context is "
-  (lift readString) >>= Log.info "Read string from master"
   greetings <- mapConcurrently remoteGetGreeting (names options)
-  (lift readString) >>= Log.info "Read string from master"
+  lift $ LM.lockRemote object
+  Log.info "Locked " object
+  liftIO $ threadDelay $ 10*1000*1000
+  lift $ LM.unlockRemote object
+  Log.info "Unlocked " object
   mapM_ (Log.text . Text.pack) greetings
 
 -- | Command-line options parser
