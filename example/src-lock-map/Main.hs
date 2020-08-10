@@ -13,6 +13,7 @@ import Control.Distributed.Process (Process, liftIO, getSelfPid, kill)
 import qualified Hyperion.LockMap as LM
 import Control.Concurrent (threadDelay)
 import Control.Monad.Trans (lift)
+import Control.Monad.Reader (local)
 
 data HelloOptions = HelloOptions
   { names   :: [String]
@@ -28,7 +29,7 @@ getGreeting name = do
   Log.info "Generating greeting for" name
   LM.withLock object $ \_ -> do
     Log.info "Locked " object
-    liftIO $ Log.flush
+    liftIO Log.flush
     if | name == "fail" -> do
            liftIO $ threadDelay $ 3*1000*1000
            fail "Planned failure"
@@ -40,15 +41,23 @@ getGreeting name = do
   Log.info "Unlocked " object
   return $ "Hello " ++ name ++ "!"
 
+getGreetings :: [String] -> Job [String]
+getGreetings names = local (setTaskCpus 1) $ do
+  mapConcurrently remoteGetGreeting names
+
 -- | Run a Slurm job to compute a greeting
-remoteGetGreeting :: String -> Cluster String
+remoteGetGreeting :: String -> Job String
 remoteGetGreeting = remoteEval (static (remoteFn getGreeting))
+
+-- | Run a Slurm job to compute a greeting
+remoteGetGreetings :: [String] -> Cluster [String]
+remoteGetGreetings = remoteEvalJob (static (remoteFnJob getGreetings))
 
 -- | Compute greetings concurrently in separate Slurm jobs and print them
 printGreetings :: HelloOptions -> Cluster ()
-printGreetings options = do
-  (lift getMasterNodeId) >>= Log.info "My remote context is "
-  greetings <- mapConcurrently remoteGetGreeting (names options)
+printGreetings options = local (setJobType (MPIJob 2 1)) $ do
+  lift getMasterNodeId >>= Log.info "My remote context is "
+  greetings <- remoteGetGreetings (names options)
   key <- lift $ LM.lockRemote object
   Log.info "Locked " object
   liftIO $ threadDelay $ 10*1000*1000
