@@ -57,7 +57,18 @@ remoteGetGreetings = remoteEvalJob (static (remoteFnJob getGreetings))
 printGreetings :: HelloOptions -> Cluster ()
 printGreetings options = local (setJobType (MPIJob 2 1)) $ do
   lift getMasterNodeId >>= Log.info "My remote context is "
-  greetings <- remoteGetGreetings (names options)
+  let
+    greetingsC = Concurrently (remoteGetGreetings (names options))
+    lockC :: Concurrently Cluster ([String] -> [String])
+    lockC = Concurrently $ do
+      liftIO $ threadDelay $ 10*1000*1000
+      lift $ LM.withLock object $ do
+        Log.info "Locked " object
+        liftIO $ threadDelay $ 10*1000*1000
+      Log.info "Unlocked" object
+      return id
+    go = lockC <*> greetingsC
+  greetings <- runConcurrently go
   mapM_ (Log.text . Text.pack) greetings
 
 -- | Command-line options parser
