@@ -24,7 +24,7 @@ object = (5, "Hello")
 
 getGreeting :: String -> Process String
 getGreeting name = do
-  getRemoteContext >>= Log.info "My remote context is "
+  getMasterNodeId >>= Log.info "My remote context is "
   Log.info "Generating greeting for" name
   LM.withLock object $ \_ -> do
     Log.info "Locked " object
@@ -47,7 +47,7 @@ remoteGetGreeting = remoteEval (static (remoteFn getGreeting))
 -- | Compute greetings concurrently in separate Slurm jobs and print them
 printGreetings :: HelloOptions -> Cluster ()
 printGreetings options = do
-  (lift getRemoteContext) >>= Log.info "My remote context is "
+  (lift getMasterNodeId) >>= Log.info "My remote context is "
   greetings <- mapConcurrently remoteGetGreeting (names options)
   key <- lift $ LM.lockRemote object
   Log.info "Locked " object

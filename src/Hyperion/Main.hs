@@ -17,7 +17,8 @@ import qualified Hyperion.Database         as DB
 import           Hyperion.HoldServer       (withHoldServer)
 import qualified Hyperion.Log              as Log
 import           Hyperion.Remote           (addressToNodeId,
-                                            runProcessLocal, worker, runProcessLocalWithRT, initWorkerRemoteTable, RemoteContext (..))
+                                            initWorkerRemoteTable,
+                                            runProcessLocalWithRT, worker)
 import           Options.Applicative
 import           System.Console.Concurrent (withConcurrentOutput)
 import           System.Directory          (removeFile)
@@ -28,7 +29,7 @@ import           System.Posix.Process      (getProcessID)
 -- | The type for command-line options to 'hyperionMain'. Here @a@ is
 -- the type for program-specific options.  In practice we want @a@ to
 -- be an instance of 'Show'
-data HyperionOpts a = 
+data HyperionOpts a =
     HyperionMaster a      -- ^ Constructor for the case of a master
                           -- process, holds program-specific options
   | HyperionWorker Worker -- ^ Constructor for the case of a worker
@@ -40,7 +41,7 @@ data HyperionOpts a =
 -- 'Parser' that supports commands "worker" and "master", and uses
 -- 'workerOpts' or the supplied parser, respectively, to parse the
 -- remaining options
-hyperionOpts 
+hyperionOpts
   :: Parser a -- ^ 'Parser' for program-specific options
   -> Parser (HyperionOpts a)
 hyperionOpts programOpts = subparser $ mconcat
@@ -61,7 +62,7 @@ opts programOpts = info (helper <*> hyperionOpts programOpts) fullDesc
 -- | 'hyperionMain' produces an @'IO' ()@ action that runs @hyperion@ and can be
 -- assigned to @main@. It performs the following actions
 --
---  1. If command-line arguments start with command @master@ then 
+--  1. If command-line arguments start with command @master@ then
 --
 --      - Uses the supplied parser to parse the remaining options into type @a@
 --      - Uses the supplied function to extract 'HyperionConfig' from @a@
@@ -73,14 +74,14 @@ opts programOpts = info (helper <*> hyperionOpts programOpts) fullDesc
 --      - Runs the supplied @'Cluster' ()@ action
 --      - Cleans up the copy of the executable, if exists (see 'newClusterEnv').
 --
---  2. If command-line arguments start with command @worker@ then 
+--  2. If command-line arguments start with command @worker@ then
 --
 --      - Extracts 'Worker' from the rest of the command-line args.
 --      - Logs 'ServiceId' of the worker and the system environment to worker log file.
---      - Runs @'worker' (...) :: 'Process' ()@ that connects to the master and waits for a 
---        'Hyperion.Remote.ShutDown' message (see 'worker' for details). 
+--      - Runs @'worker' (...) :: 'Process' ()@ that connects to the master and waits for a
+--        'Hyperion.Remote.ShutDown' message (see 'worker' for details).
 --        While waiting, the master can run computations on the node. Low-level
---        functions for this are implemented in "Hyperion.Remote", and some 
+--        functions for this are implemented in "Hyperion.Remote", and some
 --        higher-level functions in "Hyperion.HasWorkers"
 hyperionMain
   :: Show a
@@ -96,8 +97,7 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     Log.info "Environment" =<< getEnvironment
     let
       nid = (addressToNodeId workerMasterAddress)
-      ctx = RemoteContext nid workerDepth
-    runProcessLocalWithRT (initWorkerRemoteTable (Just ctx))
+    runProcessLocalWithRT (initWorkerRemoteTable (Just nid))
       (worker nid workerService)
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args

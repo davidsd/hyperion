@@ -11,40 +11,41 @@
 
 module Hyperion.Cluster where
 
-import           Control.Distributed.Process (NodeId, Process)
-import           Control.Lens                (lens)
-import           Control.Monad.Catch         (try)
-import           Control.Monad.IO.Class      (MonadIO)
-import           Control.Monad.IO.Class      (liftIO)
-import           Control.Monad.Reader        (ReaderT, asks, runReaderT)
-import           Data.Aeson                  (FromJSON, ToJSON)
-import           Data.Binary                 (Binary)
-import           Data.Text                   (Text)
-import qualified Data.Text                   as Text
-import           Data.Time.Clock             (NominalDiffTime)
-import           Data.Typeable               (Typeable)
-import           GHC.Generics                (Generic)
-import           Hyperion.Command            (hyperionWorkerCommand)
-import qualified Hyperion.Database           as DB
-import           Hyperion.HasWorkers         (HasWorkerLauncher (..))
-import           Hyperion.HoldServer         (HoldMap, blockUntilRetried)
-import           Hyperion.LockMap            (LockMap, newLockMap,
-                                              registerLockMap)
-import qualified Hyperion.Log                as Log
-import           Hyperion.ObjectId           (getObjectId, objectIdToString)
-import           Hyperion.ProgramId          (ProgramId, programIdToText)
-import           Hyperion.Remote             (RemoteError (..), ServiceId,
-                                              WorkerLauncher (..),
-                                              runProcessLocalWithRT,
-                                              serviceIdToString,
-                                              serviceIdToText, RemoteContext (..), registerRemoteContext)
-import           Hyperion.Slurm              (JobId (..), SbatchError,
-                                              SbatchOptions (..), sbatchCommand)
-import           Hyperion.Util               (emailError, retryExponential)
-import           Hyperion.WorkerCpuPool      (SSHCommand)
-import           System.Directory            (createDirectoryIfMissing)
-import           System.FilePath.Posix       ((<.>), (</>))
-import Control.Distributed.Process.Node (initRemoteTable)
+import           Control.Distributed.Process      (NodeId, Process)
+import           Control.Distributed.Process.Node (initRemoteTable)
+import           Control.Lens                     (lens)
+import           Control.Monad.Catch              (try)
+import           Control.Monad.IO.Class           (MonadIO, liftIO)
+import           Control.Monad.Reader             (ReaderT, asks, runReaderT)
+import           Data.Aeson                       (FromJSON, ToJSON)
+import           Data.Binary                      (Binary)
+import           Data.Text                        (Text)
+import qualified Data.Text                        as Text
+import           Data.Time.Clock                  (NominalDiffTime)
+import           Data.Typeable                    (Typeable)
+import           GHC.Generics                     (Generic)
+import           Hyperion.Command                 (hyperionWorkerCommand)
+import qualified Hyperion.Database                as DB
+import           Hyperion.HasWorkers              (HasWorkerLauncher (..))
+import           Hyperion.HoldServer              (HoldMap, blockUntilRetried)
+import           Hyperion.LockMap                 (LockMap, registerLockMap)
+import qualified Hyperion.Log                     as Log
+import           Hyperion.ObjectId                (getObjectId,
+                                                   objectIdToString)
+import           Hyperion.ProgramId               (ProgramId, programIdToText)
+import           Hyperion.Remote                  (RemoteError (..), ServiceId,
+                                                   WorkerLauncher (..),
+                                                   registerMasterNodeId,
+                                                   runProcessLocalWithRT,
+                                                   serviceIdToString,
+                                                   serviceIdToText)
+import           Hyperion.Slurm                   (JobId (..), SbatchError,
+                                                   SbatchOptions (..),
+                                                   sbatchCommand)
+import           Hyperion.Util                    (emailError, retryExponential)
+import           Hyperion.WorkerCpuPool           (SSHCommand)
+import           System.Directory                 (createDirectoryIfMissing)
+import           System.FilePath.Posix            ((<.>), (</>))
 
 -- * General comments
 -- $
@@ -146,7 +147,7 @@ instance DB.HasDB ClusterEnv where
     where
       get ClusterEnv {..} = DB.DatabaseConfig
         { dbPool      = clusterDatabasePool
-        , dbProgramId = programId (clusterProgramInfo)
+        , dbProgramId = programId clusterProgramInfo
         , dbRetries   = clusterDatabaseRetries
         }
       set h DB.DatabaseConfig {..} = h
@@ -171,7 +172,7 @@ data MPIJob = MPIJob
 runCluster :: ClusterEnv -> Cluster a -> IO a
 runCluster clusterEnv h = runProcessLocalWithRT rtable (runReaderT h clusterEnv)
   where
-    rtable = registerRemoteContext Nothing
+    rtable = registerMasterNodeId Nothing
            $ registerLockMap (clusterLockMap clusterEnv) initRemoteTable
 
 modifyJobOptions :: (SbatchOptions -> SbatchOptions) -> ClusterEnv -> ClusterEnv
@@ -245,8 +246,8 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
       Log.info "Retrying" sId
       go
 
-    withLaunchedWorker :: forall b . RemoteContext -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker ctx serviceId goJobId = do
+    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
+    withLaunchedWorker nid serviceId goJobId = do
       jobId <- liftIO $
         -- Repeatedly run sbatch, with exponentially increasing time
         -- intervals between failures. Email the user on each failure
@@ -262,10 +263,10 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
         opts' = opts
           { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText serviceId
           }
-        (cmd, args) = hyperionWorkerCommand hyperionExec (masterNodeId ctx) (depth ctx) serviceId logFile
+        (cmd, args) = hyperionWorkerCommand hyperionExec nid serviceId logFile
         logSbatchError e = do
           Log.err e
-          emailAlertUser (e, progInfo, masterNodeId ctx, serviceId)
+          emailAlertUser (e, progInfo, nid, serviceId)
 
 -- | Construct a working directory for the given object, using its
 -- ObjectId. Will be a subdirectory of 'programDataDir'. Created

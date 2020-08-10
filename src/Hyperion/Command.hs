@@ -16,7 +16,6 @@ import           Options.Applicative
 -- | Haskell representation of arguments passed to the worker process.
 data Worker = Worker
   { workerMasterAddress :: Text
-  , workerDepth         :: Int
   , workerService       :: ServiceId
   , workerLogFile       :: FilePath
   } deriving Show
@@ -28,9 +27,6 @@ workerOpts = do
     strOption (long "address"
                <> metavar "HOST:PORT"
                <> help "Address of the master process")
-  workerDepth <- option auto (long "depth"
-               <> metavar "INT"
-               <> help "Depth of worker in the hierarchy (0 = hyperion master)")
   workerService <- ServiceId <$>
     strOption (long "service"
                <> metavar "SERVICENAME"
@@ -42,13 +38,12 @@ workerOpts = do
   return Worker{..}
 
 -- | Returns the @(command, [arguments])@ to run the worker process
-hyperionWorkerCommand :: FilePath -> NodeId -> Int -> ServiceId -> FilePath -> (String, [String])
-hyperionWorkerCommand hyperionExecutable masterNode depth masterService logFile =
+hyperionWorkerCommand :: FilePath -> NodeId -> ServiceId -> FilePath -> (String, [String])
+hyperionWorkerCommand hyperionExecutable masterNode masterService logFile =
   (hyperionExecutable, map T.unpack args)
   where
     args = [ "worker"
            , "--address", nodeIdToAddress masterNode
-           , "--depth",   T.pack . show $ depth
            , "--service", serviceIdToText masterService
            , "--logFile", T.pack logFile
            ]
