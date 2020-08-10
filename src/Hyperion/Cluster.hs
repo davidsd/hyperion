@@ -16,8 +16,7 @@ import           Control.Lens                (lens)
 import           Control.Monad.Catch         (try)
 import           Control.Monad.IO.Class      (MonadIO)
 import           Control.Monad.IO.Class      (liftIO)
-import           Control.Monad.Reader        (ReaderT, asks,
-                                              runReaderT)
+import           Control.Monad.Reader        (ReaderT, asks, runReaderT)
 import           Data.Aeson                  (FromJSON, ToJSON)
 import           Data.Binary                 (Binary)
 import           Data.Text                   (Text)
@@ -29,12 +28,14 @@ import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..))
 import           Hyperion.HoldServer         (HoldMap, blockUntilRetried)
+import           Hyperion.LockMap            (LockMap, newLockMap,
+                                              registerLockMap)
 import qualified Hyperion.Log                as Log
 import           Hyperion.ObjectId           (getObjectId, objectIdToString)
 import           Hyperion.ProgramId          (ProgramId, programIdToText)
 import           Hyperion.Remote             (RemoteError (..), ServiceId,
                                               WorkerLauncher (..),
-                                              runProcessLocal,
+                                              runProcessLocalWithRT,
                                               serviceIdToString,
                                               serviceIdToText)
 import           Hyperion.Slurm              (JobId (..), SbatchError,
@@ -43,6 +44,7 @@ import           Hyperion.Util               (emailError, retryExponential)
 import           Hyperion.WorkerCpuPool      (SSHCommand)
 import           System.Directory            (createDirectoryIfMissing)
 import           System.FilePath.Posix       ((<.>), (</>))
+import Control.Distributed.Process.Node (initRemoteTable)
 
 -- * General comments
 -- $
@@ -131,6 +133,7 @@ data ClusterEnv = ClusterEnv
   , clusterJobOptions      :: SbatchOptions
   , clusterDatabasePool    :: DB.Pool
   , clusterDatabaseRetries :: Int
+  , clusterLockMap         :: LockMap
   }
 
 -- | The 'Cluster' monad. It is simply 'Process' with 'ClusterEnv' environment.
@@ -166,7 +169,9 @@ data MPIJob = MPIJob
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON, Typeable)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
-runCluster clusterEnv h = runProcessLocal (runReaderT h clusterEnv)
+runCluster clusterEnv h = runProcessLocalWithRT rtable (runReaderT h clusterEnv)
+  where
+    rtable = registerLockMap (clusterLockMap clusterEnv) initRemoteTable
 
 modifyJobOptions :: (SbatchOptions -> SbatchOptions) -> ClusterEnv -> ClusterEnv
 modifyJobOptions f cfg = cfg { clusterJobOptions = f (clusterJobOptions cfg) }

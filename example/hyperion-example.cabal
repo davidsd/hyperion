@@ -5,12 +5,44 @@ copyright:           2020 Petr Kravchuk
 cabal-version:       >=1.10
 build-type:          Simple
 
-executable hyperion-example
-  hs-source-dirs:      src
+executable root-search
+  hs-source-dirs:      src-root-search
   main-is:             Main.hs
   default-language:    Haskell2010
-  other-modules: HelloWorld
+--  other-modules: Main
   build-depends:       
+      base
+    , hyperion
+    , optparse-applicative
+    , filepath
+    , monad-control
+    , distributed-process
+    , mtl
+    , directory
+    , text
+
+executable hello-world
+  hs-source-dirs:      src-hello-world
+  main-is:             Main.hs
+  default-language:    Haskell2010
+--  other-modules:
+  build-depends:
+      base
+    , hyperion
+    , optparse-applicative
+    , filepath
+    , monad-control
+    , distributed-process
+    , mtl
+    , directory
+    , text
+
+executable lock-map
+  hs-source-dirs:      src-lock-map
+  main-is:             Main.hs
+  default-language:    Haskell2010
+--  other-modules:
+  build-depends:
       base
     , hyperion
     , optparse-applicative

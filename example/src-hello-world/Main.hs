@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StaticPointers    #-}
 
-module HelloWorld where
+module Main where
 
 import           Control.Applicative (many)
 import qualified Data.Text           as Text
@@ -35,5 +35,5 @@ helloOpts = HelloOptions
   <$> many (Opts.option Opts.str (Opts.long "name"))
   <*> Opts.option Opts.str (Opts.long "workDir")
 
-helloMain :: IO ()
-helloMain = hyperionMain helloOpts (defaultHyperionConfig . workDir) printGreetings
+main :: IO ()
+main = hyperionMain helloOpts (defaultHyperionConfig . workDir) printGreetings

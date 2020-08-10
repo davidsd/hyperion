@@ -21,7 +21,7 @@ import           Control.Distributed.Process.Closure (SerializableDict (..),
                                                       staticDecode)
 import qualified Control.Distributed.Process.Node    as Node
 import           Control.Distributed.Static          (staticApply,
-                                                      staticCompose, staticPtr)
+                                                      staticCompose, staticPtr, staticLabel, registerStatic)
 import           Control.Monad.Catch                 (Exception, SomeException,
                                                       bracket, catch, throwM,
                                                       try)
@@ -41,6 +41,7 @@ import           Hyperion.Util                       (nominalDiffTimeToMicroseco
 import           Network.BSD                         (getHostName)
 import           Network.Transport                   (EndPointAddress (..))
 import qualified Network.Transport.TCP               as NT
+import Data.Rank1Dynamic (toDynamic)
 
 -- * Types
 
@@ -98,17 +99,23 @@ data WorkerLauncher j = WorkerLauncher
 -- 'RemoteTable'. Additionally allows a return value for the
 -- 'Process'.
 runProcessLocal :: Process a -> IO a
-runProcessLocal process = do
+runProcessLocal = runProcessLocalWithRT Node.initRemoteTable
+
+-- | Run a Process locally using the specified
+-- 'RemoteTable'. Additionally allows a return value for the
+-- 'Process'.
+runProcessLocalWithRT :: RemoteTable -> Process a -> IO a
+runProcessLocalWithRT rt process = do
   resultVar <- newEmptyMVar
-  runProcessLocal_ Node.initRemoteTable $ process >>= liftIO . putMVar resultVar
+  runProcessLocalWithRT_ rt $ process >>= liftIO . putMVar resultVar
   takeMVar resultVar
 
 -- | Spawns a new local "Control.Distributed.Process.Node" and runs
 -- the given 'Process' on it. Waits for the process to finish.
 --
 -- Binds to the first available port by specifying port 0.
-runProcessLocal_ :: RemoteTable -> Process () -> IO ()
-runProcessLocal_ rtable process = do
+runProcessLocalWithRT_ :: RemoteTable -> Process () -> IO ()
+runProcessLocalWithRT_ rtable process = do
   host  <- getHostName
   NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
     Left e -> Log.throw e
@@ -125,6 +132,21 @@ addressToNodeId = NodeId . EndPointAddress . E.encodeUtf8
 -- | Inverse to 'addressToNodeId'
 nodeIdToAddress :: NodeId -> Text
 nodeIdToAddress (NodeId (EndPointAddress addr)) = E.decodeUtf8 addr
+
+hyperionNodeIdLabel :: String
+hyperionNodeIdLabel = "hyperionNodeIdLabel"
+
+hyperionNodeIdStatic :: Static NodeId
+hyperionNodeIdStatic = staticLabel hyperionNodeIdLabel
+
+getHyperionNodeId :: Process NodeId
+getHyperionNodeId = unStatic hyperionNodeIdStatic
+
+registerHyperionNodeId :: NodeId -> RemoteTable -> RemoteTable
+registerHyperionNodeId nid = registerStatic hyperionNodeIdLabel (toDynamic nid)
+
+initWorkerRemoteTable :: NodeId -> RemoteTable
+initWorkerRemoteTable nid = registerHyperionNodeId nid Node.initRemoteTable
 
 -- | The main worker process.
 --
