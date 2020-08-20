@@ -196,6 +196,9 @@ setJobType MPIJob{..} = modifyJobOptions $ \opts -> opts
 setSlurmPartition :: Text -> ClusterEnv -> ClusterEnv
 setSlurmPartition p = modifyJobOptions $ \opts -> opts { partition = Just p }
 
+setSlurmConstraint :: Text -> ClusterEnv -> ClusterEnv
+setSlurmConstraint c = modifyJobOptions $ \opts -> opts { constraint = Just c }
+
 -- | The default number of retries to use in 'withConnectionRetry'. Set to 20.
 defaultDBRetries :: Int
 defaultDBRetries = 20 -- update haddock if changing the value

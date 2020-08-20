@@ -51,6 +51,8 @@ data SbatchOptions = SbatchOptions
   , mailUser      :: Maybe Text
   -- | @SLURM@ partition (\"--partition\")
   , partition     :: Maybe Text
+  -- | (\"--constraint")
+  , constraint    :: Maybe Text
   } deriving (Show)
 
 -- | Default 'SbatchOptions'. Request 1 task on 1 node for 24 hrs, everything else
@@ -67,6 +69,7 @@ defaultSbatchOptions = SbatchOptions
   , mailType        = Nothing
   , mailUser        = Nothing
   , partition       = Nothing
+  , constraint      = Nothing
   }
 
 -- Convert 'SbatchOptions' to a string of options for @sbatch@
@@ -87,6 +90,7 @@ sBatchOptionString SbatchOptions{..} =
       , ("--mail-type",       fmap T.unpack mailType)
       , ("--mail-user",       fmap T.unpack mailUser)
       , ("--partition",       fmap T.unpack partition)
+      , ("--constraint",      fmap T.unpack constraint)
       ]
 
 sbatchOutputParser :: Parser JobId
