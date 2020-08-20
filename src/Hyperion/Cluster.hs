@@ -217,10 +217,11 @@ slurmWorkerLauncher
                    -- job. 'Nothing' means no emails will be sent.
   -> FilePath      -- ^ Path to this hyperion executable
   -> HoldMap       -- ^ HoldMap used by the HoldServer
+  -> Int           -- ^ Port used by the HoldServer (needed for error messages)
   -> SbatchOptions
   -> ProgramInfo
   -> WorkerLauncher JobId
-slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
+slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
@@ -236,9 +237,11 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap opts progInfo =
         errInfo = (e, progInfo, msg)
         msg = mconcat
           [ "This remote process has been put on hold because of an error. "
-          , "To retry it, run 'curl localhost:<port>/retry/"
+          , "To retry it, run 'curl localhost:"
+          , Text.pack (show holdPort)
+          , "/retry/"
           , serviceIdToText sId
-          , "', where <port> is the port of the HoldServer."
+          , "'"
           ]
       Log.err errInfo
       emailAlertUser errInfo

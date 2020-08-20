@@ -14,7 +14,7 @@ import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
 import           Hyperion.Command          (Worker (..), workerOpts)
 import           Hyperion.Config           (HyperionConfig (..), newClusterEnv)
 import qualified Hyperion.Database         as DB
-import           Hyperion.HoldServer       (withHoldServer)
+import           Hyperion.HoldServer       (withHoldServer, newHoldMap)
 import qualified Hyperion.Log              as Log
 import           Hyperion.Remote           (addressToNodeId,
                                             initWorkerRemoteTable,
@@ -101,18 +101,19 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
       (worker nid workerService)
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args
-    (clusterEnv@ClusterEnv{..}, hyperionExecutable, holdMap) <- newClusterEnv hyperionConfig
-    let progId = programId clusterProgramInfo
-        masterLogFile = programLogDir clusterProgramInfo </> "master.log"
-    pid <- getProcessID
-    -- run the hold server on an available port
-    withHoldServer holdMap $ \holdServerPort -> do
+    holdMap <- newHoldMap
+    withHoldServer holdMap $ \holdPort -> do
+      (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig holdMap holdPort
+      let progId = programId clusterProgramInfo
+          masterLogFile = programLogDir clusterProgramInfo </> "master.log"
+      pid <- getProcessID
       let logMasterInfo = do
             Log.info "Program id" progId
             Log.info "Process id" pid
             Log.info "Program arguments" args
             Log.info "Using database" (programDatabase clusterProgramInfo)
-            Log.info "Running hold server on port" holdServerPort
+            Log.info "Running hold server on port" holdPort
+      Log.rawText "--------------------------------------------------------------------------------\n"
       logMasterInfo
       Log.info "Logging to" masterLogFile
       Log.flush
@@ -122,5 +123,5 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
       runCluster clusterEnv (clusterProgram args)
       unless (isJust (hyperionCommand hyperionConfig)) $
         removeFile hyperionExecutable
-    Log.info "Finished" progId
+      Log.info "Finished" progId
 

@@ -29,6 +29,9 @@ import           Text.Show.Pretty          (ppDoc)
 prettyShowText :: Show a => a -> Text
 prettyShowText a = T.pack (PP.render (ppDoc a))
 
+rawText :: MonadIO m => Text -> m ()
+rawText t = liftIO $ errorConcurrent t
+
 -- | Outputs the first argument to log. Prepends current time in the format
 -- @[%a %D %X]@ where @%a@ is day of the week, @%D@ is date in @mm\/dd\/yy@ format, @%X@ is
 -- current time of day in some default locale.

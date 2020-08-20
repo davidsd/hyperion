@@ -8,7 +8,7 @@ import           Data.Time.Format       (defaultTimeLocale, formatTime)
 import           Data.Time.LocalTime    (getZonedTime)
 import           Hyperion.Cluster
 import qualified Hyperion.Database      as DB
-import           Hyperion.HoldServer    (HoldMap, newHoldMap)
+import           Hyperion.HoldServer    (HoldMap)
 import qualified Hyperion.Log           as Log
 import           Hyperion.ProgramId
 import qualified Hyperion.Slurm         as Slurm
@@ -76,8 +76,8 @@ defaultHyperionConfig baseDirectory = HyperionConfig
 --       from the values in 'HyperionConfig' and 'programId'.
 --     * 'slurmWorkerLauncher' is used for 'clusterWorkerLauncher'
 --     * 'clusterDatabaseRetries' is set to 'defaultDBRetries'.
-newClusterEnv :: HyperionConfig -> IO (ClusterEnv, FilePath, HoldMap)
-newClusterEnv HyperionConfig{..} = do
+newClusterEnv :: HyperionConfig -> HoldMap -> Int -> IO (ClusterEnv, FilePath)
+newClusterEnv HyperionConfig{..} holdMap holdPort = do
   programId    <- newProgramId
   hyperionExec <- maybe
     (savedExecutable execDir (T.unpack (programIdToText programId)))
@@ -86,15 +86,14 @@ newClusterEnv HyperionConfig{..} = do
   programDatabase <- newDatabasePath initialDatabase databaseDir programId
   programLogDir <- timedProgramDir logDir programId
   programDataDir <- timedProgramDir dataDir programId
-  holdMap <- newHoldMap
   let clusterJobOptions = defaultSbatchOptions
       programSSHCommand = sshRunCommand
       clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap
+      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort
       clusterDatabaseRetries = defaultDBRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   clusterLockMap <- newLockMap
-  return (ClusterEnv{..}, hyperionExec, holdMap)
+  return (ClusterEnv{..}, hyperionExec)
 
 -- | Returns the path to a new database, given 'Maybe' inital database filepath
 -- and base directory
