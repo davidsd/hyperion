@@ -117,7 +117,6 @@ lockRemote_ bs' = do
           mapM_ (lock pid) locks
           STM.putTMVar lvar locks
         else STM.retry
-
       return ()
     Just nid ->
       call (staticPtr (static SerializableDict)) nid $
@@ -125,19 +124,18 @@ lockRemote_ bs' = do
   where
     getLocks :: LockMap -> [ByteString] -> STM.STM [Lock]
     getLocks lmapvar bss = do
-      lmap <- STM.readTVar lmapvar
-      mapM (lookupOrNew lmap) bss
+      mapM lookupOrNew bss
       where
-        lookupOrNew :: Map.Map ByteString Lock -> ByteString -> STM.STM Lock
-        lookupOrNew lmap bs = do
+        lookupOrNew :: ByteString -> STM.STM Lock
+        lookupOrNew bs = do
+          lmap <- STM.readTVar lmapvar
           let
             mlock = Map.lookup bs lmap
-            lNew = do
+            new = do
                 l <- STM.newEmptyTMVar
                 STM.writeTVar lmapvar $ Map.insert bs l lmap
                 return l
-            lOld l = return l
-          maybe lNew lOld mlock
+          maybe new return mlock
 
     cleanup :: ProcessId -> STM.TMVar [Lock] -> STM.TMVar () -> Process ()
     cleanup pid lvar sig =

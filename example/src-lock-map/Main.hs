@@ -40,23 +40,24 @@ getGreeting name = do
       pid <- getSelfPid
       kill pid "Planned suicide"
     "lock1" -> do
-      liftIO $ threadDelay $ 35*1000*1000
+      liftIO $ threadDelay $ 5*1000*1000
       LM.withLock (objects !! 0) $ do
         Log.info "Locked " (objects !! 0)
         liftIO Log.flush
         liftIO $ threadDelay $ 30*1000*1000
-    "lock2" -> LM.withLock (objects !! 1) $ do
-      liftIO $ threadDelay $ 35*1000*1000
-      Log.info "Locked " (objects !! 1)
-      liftIO Log.flush
-      liftIO $ threadDelay $ 30*1000*1000
+    "lock2" -> do
+      liftIO $ threadDelay $ 5*1000*1000
+      LM.withLock (objects !! 1) $ do
+        Log.info "Locked " (objects !! 1)
+        liftIO Log.flush
+        liftIO $ threadDelay $ 30*1000*1000
     "lock12" -> LM.withLocks objects $ do
       Log.info "Locked " objects
       liftIO Log.flush
       liftIO $ threadDelay $ 30*1000*1000
     "lock12_" -> do
-      liftIO $ threadDelay $ 70*1000*1000
-      LM.withLock objects $ do
+      liftIO $ threadDelay $ 40*1000*1000
+      LM.withLocks objects $ do
         Log.info "Locked " objects
         liftIO Log.flush
         liftIO $ threadDelay $ 30*1000*1000
@@ -78,7 +79,7 @@ remoteGetGreetings = remoteEvalJob (static (remoteFnJob getGreetings))
 
 -- | Compute greetings concurrently in separate Slurm jobs and print them
 printGreetings :: HelloOptions -> Cluster ()
-printGreetings options = local (setJobType (MPIJob 2 1)) $ do
+printGreetings options = local (setJobType (MPIJob 2 2)) $ do
   lift getMasterNodeId >>= Log.info "My remote context is "
   let
 --    greetingsC = Concurrently (remoteGetGreetings (names options))
