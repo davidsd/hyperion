@@ -20,25 +20,48 @@ data HelloOptions = HelloOptions
   , workDir :: FilePath
   } deriving (Show)
 
-object :: (Int, String)
-object = (5, "Hello")
+objects :: [(Int, String)]
+objects = [(5, "Hello"), (4, "Hello2")]
 
 getGreeting :: String -> Process String
 getGreeting name = do
   getMasterNodeId >>= Log.info "My remote context is "
   Log.info "Generating greeting for" name
-  LM.withLock object $ do
-    Log.info "Locked " object
-    liftIO Log.flush
-    if | name == "fail" -> do
-           liftIO $ threadDelay $ 3*1000*1000
-           fail "Planned failure"
-       | name == "kill" -> do
-           liftIO $ threadDelay $ 3*1000*1000
-           pid <- getSelfPid
-           kill pid "Planned suicide"
-       | otherwise -> liftIO . threadDelay $ 60*1000*1000
-  Log.info "Unlocked " object
+  case name of
+    "fail" -> LM.withLock (objects !! 0) $ do
+      Log.info "Locked " (objects !! 0)
+      liftIO Log.flush
+      liftIO $ threadDelay $ 3*1000*1000
+      fail "Planned failure"
+    "kill" -> LM.withLock (objects !! 0) $ do
+      Log.info "Locked " (objects !! 0)
+      liftIO Log.flush
+      liftIO $ threadDelay $ 3*1000*1000
+      pid <- getSelfPid
+      kill pid "Planned suicide"
+    "lock1" -> do
+      liftIO $ threadDelay $ 35*1000*1000
+      LM.withLock (objects !! 0) $ do
+        Log.info "Locked " (objects !! 0)
+        liftIO Log.flush
+        liftIO $ threadDelay $ 30*1000*1000
+    "lock2" -> LM.withLock (objects !! 1) $ do
+      liftIO $ threadDelay $ 35*1000*1000
+      Log.info "Locked " (objects !! 1)
+      liftIO Log.flush
+      liftIO $ threadDelay $ 30*1000*1000
+    "lock12" -> LM.withLocks objects $ do
+      Log.info "Locked " objects
+      liftIO Log.flush
+      liftIO $ threadDelay $ 30*1000*1000
+    "lock12_" -> do
+      liftIO $ threadDelay $ 70*1000*1000
+      LM.withLock objects $ do
+        Log.info "Locked " objects
+        liftIO Log.flush
+        liftIO $ threadDelay $ 30*1000*1000
+    _ -> return ()
+  Log.text "Unlocked stuff"
   return $ "Hello " ++ name ++ "!"
 
 getGreetings :: [String] -> Job [String]
@@ -58,17 +81,18 @@ printGreetings :: HelloOptions -> Cluster ()
 printGreetings options = local (setJobType (MPIJob 2 1)) $ do
   lift getMasterNodeId >>= Log.info "My remote context is "
   let
-    greetingsC = Concurrently (remoteGetGreetings (names options))
-    lockC :: Concurrently Cluster ([String] -> [String])
-    lockC = Concurrently $ do
-      liftIO $ threadDelay $ 10*1000*1000
-      lift $ LM.withLock object $ do
-        Log.info "Locked " object
-        liftIO $ threadDelay $ 10*1000*1000
-      Log.info "Unlocked" object
-      return id
-    go = lockC <*> greetingsC
-  greetings <- runConcurrently go
+--    greetingsC = Concurrently (remoteGetGreetings (names options))
+--    lockC :: Concurrently Cluster ([String] -> [String])
+--    lockC = Concurrently $ do
+--      liftIO $ threadDelay $ 10*1000*1000
+--      lift $ LM.withLocks objects $ do
+--        Log.info "Locked " objects
+--        liftIO $ threadDelay $ 10*1000*1000
+--      Log.info "Unlocked" objects
+--      return id
+--    go = lockC <*> greetingsC
+--  greetings <- runConcurrently go
+  greetings <- remoteGetGreetings (names options)
   mapM_ (Log.text . Text.pack) greetings
 
 -- | Command-line options parser
