@@ -188,16 +188,24 @@ hashTruncateFileName = hashTruncateString 230
 
 -- | Converts an uncurried function to a curried function.
 curry3 :: ((a, b, c) -> d) -> a -> b -> c -> d
-curry3 f a b c = f (a,b,c)
+curry3 fn a b c = fn (a,b,c)
 
 -- | Converts a curried function to a function on a triple.
 uncurry3 :: (a -> b -> c -> d) -> ((a, b, c) -> d)
-uncurry3 f ~(a,b,c) = f a b c
+uncurry3 fn ~(a,b,c) = fn a b c
 
 -- | Converts an uncurried function to a curried function.
 curry4 :: ((a, b, c, d) -> e) -> a -> b -> c -> d -> e
-curry4 f a b c d = f (a,b,c,d)
+curry4 fn a b c d = fn (a,b,c,d)
 
 -- | Converts a curried function to a function on a quadruple.
 uncurry4 :: (a -> b -> c -> d -> e) -> ((a, b, c, d) -> e)
-uncurry4 f ~(a,b,c,d) = f a b c d
+uncurry4 fn ~(a,b,c,d) = fn a b c d
+
+-- | Converts a curried function to a function on a quintuple.
+uncurry5 :: (a -> b -> c -> d -> e -> f) -> ((a, b, c, d, e) -> f)
+uncurry5 fn ~(a,b,c,d,e) = fn a b c d e
+
+-- | Converts a curried function to a function on a quintuple.
+uncurry6 :: (a -> b -> c -> d -> e -> f -> g) -> ((a, b, c, d, e, f) -> g)
+uncurry6 fn ~(a,b,c,d,e,f) = fn a b c d e f
