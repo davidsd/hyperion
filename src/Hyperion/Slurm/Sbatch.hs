@@ -53,6 +53,8 @@ data SbatchOptions = SbatchOptions
   , partition     :: Maybe Text
   -- | (\"--constraint")
   , constraint    :: Maybe Text
+  -- | (\"--account")
+  , account       :: Maybe Text
   } deriving (Show)
 
 -- | Default 'SbatchOptions'. Request 1 task on 1 node for 24 hrs, everything else
@@ -70,6 +72,7 @@ defaultSbatchOptions = SbatchOptions
   , mailUser        = Nothing
   , partition       = Nothing
   , constraint      = Nothing
+  , account         = Nothing
   }
 
 -- Convert 'SbatchOptions' to a string of options for @sbatch@
@@ -91,6 +94,7 @@ sBatchOptionString SbatchOptions{..} =
       , ("--mail-user",       fmap T.unpack mailUser)
       , ("--partition",       fmap T.unpack partition)
       , ("--constraint",      fmap T.unpack constraint)
+      , ("--account",         fmap T.unpack account)
       ]
 
 sbatchOutputParser :: Parser JobId
