@@ -95,10 +95,10 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     Log.redirectToFile workerLogFile
     Log.info "Starting service" workerService
     Log.info "Environment" =<< getEnvironment
-    let
-      nid = (addressToNodeId workerMasterAddress)
-    runProcessLocalWithRT (initWorkerRemoteTable (Just nid))
-      (worker nid workerService)
+    let masterNid = addressToNodeId workerMasterAddress
+    runProcessLocalWithRT
+      (initWorkerRemoteTable (Just masterNid))
+      (worker masterNid workerService)
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args
     holdMap <- newHoldMap

@@ -19,8 +19,10 @@ import           Control.Distributed.Process.Async   (AsyncResult (..), async,
 import           Control.Distributed.Process.Closure (SerializableDict (..),
                                                       staticDecode)
 import qualified Control.Distributed.Process.Node    as Node
-import           Control.Distributed.Static          (staticApply,
-                                                      staticCompose, staticPtr, staticLabel, registerStatic)
+import           Control.Distributed.Static          (registerStatic,
+                                                      staticApply,
+                                                      staticCompose,
+                                                      staticLabel, staticPtr)
 import           Control.Monad.Catch                 (Exception, SomeException,
                                                       bracket, catch, throwM,
                                                       try)
@@ -29,6 +31,7 @@ import           Control.Monad.Trans.Maybe           (MaybeT (..))
 import           Data.Binary                         (Binary, encode)
 import           Data.Data                           (Typeable)
 import           Data.Foldable                       (asum)
+import           Data.Rank1Dynamic                   (toDynamic)
 import           Data.Text                           (Text, pack)
 import qualified Data.Text.Encoding                  as E
 import           Data.Time.Clock                     (NominalDiffTime)
@@ -37,10 +40,11 @@ import           GHC.StaticPtr                       (StaticPtr)
 import qualified Hyperion.Log                        as Log
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
-import           Network.BSD                         (getHostName)
+import           Network.BSD                         (HostEntry (..),
+                                                      getHostEntries)
+import           Network.Socket                      (hostAddressToTuple)
 import           Network.Transport                   (EndPointAddress (..))
 import qualified Network.Transport.TCP               as NT
-import Data.Rank1Dynamic (toDynamic)
 
 -- * Types
 
@@ -115,13 +119,28 @@ runProcessLocalWithRT rt process = do
 -- Binds to the first available port by specifying port 0.
 runProcessLocalWithRT_ :: RemoteTable -> Process () -> IO ()
 runProcessLocalWithRT_ rtable process = do
-  host  <- getHostName
+  host <- getExternalHostName
   NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
     Left e -> Log.throw e
     Right t -> do
       node <- Node.newLocalNode t rtable
       Log.info "Running on node" (Node.localNodeId node)
       Node.runProcess node process
+
+-- | Get a hostname for the current machine that does not correspond
+-- to a local network address (127.* or 10.*)
+getExternalHostName :: IO String
+getExternalHostName = do
+  -- TODO: Here 'stayopen' is set to True. Is this an ok choice?
+  entries <- getHostEntries True
+  case filter (any (not . isLocal) . hostAddresses) entries of
+    e : _ -> return $ hostName e
+    []    -> Log.throwError $ "Cannot find external network address among host entries: " ++ show entries
+  where
+    isLocal a = case hostAddressToTuple a of
+      (127, _, _, _) -> True
+      (10,  _, _, _) -> True
+      _              -> False
 
 -- | Convert a 'Text' representation of 'EndPointAddress' to 'NodeId'.
 -- The format for the end point address is \"TCP host:TCP port:endpoint id\"
