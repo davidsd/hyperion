@@ -41,7 +41,7 @@ import qualified Hyperion.Log                        as Log
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
 import           Network.BSD                         (HostEntry (..),
-                                                      getHostEntries)
+                                                      getHostEntries, getHostName)
 import           Network.Socket                      (hostAddressToTuple)
 import           Network.Transport                   (EndPointAddress (..))
 import qualified Network.Transport.TCP               as NT
@@ -119,7 +119,8 @@ runProcessLocalWithRT rt process = do
 -- Binds to the first available port by specifying port 0.
 runProcessLocalWithRT_ :: RemoteTable -> Process () -> IO ()
 runProcessLocalWithRT_ rtable process = do
-  host <- getExternalHostName
+  host <- getHostName
+  --host <- getExternalHostName
   NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
     Left e -> Log.throw e
     Right t -> do
