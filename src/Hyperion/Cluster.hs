@@ -202,6 +202,9 @@ setSlurmConstraint c = modifyJobOptions $ \opts -> opts { constraint = Just c }
 setSlurmAccount :: Text -> ClusterEnv -> ClusterEnv
 setSlurmAccount a = modifyJobOptions $ \opts -> opts { account = Just a }
 
+setSlurmQos :: Text -> ClusterEnv -> ClusterEnv
+setSlurmQos a = modifyJobOptions $ \opts -> opts { qos = Just a }
+
 -- | The default number of retries to use in 'withConnectionRetry'. Set to 20.
 defaultDBRetries :: Int
 defaultDBRetries = 20 -- update haddock if changing the value
