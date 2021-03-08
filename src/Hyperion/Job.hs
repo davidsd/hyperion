@@ -15,6 +15,7 @@
 
 module Hyperion.Job where
 
+import Control.Concurrent (forkIO)
 import           Control.Distributed.Process hiding (try)
 import           Control.Lens                (lens)
 import           Control.Monad.Catch         (try, throwM)
@@ -41,7 +42,7 @@ import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHError, WorkerAddr
                                               SSHCommand)
 import qualified Hyperion.WorkerCpuPool      as WCP
 import           System.FilePath.Posix       ((<.>), (</>))
-import           System.Process              (createProcess, proc)
+import           System.Process              (callProcess)
 
 -- * General comments
 -- $
@@ -246,9 +247,14 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
       Log.info "Running command" c
       runCmdLocal c
 
+-- | Run the given command in a separate thread (non-blocking).
+--
+-- NB: Previously, this function used 'System.Process.createProcess'
+-- and discarded the resulting 'ProcessHandle'. This could result in
+-- "insufficient resource" errors for OS threads. Hopefully the
+-- current implementation avoids this problem.
 runCmdLocal :: (String, [String]) -> IO ()
-runCmdLocal (cmd, args) =
-  void $ createProcess $ proc cmd args
+runCmdLocal (cmd, args) = void . forkIO $ callProcess cmd args
 
 -- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to
 -- start \"worker-launcher\" workers on these addresses (see
