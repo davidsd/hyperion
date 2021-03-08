@@ -7,21 +7,22 @@ module Hyperion.Util where
 import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.Except
-import qualified Data.ByteString.Char8 as B
 import           Data.BinaryHash       (hashBase64Safe)
+import qualified Data.ByteString.Char8 as B
+import           Data.Text             (Text)
+import qualified Data.Text             as Text
+import qualified Data.Text.Lazy        as LazyText
 import           Data.Time.Clock       (NominalDiffTime)
-import qualified Hyperion.Log as Log
+import qualified Hyperion.Log          as Log
+import           Network.Mail.Mime     (Address (..), renderSendMail,
+                                        simpleMail')
 import           System.Directory
 import           System.FilePath.Posix (replaceDirectory)
 import           System.Posix.Files    (readSymbolicLink)
 import           System.Random         (randomRIO)
-import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LazyText
-import Network.Mail.Mime (Address(..), simpleMail', renderSendMail)
 import qualified Text.ShellEscape      as Esc
 
--- | 'IO' action that returns a random string of given length 
+-- | 'IO' action that returns a random string of given length
 randomString :: Int -> IO String
 randomString len = replicateM len $ toAlpha <$> randomRIO (0, 51)
   where toAlpha n | n < 26    = toEnum (n + fromEnum 'A')
@@ -31,8 +32,8 @@ randomString len = replicateM len $ toAlpha <$> randomRIO (0, 51)
 -- which it runs @m@ 1 time. After each failure waits 15-90 seconds
 -- randomly. Returns on first success.  Failure is represented by a
 -- 'Left' value.
-retryRepeated 
-  :: (Show e, MonadIO m) 
+retryRepeated
+  :: (Show e, MonadIO m)
   => Int -- ^ If this is 0 (or less), then it attempt @doTry m@ indefinitely.
   -> (m a -> m (Either e a))
   -> m a
@@ -49,7 +50,7 @@ retryRepeated n doTry m = go n
       liftIO $ threadDelay $ t*1000*1000
 
 data WaitRetry e = WaitRetry
-  { err :: e
+  { err      :: e
   , waitTime :: Int
   } deriving Show
 
@@ -149,8 +150,8 @@ myExecutable = readSymbolicLink "/proc/self/exe"
 
 -- | Determine the path to this executable and save a copy to the specified dir
 -- with a string appended to filename.
-savedExecutable 
-  :: FilePath 
+savedExecutable
+  :: FilePath
   -> String -- ^ the string to append
   -> IO FilePath
 savedExecutable dir idString = do
@@ -181,7 +182,7 @@ hashTruncateString len s =
 hashTruncateFileName :: String -> String
 hashTruncateFileName = hashTruncateString 230
 
--- *  Tuples 
+-- *  Tuples
 -- $
 -- These currying/uncurrying routines are useful because remote
 -- functions can only take a single argument

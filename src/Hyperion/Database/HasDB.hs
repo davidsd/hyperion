@@ -1,6 +1,7 @@
-{-# LANGUAGE RankNTypes       #-}
-{-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Hyperion.Database.HasDB where
 
@@ -10,14 +11,15 @@ import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Reader   (MonadReader)
 import qualified Data.Pool              as Pool
 import qualified Database.SQLite.Simple as Sql
+import qualified Hyperion.Log           as Log
 import           Hyperion.ProgramId     (ProgramId)
-import           Hyperion.Util          (retryRepeated)
+import           Hyperion.Util          (retryExponential)
 import           Prelude                hiding (lookup)
 
 -- * General comments
--- $ 
+-- $
 -- "Hyperion.Database.HasDB" provides typeclass 'HasDB' which describes environments that contain a
--- 'DatabaseConfig', which is extracted by 'Lens'' 'dbConfigLens'. 
+-- 'DatabaseConfig', which is extracted by 'Lens'' 'dbConfigLens'.
 --
 -- This is used in the following way: if we have a monad @m@ that
 --
@@ -25,20 +27,20 @@ import           Prelude                hiding (lookup)
 -- 2. an instance of 'MonadReader', i.e. it carries an environment,
 -- 3. this environment is an instance of 'HasDB',
 --
--- then we can create @m@-actions using 'withConnection', i.e. 
--- 
+-- then we can create @m@-actions using 'withConnection', i.e.
+--
 -- > doStuffWithConnection :: Sql.Connection -> IO a
 -- > ...
 -- > do -- here we are in m monad
 -- >   ...
 -- >   result <- withConnection doStuffWithConnection
--- >   ... 
+-- >   ...
 --
 -- 'withConnection' uses "Data.Pool". See 'Data.Pool.withResource' for details.
 
 -- * Documentation
 
--- | Database information datatype 
+-- | Database information datatype
 data DatabaseConfig = DatabaseConfig
   { dbPool      :: Pool.Pool Sql.Connection
   , dbProgramId :: ProgramId
@@ -63,7 +65,7 @@ newDefaultPool dbPath = do
     poolSize = 1
   Pool.createPool (Sql.open dbPath) Sql.close stripes connectionTime poolSize
 
--- | Extracts the connection pool from the environment of our monad, gets a 
+-- | Extracts the connection pool from the environment of our monad, gets a
 -- connection and runs the supplied function with it
 withConnection
   :: forall m env a . (MonadIO m, MonadReader env m, HasDB env)
@@ -75,13 +77,12 @@ withConnection go = do
 
 -- | Tries 'withConnection' until succeeds. Failure means that 'Sql.SQLError' is
 -- thrown during execution of the function. Otherwise execution is deemed successful.
--- The number of attempts is determined by DatabaseConfig in the environment. 
+-- The number of attempts is determined by DatabaseConfig in the environment.
 -- If last attempt is a failure, the last exception propagates
 -- outside of 'withConnectionRetry'. Uses 'retryRepeated' internally.
 withConnectionRetry
   :: forall m env a . (MonadIO m, MonadReader env m, HasDB env, MonadCatch m)
   => (Sql.Connection -> IO a)
   -> m a
-withConnectionRetry go = do
-  retries <- views dbConfigLens dbRetries
-  retryRepeated retries (try @m @Sql.SQLError) (withConnection go)
+withConnectionRetry go =
+  retryExponential (try @m @Sql.SQLError) (Log.warn "Unsuccessful") (withConnection go)
