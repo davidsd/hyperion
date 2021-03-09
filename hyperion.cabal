@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 6f005117f60c7e96fe6dd9dd1de669844dcec628e60128b4d772e07315466cb4
+-- hash: f392335c580fd708c6fffbdff5cd6feb6230e9bc8d15e0c4f934fad28197eafe
 
 name:           hyperion
 version:        0.1.0.0
@@ -42,9 +42,10 @@ library
       Paths_hyperion
   hs-source-dirs:
       src
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
   build-depends:
       aeson
+    , async
     , attoparsec
     , base
     , binary

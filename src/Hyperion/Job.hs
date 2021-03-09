@@ -15,7 +15,7 @@
 
 module Hyperion.Job where
 
-import Control.Concurrent (forkIO)
+import qualified Control.Concurrent.Async    as Async
 import           Control.Distributed.Process hiding (try)
 import           Control.Lens                (lens)
 import           Control.Monad.Catch         (try, throwM)
@@ -231,30 +231,37 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
     sshLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.sshRunCmd addr nodeSshCmd)
     eitherResult <- try @Process @SSHError $ do
       withRemoteRunProcess sshLauncher $ \remoteRunNode ->
-        let runCmdOnNode = remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocalLog))
-        in workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
-        go (Just (addr', launcher))
+        let
+          runCmdOnNode = remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocalLog))
+        in
+          workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
+          go (Just (addr', launcher))
     case eitherResult of
       Right result -> return result
       Left err -> do
         Log.warn "Couldn't start launcher" err
         go Nothing
-  WCP.LocalHost _ -> do
-    launcher <- workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocal)
+  WCP.LocalHost _ ->
+    workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
     go (Just (addr', launcher))
-  where
-    runCmdLocalLog c = do
-      Log.info "Running command" c
-      runCmdLocal c
 
--- | Run the given command in a separate thread (non-blocking).
+-- | Run the given command in a child thread. Async.link ensures
+-- that exceptions from the child are propagated to the parent.
 --
 -- NB: Previously, this function used 'System.Process.createProcess'
 -- and discarded the resulting 'ProcessHandle'. This could result in
 -- "insufficient resource" errors for OS threads. Hopefully the
 -- current implementation avoids this problem.
-runCmdLocal :: (String, [String]) -> IO ()
-runCmdLocal (cmd, args) = void . forkIO $ callProcess cmd args
+runCmdLocalAsync :: (String, [String]) -> IO ()
+runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
+
+-- | Run the given command and log the command. This is suitable
+-- for running on remote machines so we can keep track of what is
+-- being run where.
+runCmdLocalLog :: (String, [String]) -> IO ()
+runCmdLocalLog c = do
+  Log.info "Running command" c
+  runCmdLocalAsync c
 
 -- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to
 -- start \"worker-launcher\" workers on these addresses (see

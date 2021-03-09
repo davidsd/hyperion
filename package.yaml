@@ -4,7 +4,7 @@ author: David Simmons-Duffin
 maintainer: davidsd@gmail.com
 license: MIT
 
-ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2
+ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
 
 dependencies:
 - base
@@ -51,6 +51,7 @@ dependencies:
 - warp
 - mime-mail
 - binaryhash
+- async
 
 library:
   source-dirs: src
