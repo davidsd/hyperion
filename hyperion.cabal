@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f392335c580fd708c6fffbdff5cd6feb6230e9bc8d15e0c4f934fad28197eafe
+-- hash: f30c2dfa1f5c423ce51911f10e3be39d106768e2cb3af899be32062fb2a72654
 
 name:           hyperion
 version:        0.1.0.0
@@ -53,7 +53,6 @@ library
     , bytestring
     , concurrent-output
     , containers
-    , digits
     , directory
     , distributed-process
     , distributed-process-async

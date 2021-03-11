@@ -35,7 +35,6 @@ dependencies:
 - pretty
 - exceptions
 - lens
-- digits
 - extra
 - concurrent-output
 - shell-escape
