@@ -23,10 +23,11 @@ import           Control.Distributed.Static          (registerStatic,
                                                       staticApply,
                                                       staticCompose,
                                                       staticLabel, staticPtr)
-import           Control.Monad.Catch                 (Exception, SomeException,
-                                                      bracket, catch, throwM,
-                                                      try)
+import           Control.Monad.Catch                 (Exception, MonadCatch,
+                                                      SomeException, bracket,
+                                                      catch, throwM, try)
 import           Control.Monad.Extra                 (whenM)
+import           Control.Monad.IO.Class              (MonadIO)
 import           Control.Monad.Trans.Maybe           (MaybeT (..))
 import           Data.Binary                         (Binary, encode)
 import           Data.Data                           (Typeable)
@@ -41,7 +42,8 @@ import qualified Hyperion.Log                        as Log
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
 import           Network.BSD                         (HostEntry (..),
-                                                      getHostEntries, getHostName)
+                                                      getHostEntries,
+                                                      getHostName)
 import           Network.Socket                      (hostAddressToTuple)
 import           Network.Transport                   (EndPointAddress (..))
 import qualified Network.Transport.TCP               as NT
@@ -328,17 +330,18 @@ remoteFn
   :: (Binary a, Typeable a, Binary b, Typeable b)
   => (a -> Process b)
   -> RemoteFunction a b
-remoteFn f = RemoteFunction f' SerializableDict SerializableDict
-  where
-    -- Catch any exception, log it, and return as a string. In this
-    -- way, errors will be logged by the worker where they occurred,
-    -- and also sent up the tree.
-    f' a = try (f a) >>= \case
-      Left (e :: SomeException) -> do
-        Log.err e
-        return (Left (show e))
-      Right b ->
-        return (Right b)
+remoteFn f = RemoteFunction (tryLogException f) SerializableDict SerializableDict
+
+-- | Catch any exception, log it, and return as a string. In this
+-- way, errors will be logged by the worker where they occurred,
+-- and also sent up the tree.
+tryLogException :: (MonadCatch m, MonadIO m) => (a -> m b) -> a -> m (Either String b)
+tryLogException f a = try (f a) >>= \case
+  Left (e :: SomeException) -> do
+    Log.err e
+    return (Left (show e))
+  Right b ->
+    return (Right b)
 
 -- | Same as 'remoteFn' but takes a function in 'IO' monad.
 remoteFnIO

@@ -51,6 +51,7 @@ dependencies:
 - mime-mail
 - binaryhash
 - async
+- constraints
 
 library:
   source-dirs: src
