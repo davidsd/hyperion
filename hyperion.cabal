@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 20f7664691ab3e2814c4927e487d75b6af08aea645c19464220a888ec92fb851
+-- hash: f97d3bad0145d1018d82bf095ce08e0ef409fe43fc547c69f33d050d72ec0622
 
 name:           hyperion
 version:        0.1.0.0
@@ -16,6 +16,8 @@ build-type:     Simple
 library
   exposed-modules:
       Hyperion
+      Hyperion.CallClosure
+      Hyperion.Closure
       Hyperion.Cluster
       Hyperion.Command
       Hyperion.Concurrent
@@ -32,7 +34,6 @@ library
       Hyperion.ObjectId
       Hyperion.ProgramId
       Hyperion.Remote
-      Hyperion.RemoteBindConstrained
       Hyperion.Slurm
       Hyperion.Slurm.Environment
       Hyperion.Slurm.JobId

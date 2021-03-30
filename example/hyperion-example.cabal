@@ -37,6 +37,24 @@ executable hello-world
     , directory
     , text
 
+executable polymorphic-remote
+  hs-source-dirs:      src-polymorphic-remote
+  main-is:             Main.hs
+  default-language:    Haskell2010
+--  other-modules:
+  build-depends:
+      base
+    , hyperion
+    , optparse-applicative
+    , filepath
+    , monad-control
+    , distributed-process
+    , mtl
+    , directory
+    , text
+    , constraints
+    , binary
+
 executable lock-map
   hs-source-dirs:      src-lock-map
   main-is:             Main.hs

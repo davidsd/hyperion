@@ -1,9 +1,13 @@
 {-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE PolyKinds        #-}
+{-# LANGUAGE ConstraintKinds        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators     #-}
 
 module Hyperion.Util where
 
+import Data.Constraint (Dict(..), Constraint)
 import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.Except
@@ -210,3 +214,9 @@ uncurry5 fn ~(a,b,c,d,e) = fn a b c d e
 -- | Converts a curried function to a function on a quintuple.
 uncurry6 :: (a -> b -> c -> d -> e -> f -> g) -> ((a, b, c, d, e, f) -> g)
 uncurry6 fn ~(a,b,c,d,e,f) = fn a b c d e f
+
+-- | Turn an expression with a constraint into a function of an
+-- explicit dictionary
+withDict :: forall (c :: Constraint) r . (c => r) -> Dict c -> r
+withDict r Dict = r
+

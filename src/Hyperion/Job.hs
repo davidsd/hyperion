@@ -18,7 +18,7 @@ module Hyperion.Job where
 import qualified Control.Concurrent.Async    as Async
 import           Control.Distributed.Process hiding (try)
 import           Control.Lens                (lens)
-import           Control.Monad.Catch         (try, throwM)
+import           Control.Monad.Catch         (throwM, try)
 import           Control.Monad.Cont          (ContT (..), runContT)
 import           Control.Monad.Except
 import           Control.Monad.Reader
@@ -38,8 +38,8 @@ import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
 import qualified Hyperion.Slurm              as Slurm
 import           Hyperion.Util               (myExecutable)
-import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHError, WorkerAddr,
-                                              SSHCommand)
+import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHCommand,
+                                              SSHError, WorkerAddr)
 import qualified Hyperion.WorkerCpuPool      as WCP
 import           System.FilePath.Posix       ((<.>), (</>))
 import           System.Process              (callProcess)
@@ -47,23 +47,23 @@ import           System.Process              (callProcess)
 -- * General comments
 -- $
 -- In this module we define the 'Job' monad. It is nothing more than 'Process'
--- together with 'JobEnv' environment. 
+-- together with 'JobEnv' environment.
 --
 -- The 'JobEnv' environment represents the environment of a job running under
 -- @SLURM@. We should think about a computation in 'Job' as being run on a
--- node allocated for the job by @SLURM@ and running remote computations on the 
+-- node allocated for the job by @SLURM@ and running remote computations on the
 -- resources allocated to the job. The 'JobEnv' environment
--- contains 
+-- contains
 --
 --     * information about the master program that scheduled the job,
 --     * information about the database used for recording results of the calculations,
---     * number of CPUs available per node, as well as the number of CPUs to 
+--     * number of CPUs available per node, as well as the number of CPUs to
 --       use for remote computations spawned from the 'Job' computation ('jobTaskCpus'),
---     * 'jobTaskLauncher', which allocates 'jobTaskCpus' CPUs on some node from  
---       the resources available to the job and launches a worker on that node. 
+--     * 'jobTaskLauncher', which allocates 'jobTaskCpus' CPUs on some node from
+--       the resources available to the job and launches a worker on that node.
 --       That worker is then allowed to use the allocated number of CPUs.
---       Thanks to 'jobTaskLauncher', 'Job' is an instance of 'Hyperion.Remote.HasWorkers' and 
---       we can use functions such as 'Hyperion.Remote.remoteEval'. 
+--       Thanks to 'jobTaskLauncher', 'Job' is an instance of 'Hyperion.Remote.HasWorkers' and
+--       we can use functions such as 'Hyperion.Remote.remoteEval'.
 --
 -- The common usecase is that the 'Job' computation is spawned from a 'Cluster'
 -- calculation on login node via, e.g., 'remoteEvalJob' (which acquires job
@@ -73,9 +73,9 @@ import           System.Process              (callProcess)
 -- * Documentation
 -- $
 
--- | The environment type for 'Job' monad. 
+-- | The environment type for 'Job' monad.
 data JobEnv = JobEnv
-  { 
+  {
     -- | 'DB.DatabaseConfig' for the database to use
     jobDatabaseConfig :: DB.DatabaseConfig
     -- | Number of CPUs available on each node in the job
@@ -107,7 +107,7 @@ instance DB.HasDB JobEnv where
 -- | Make 'JobEnv' an instance of 'HasWorkerLauncher'. The 'WorkerLauncher' returned
 -- by 'toWorkerLauncher' launches workers with 'jobTaskCpus' CPUs available to them.
 --
--- This makes 'Job' an instance of 'HasWorkers' and gives us access to functions in 
+-- This makes 'Job' an instance of 'HasWorkers' and gives us access to functions in
 -- "Hyperion.Remote".
 instance HasWorkerLauncher JobEnv where
   toWorkerLauncher JobEnv{..} = jobTaskLauncher jobTaskCpus
@@ -191,7 +191,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 -- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the continuation
 -- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher'
 -- 'JobId')@.  Passing 'Nothing' repersents @ssh@ failure.
--- 
+--
 -- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher'
 -- launches workers on the node at 'WorkerAddr'. The launcher is
 -- derived from 'workerLauncherWithRunCmd', where command runner is
@@ -232,7 +232,8 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
     eitherResult <- try @Process @SSHError $ do
       withRemoteRunProcess sshLauncher $ \remoteRunNode ->
         let
-          runCmdOnNode = remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocalLog))
+          runCmdOnNode =
+            remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocalLog))
         in
           workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
           go (Just (addr', launcher))

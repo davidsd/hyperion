@@ -2,6 +2,7 @@ module Hyperion
   ( module Exports
   ) where
 
+import           Hyperion.Closure       as Exports
 import           Hyperion.Cluster       as Exports
 import           Hyperion.Concurrent    as Exports
 import           Hyperion.Config        as Exports
