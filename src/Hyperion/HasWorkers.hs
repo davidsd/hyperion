@@ -151,7 +151,8 @@ remoteClosure
   :: ( HasWorkers m
      , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
      , StM m (Closure (Process b)) ~ Closure (Process b)
-     , Static (Serializable b)
+     , Static (Binary b)
+     , Typeable b
      )
   => m (Closure (Process b))
   -> m b
