@@ -22,6 +22,7 @@ import           Control.Monad               ((>=>))
 import           Data.Binary                 (Binary)
 import           Data.Constraint             (Dict (..))
 import           Data.Proxy                  (Proxy (..))
+import           Data.Text                   (Text)
 import           Data.Typeable               (Typeable)
 import           GHC.Generics                (Generic)
 import           GHC.TypeNats                (KnownNat, natVal)
@@ -62,8 +63,8 @@ data Bar = MkBar
 -- https://hackage.haskell.org/package/static-closure-0.1.0.0/docs/Control-Static-Closure-TH.html
 --
 -- With these instances we can use 'sayHelloRemote' with Bar.
-instance Static (Show Bar) where closureDict = closurePtr (static Dict)
-instance Static (Binary Bar) where closureDict = closurePtr (static Dict)
+instance Static (Show Bar) where closureDict = cPtr (static Dict)
+instance Static (Binary Bar) where closureDict = cPtr (static Dict)
 
 -- | In the above example, we had to define a bunch of 'Static'
 -- instances whenever we wanted to use a new type. However, sometimes
@@ -108,6 +109,10 @@ main :: IO ()
 main = runJobLocal pInfo $ do
   Log.info "helloFoo" =<< sayHelloFoo MkFoo
   Log.info "helloBar" =<< sayHelloRemote MkBar
+  -- | We can also take advantage of the Static (Show ...) instances
+  -- in Hyperion.Closure.Static.Show. Commented out for now because
+  -- ghcid doesn't like that module.
+  -- Log.info "helloData" =<< sayHelloRemote ([MkBar, MkBar], 1 :: Integer, 'c', Just ("cool, huh?" :: Text))
   Log.info "remoteMultLabelCubed 42" =<< remoteMultLabelCubed (MkIntLabeled @42 1)
   Log.info "remoteMultLabelCubed 2"  =<< remoteMultLabelCubed (MkIntLabeled @2 1)
   where

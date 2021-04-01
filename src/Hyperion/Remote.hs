@@ -38,8 +38,8 @@ import           Data.Time.Clock                     (NominalDiffTime)
 import           GHC.Generics                        (Generic)
 import           GHC.StaticPtr                       (StaticPtr)
 import           Hyperion.CallClosure                (call')
-import           Hyperion.Closure                    (Serializable, cAp, ptrAp, cPure',
-                                                      closurePtr)
+import           Hyperion.Closure                    (Serializable, cAp, cPtr,
+                                                      cPure', ptrAp)
 import qualified Hyperion.Log                        as Log
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
@@ -359,7 +359,7 @@ data RemoteFunction a b = RemoteFunction
   , sDictOut          :: Dict (Serializable b)
   }
 
--- | Produces a 'RemoteFunction' from a monadic function. 
+-- | Produces a 'RemoteFunction' from a monadic function.
 remoteFn :: (Serializable a, Serializable b) => (a -> Process b) -> RemoteFunction a b
 remoteFn f = RemoteFunction f Dict Dict
 
@@ -395,9 +395,9 @@ bindRemoteStatic ma f =
   mkSerializableClosureProcess bDict $
   cAp fStatic . cPure' aDict <$> ma
   where
-    fStatic = static remoteFunctionRun `ptrAp` closurePtr f
-    aDict = static sDictIn  `ptrAp` closurePtr f
-    bDict = static sDictOut `ptrAp` closurePtr f
+    fStatic = static remoteFunctionRun `ptrAp` cPtr f
+    aDict = static sDictIn  `ptrAp` cPtr f
+    bDict = static sDictOut `ptrAp` cPtr f
 
 -- | Same as 'bindRemoteStatic' where the argument to 'RemoteFunction' is
 -- constructed by 'pure' from the supplied argument.

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f97d3bad0145d1018d82bf095ce08e0ef409fe43fc547c69f33d050d72ec0622
+-- hash: 5a17ab137219f6b6b1fbf21ce181b68b4b8debfff46de1e70fcbed89130dba90
 
 name:           hyperion
 version:        0.1.0.0
@@ -18,6 +18,16 @@ library
       Hyperion
       Hyperion.CallClosure
       Hyperion.Closure
+      Hyperion.Closure.CPure
+      Hyperion.Closure.Static
+      Hyperion.Closure.Static.Binary
+      Hyperion.Closure.Static.Class
+      Hyperion.Closure.Static.Eq
+      Hyperion.Closure.Static.KnownNat
+      Hyperion.Closure.Static.Ord
+      Hyperion.Closure.Static.Show
+      Hyperion.Closure.Static.TH
+      Hyperion.Closure.Static.Typeable
       Hyperion.Cluster
       Hyperion.Command
       Hyperion.Concurrent
@@ -51,6 +61,7 @@ library
     , attoparsec
     , base
     , binary
+    , binary-instances
     , binaryhash
     , bytestring
     , concurrent-output
@@ -84,11 +95,13 @@ library
     , shell-escape
     , sqlite-simple
     , stm
+    , template-haskell
     , text
     , time
     , transformers
     , transformers-base
     , unix
+    , vector
     , wai
     , warp
   default-language: Haskell2010

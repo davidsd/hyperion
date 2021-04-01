@@ -52,6 +52,9 @@ dependencies:
 - binaryhash
 - async
 - constraints
+- template-haskell
+- binary-instances
+- vector
 
 library:
   source-dirs: src

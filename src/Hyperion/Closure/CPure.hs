@@ -16,7 +16,17 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE UndecidableSuperClasses    #-}
 
-module Hyperion.Closure ( module Exports ) where
+module Hyperion.Closure.CPure ( cPure ) where
 
-import Hyperion.Closure.Static as Exports
-import Hyperion.Closure.CPure as Exports
+import           Hyperion.Closure.Static.Class    (Serializable, Static (..),
+                                                   cPure')
+import           Hyperion.Closure.Static.Typeable ()
+
+import           Control.Distributed.Static       (Closure)
+import           Data.Binary                      (Binary)
+import           Type.Reflection                  (Typeable)
+
+-- | Same as cPure', but gets the serialization dictionary from a
+-- Static instance (defined below)
+cPure :: forall a . (Static (Binary a), Typeable a) => a -> Closure a
+cPure = cPure' (closureDict @(Serializable a))
