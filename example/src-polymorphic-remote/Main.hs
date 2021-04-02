@@ -22,6 +22,7 @@ import           Control.Monad               ((>=>))
 import           Data.Binary                 (Binary)
 import           Data.Constraint             (Dict (..))
 import           Data.Proxy                  (Proxy (..))
+import qualified Data.Set                    as Set
 import           Data.Text                   (Text)
 import           Data.Typeable               (Typeable)
 import           GHC.Generics                (Generic)
@@ -82,8 +83,8 @@ newtype IntLabeled j = MkIntLabeled Int
 
 -- | We can take advantage of 'KnownNat j => Static
 -- (KnownNat j)' to get a serializable dictionary.
-instance KnownNat j => Static (Binary (IntLabeled j)) where
-  closureDict = static (\Dict -> Dict) `ptrAp` closureDict @(KnownNat j)
+instance Typeable (IntLabeled j) => Static (Binary (IntLabeled j)) where
+  closureDict = cPtr (static Dict)
 
 -- | An IntLabeled equal to its label
 tautology :: forall j . KnownNat j => IntLabeled j
@@ -105,6 +106,13 @@ remoteMultLabel k = remoteClosure . pure $
 remoteMultLabelCubed :: KnownNat j => IntLabeled j -> Job (IntLabeled j)
 remoteMultLabelCubed = remoteMultLabel >=> remoteMultLabel >=> remoteMultLabel
 
+remoteNubOrd :: (Typeable a, Static (Ord a), Static (Binary a)) => [a] -> Job [a]
+remoteNubOrd xs = remoteClosure . pure $
+  static nubOrd `ptrAp` closureDict `cAp` cPure xs
+  where
+    nubOrd :: Dict (Ord b) -> [b] -> Process [b]
+    nubOrd Dict = pure . Set.toList . Set.fromList
+
 main :: IO ()
 main = runJobLocal pInfo $ do
   Log.info "helloFoo" =<< sayHelloFoo MkFoo
@@ -112,6 +120,7 @@ main = runJobLocal pInfo $ do
   Log.info "helloData" =<< sayHelloRemote ([MkBar, MkBar], 1 :: Integer, 'c', Just ("cool, huh?" :: Text))
   Log.info "remoteMultLabelCubed 42" =<< remoteMultLabelCubed (MkIntLabeled @42 1)
   Log.info "remoteMultLabelCubed 2"  =<< remoteMultLabelCubed (MkIntLabeled @2 1)
+  Log.info "remoteNubOrd" =<< remoteNubOrd @(Int,Integer) [(1,2),(3,4),(1,2),(3,3),(3,4)]
   where
     pInfo = ProgramInfo
       { programId         = ProgramId "abc"

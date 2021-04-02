@@ -6,11 +6,11 @@
 {-# LANGUAGE StaticPointers      #-}
 {-# LANGUAGE TemplateHaskell     #-}
 
-module Hyperion.Closure.Static.Binary where
+module Hyperion.Static.Binary where
 
-import           Data.Binary                   (Binary)
-import           Data.Binary.Instances         ()
-import           Hyperion.Closure.Static.Class (Static (..))
-import           Hyperion.Closure.Static.TH    (mkAllInstances)
+import           Data.Binary           (Binary)
+import           Data.Binary.Instances ()
+import           Hyperion.Static.Class (Static (..))
+import           Hyperion.Static.TH    (mkAllInstances)
 
 mkAllInstances 'closureDict ''Static ''Binary

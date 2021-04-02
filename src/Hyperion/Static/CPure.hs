@@ -16,14 +16,13 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE UndecidableSuperClasses    #-}
 
-module Hyperion.Closure.CPure ( cPure ) where
+module Hyperion.Static.CPure where
 
-import           Control.Distributed.Static       (Closure)
-import           Data.Binary                      (Binary)
-import           Hyperion.Closure.Static.Class    (Serializable, Static (..),
-                                                   cPure')
-import           Hyperion.Closure.Static.Typeable ()
-import           Type.Reflection                  (Typeable)
+import           Control.Distributed.Static (Closure)
+import           Data.Binary                (Binary)
+import           Hyperion.Static.Class      (Serializable, Static (..), cPure')
+import           Hyperion.Static.Typeable   ()
+import           Type.Reflection            (Typeable)
 
 -- | Same as cPure', but gets the serialization dictionary from a
 -- Static instance (defined below)

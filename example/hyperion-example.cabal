@@ -54,6 +54,7 @@ executable polymorphic-remote
     , text
     , constraints
     , binary
+    , containers
 
 executable lock-map
   hs-source-dirs:      src-lock-map

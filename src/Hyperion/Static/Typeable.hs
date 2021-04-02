@@ -17,17 +17,17 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE UndecidableSuperClasses    #-}
 
-module Hyperion.Closure.Static.Typeable where
+module Hyperion.Static.Typeable where
 
-import           Control.Distributed.Static    (Closure)
-import           Data.Constraint               (Dict (..))
-import           Data.Proxy                    (Proxy (..))
-import           Hyperion.Closure.Static.Class (Serializable, Static (..), cPtr,
-                                                cPure', ptrAp)
-import           Type.Reflection               (SomeTypeRep (..), TypeRep,
-                                                Typeable, someTypeRep,
-                                                withTypeable)
-import           Unsafe.Coerce                 (unsafeCoerce)
+import           Control.Distributed.Static (Closure)
+import           Data.Constraint            (Dict (..))
+import           Data.Proxy                 (Proxy (..))
+import           Hyperion.Static.Class      (Serializable, Static (..), cPtr,
+                                             cPure', ptrAp)
+import           Type.Reflection            (SomeTypeRep (..), TypeRep,
+                                             Typeable, someTypeRep,
+                                             withTypeable)
+import           Unsafe.Coerce              (unsafeCoerce)
 
 -- | Similarly, we can define free 'Static (Typeable a)' instances.
 instance (Typeable a, Typeable k) => Static (Typeable (a :: k)) where

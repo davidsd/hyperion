@@ -16,7 +16,7 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE UndecidableSuperClasses    #-}
 
-module Hyperion.Closure.Static.Class where
+module Hyperion.Static.Class where
 
 import           Control.Distributed.Static (Closure, closure, closureApply,
                                              staticClosure, staticPtr)
@@ -61,7 +61,7 @@ ptrAp f x = cPtr f `cAp` x
 class c => Static c where
   closureDict :: Closure (Dict c)
 
--- | TODO: Generate all of these with Template Haskell
+-- TODO: Generate all of these with Template Haskell
 
 instance ( Static c1, Static c2
          , Typeable c1, Typeable c2

@@ -25,12 +25,12 @@ import           Data.Typeable                                        (Typeable)
 -- 'Closure a' cannot be turned into a 'Static a' in general.
 --
 -- Note: The extra flexibility afforded by call' is needed in
--- conjunction with the 'Hyperion.Closure.Static (KnownNat j)'
+-- conjunction with the 'Hyperion.Static (KnownNat j)'
 -- instance. In that case, we cannot construct a
 -- 'Control.Distributed.Static.Static (Dict (KnownNat j))', but we can
 -- construct a 'Closure (Dict (KnownNat j))'. NB: The name 'Static' is
 -- used in two places: 'Control.Distributed.Static.Static' and
--- 'Hyperion.Closure.Static'. The former is a datatype and the latter
+-- 'Hyperion.Static'. The former is a datatype and the latter
 -- is a typeclass.
 --
 -- Most of the code here has been copied from

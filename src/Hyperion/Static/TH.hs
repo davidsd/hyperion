@@ -2,20 +2,20 @@
 {-# LANGUAGE StaticPointers  #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Hyperion.Closure.Static.TH where
+module Hyperion.Static.TH where
 
 import           Control.Distributed.Static (Closure)
-import           Data.Constraint         (Dict (Dict))
-import           Data.Monoid             (Endo (Endo, appEndo))
-import           Data.Typeable           (Typeable)
-import           Hyperion.Closure.Static.Class (cAp, cPtr)
-import           Language.Haskell.TH     (Body (NormalB), Clause (Clause),
-                                          Dec (FunD, InstanceD),
-                                          Exp (AppE, ConE, InfixE, LamE, SigE, StaticE, VarE),
-                                          Info (ClassI), InstanceDec, Name,
-                                          Pat (ConP), Q,
-                                          Type (AppT, ConT, ForallT, InfixT, ParensT, SigT, UInfixT, VarT),
-                                          reify)
+import           Data.Constraint            (Dict (Dict))
+import           Data.Monoid                (Endo (Endo, appEndo))
+import           Data.Typeable              (Typeable)
+import           Hyperion.Static.Class      (cAp, cPtr)
+import           Language.Haskell.TH        (Body (NormalB), Clause (Clause),
+                                             Dec (FunD, InstanceD),
+                                             Exp (AppE, ConE, InfixE, LamE, SigE, StaticE, VarE),
+                                             Info (ClassI), InstanceDec, Name,
+                                             Pat (ConP), Q,
+                                             Type (AppT, ConT, ForallT, InfixT, ParensT, SigT, UInfixT, VarT),
+                                             reify)
 
 -- | The code for this module is mostly copied from the static-closure package
 -- https://hackage.haskell.org/package/static-closure-0.1.0.0/docs/Control-Static-Closure-TH.html

@@ -17,17 +17,17 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE UndecidableSuperClasses    #-}
 
-module Hyperion.Closure.Static.KnownNat where
+module Hyperion.Static.KnownNat where
 
-import           Control.Distributed.Static    (Closure)
-import           Data.Constraint               (Dict (..))
-import           Data.Proxy                    (Proxy (..))
-import           GHC.Natural                   (Natural)
-import           GHC.TypeNats                  (KnownNat, SomeNat (..), natVal,
-                                                someNatVal)
-import           Hyperion.Closure.Static.Class (Serializable, Static (..), cPtr,
-                                                cPure', ptrAp)
-import           Unsafe.Coerce                 (unsafeCoerce)
+import           Control.Distributed.Static (Closure)
+import           Data.Constraint            (Dict (..))
+import           Data.Proxy                 (Proxy (..))
+import           GHC.Natural                (Natural)
+import           GHC.TypeNats               (KnownNat, SomeNat (..), natVal,
+                                             someNatVal)
+import           Hyperion.Static.Class      (Serializable, Static (..), cPtr,
+                                             cPure', ptrAp)
+import           Unsafe.Coerce              (unsafeCoerce)
 
 -- | This magic gives us free 'Static (KnownNat j)' instances.
 instance KnownNat j => Static (KnownNat j) where

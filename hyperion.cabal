@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5a17ab137219f6b6b1fbf21ce181b68b4b8debfff46de1e70fcbed89130dba90
+-- hash: 99f9388d0b971609341617805758c71e16bdae8c1366fa81c75308a5030ddf33
 
 name:           hyperion
 version:        0.1.0.0
@@ -17,17 +17,6 @@ library
   exposed-modules:
       Hyperion
       Hyperion.CallClosure
-      Hyperion.Closure
-      Hyperion.Closure.CPure
-      Hyperion.Closure.Static
-      Hyperion.Closure.Static.Binary
-      Hyperion.Closure.Static.Class
-      Hyperion.Closure.Static.Eq
-      Hyperion.Closure.Static.KnownNat
-      Hyperion.Closure.Static.Ord
-      Hyperion.Closure.Static.Show
-      Hyperion.Closure.Static.TH
-      Hyperion.Closure.Static.Typeable
       Hyperion.Cluster
       Hyperion.Command
       Hyperion.Concurrent
@@ -48,6 +37,17 @@ library
       Hyperion.Slurm.Environment
       Hyperion.Slurm.JobId
       Hyperion.Slurm.Sbatch
+      Hyperion.Static
+      Hyperion.Static.Aeson
+      Hyperion.Static.Binary
+      Hyperion.Static.Class
+      Hyperion.Static.CPure
+      Hyperion.Static.Eq
+      Hyperion.Static.KnownNat
+      Hyperion.Static.Ord
+      Hyperion.Static.Show
+      Hyperion.Static.TH
+      Hyperion.Static.Typeable
       Hyperion.Util
       Hyperion.WorkerCpuPool
   other-modules:

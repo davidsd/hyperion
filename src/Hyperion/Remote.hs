@@ -38,9 +38,9 @@ import           Data.Time.Clock                     (NominalDiffTime)
 import           GHC.Generics                        (Generic)
 import           GHC.StaticPtr                       (StaticPtr)
 import           Hyperion.CallClosure                (call')
-import           Hyperion.Closure                    (Serializable, cAp, cPtr,
-                                                      cPure', ptrAp)
 import qualified Hyperion.Log                        as Log
+import           Hyperion.Static                     (Serializable, cAp, cPtr,
+                                                      cPure', ptrAp)
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
 import           Network.BSD                         (HostEntry (..),

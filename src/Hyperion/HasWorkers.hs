@@ -20,8 +20,6 @@ import           Data.Binary                 (Binary)
 import           Data.Constraint             (Dict (..))
 import           Data.Typeable               (Typeable)
 import           GHC.StaticPtr               (StaticPtr)
-import           Hyperion.Closure            (Serializable,
-                                              Static (..))
 import           Hyperion.Remote             (RemoteFunction (..),
                                               RemoteProcessRunner,
                                               SerializableClosureProcess (..),
@@ -29,6 +27,7 @@ import           Hyperion.Remote             (RemoteFunction (..),
                                               mkSerializableClosureProcess,
                                               withRemoteRunProcess)
 import           Hyperion.Slurm              (JobId)
+import           Hyperion.Static             (Serializable, Static (..))
 
 -- | A class for monads that can run things in the 'Process' monad,
 -- and have access to a 'WorkerLauncher'. An instance of 'HasWorkers'
