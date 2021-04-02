@@ -109,10 +109,7 @@ main :: IO ()
 main = runJobLocal pInfo $ do
   Log.info "helloFoo" =<< sayHelloFoo MkFoo
   Log.info "helloBar" =<< sayHelloRemote MkBar
-  -- | We can also take advantage of the Static (Show ...) instances
-  -- in Hyperion.Closure.Static.Show. Commented out for now because
-  -- ghcid doesn't like that module.
-  -- Log.info "helloData" =<< sayHelloRemote ([MkBar, MkBar], 1 :: Integer, 'c', Just ("cool, huh?" :: Text))
+  Log.info "helloData" =<< sayHelloRemote ([MkBar, MkBar], 1 :: Integer, 'c', Just ("cool, huh?" :: Text))
   Log.info "remoteMultLabelCubed 42" =<< remoteMultLabelCubed (MkIntLabeled @42 1)
   Log.info "remoteMultLabelCubed 2"  =<< remoteMultLabelCubed (MkIntLabeled @2 1)
   where

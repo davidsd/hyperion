@@ -18,12 +18,11 @@
 
 module Hyperion.Closure.CPure ( cPure ) where
 
+import           Control.Distributed.Static       (Closure)
+import           Data.Binary                      (Binary)
 import           Hyperion.Closure.Static.Class    (Serializable, Static (..),
                                                    cPure')
 import           Hyperion.Closure.Static.Typeable ()
-
-import           Control.Distributed.Static       (Closure)
-import           Data.Binary                      (Binary)
 import           Type.Reflection                  (Typeable)
 
 -- | Same as cPure', but gets the serialization dictionary from a

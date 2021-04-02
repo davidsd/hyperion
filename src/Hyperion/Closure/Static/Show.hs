@@ -10,12 +10,12 @@
 
 module Hyperion.Closure.Static.Show where
 
--- import           Data.Aeson                    ()
--- import           Data.Map                      ()
--- import           Data.Set                      ()
--- import           Data.Vector                   ()
--- import           Hyperion.Closure.Static.Class (Static (..))
--- import           Hyperion.Closure.Static.TH    (mkAllInstances)
+import           Data.Aeson                    ()
+import           Data.Map                      ()
+import           Data.Set                      ()
+import           Data.Vector                   ()
+import           Hyperion.Closure.Static.Class (Static (..))
+import           Hyperion.Closure.Static.TH    (mkAllInstances)
 
--- mkAllInstances 'closureDict ''Static ''Show
+mkAllInstances 'closureDict ''Static ''Show
 
