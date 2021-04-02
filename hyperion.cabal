@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 99f9388d0b971609341617805758c71e16bdae8c1366fa81c75308a5030ddf33
+-- hash: 033622d3efb040897319ce3d5e1b0cd8a45d3566c97649741e6e32d3cceb9a7e
 
 name:           hyperion
 version:        0.1.0.0
@@ -37,17 +37,6 @@ library
       Hyperion.Slurm.Environment
       Hyperion.Slurm.JobId
       Hyperion.Slurm.Sbatch
-      Hyperion.Static
-      Hyperion.Static.Aeson
-      Hyperion.Static.Binary
-      Hyperion.Static.Class
-      Hyperion.Static.CPure
-      Hyperion.Static.Eq
-      Hyperion.Static.KnownNat
-      Hyperion.Static.Ord
-      Hyperion.Static.Show
-      Hyperion.Static.TH
-      Hyperion.Static.Typeable
       Hyperion.Util
       Hyperion.WorkerCpuPool
   other-modules:
@@ -75,6 +64,7 @@ library
     , extra
     , filepath
     , ghc-prim
+    , hyperion-static
     , lens
     , mime-mail
     , monad-control

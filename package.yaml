@@ -55,6 +55,7 @@ dependencies:
 - template-haskell
 - binary-instances
 - vector
+- hyperion-static
 
 library:
   source-dirs: src
