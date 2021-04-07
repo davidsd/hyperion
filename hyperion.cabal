@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 033622d3efb040897319ce3d5e1b0cd8a45d3566c97649741e6e32d3cceb9a7e
+-- hash: f9cb860d00bc22b0f0dd3e69ef3fd629ee592c1ca263b099bbaf43f16b6de2b9
 
 name:           hyperion
 version:        0.1.0.0
@@ -50,7 +50,6 @@ library
     , attoparsec
     , base
     , binary
-    , binary-instances
     , binaryhash
     , bytestring
     , concurrent-output
@@ -85,13 +84,11 @@ library
     , shell-escape
     , sqlite-simple
     , stm
-    , template-haskell
     , text
     , time
     , transformers
     , transformers-base
     , unix
-    , vector
     , wai
     , warp
   default-language: Haskell2010
