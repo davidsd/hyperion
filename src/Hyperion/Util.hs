@@ -1,18 +1,18 @@
+{-# LANGUAGE ConstraintKinds   #-}
 {-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE PolyKinds        #-}
-{-# LANGUAGE ConstraintKinds        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds         #-}
+{-# LANGUAGE RankNTypes        #-}
 {-# LANGUAGE TypeOperators     #-}
 
 module Hyperion.Util where
 
-import Data.Constraint (Dict(..), Constraint)
 import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.Except
 import           Data.BinaryHash       (hashBase64Safe)
 import qualified Data.ByteString.Char8 as B
+import           Data.Constraint       (Constraint, Dict (..))
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
 import qualified Data.Text.Lazy        as LazyText
@@ -46,7 +46,7 @@ retryRepeated n doTry m = go n
   where
     go 1 = m
     go k = doTry m >>= \case
-      Left e -> wait e >> go (k-1)
+      Left e  -> wait e >> go (k-1)
       Right b -> return b
     wait e = do
       t <- liftIO $ randomRIO (15, 90)
@@ -75,7 +75,7 @@ retryExponential
 retryExponential doTry handleErr m = go 1
   where
     go timeMultiplier = doTry m >>= \case
-      Left e -> wait timeMultiplier e >> go (2*timeMultiplier)
+      Left e  -> wait timeMultiplier e >> go (2*timeMultiplier)
       Right b -> return b
     wait timeMultiplier e = do
       t <- liftIO . fmap (* timeMultiplier) $ randomRIO (10, 20)

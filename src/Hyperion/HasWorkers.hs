@@ -131,7 +131,7 @@ remoteEval f a = pure a `remoteBind` f
 -- because the user can supply an arbitrary 'Closure'. The price is
 -- that 'Closure (Dict (Serializable ...))'s need to be supplied
 -- somehow -- either via the 'Static' typeclass or explicitly.
-remoteClosure'
+remoteClosureWithDictM
   :: ( HasWorkers m
      , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
      , StM m (Closure (Process b)) ~ Closure (Process b)
@@ -140,9 +140,22 @@ remoteClosure'
   => Closure (Dict (Serializable b))
   -> m (Closure (Process b))
   -> m b
-remoteClosure' bDict mb = do
+remoteClosureWithDictM bDict mb = do
   scp <- control $ \runInProcess -> mkSerializableClosureProcess bDict (runInProcess mb)
   withRemoteRun (\remoteRun -> liftBase (remoteRun scp))
+
+-- | A version of remoteClosure' that gets the 'Closure (Dict
+-- (Serializable b))' from a 'Static'
+remoteClosureM
+  :: ( HasWorkers m
+     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
+     , StM m (Closure (Process b)) ~ Closure (Process b)
+     , Static (Binary b)
+     , Typeable b
+     )
+  => m (Closure (Process b))
+  -> m b
+remoteClosureM = remoteClosureWithDictM closureDict
 
 -- | A version of remoteClosure' that gets the 'Closure (Dict
 -- (Serializable b))' from a 'Static'
@@ -153,6 +166,7 @@ remoteClosure
      , Static (Binary b)
      , Typeable b
      )
-  => m (Closure (Process b))
+  => Closure (Process b)
   -> m b
-remoteClosure = remoteClosure' closureDict
+remoteClosure = remoteClosureM . pure
+

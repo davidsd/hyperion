@@ -16,7 +16,7 @@
 module Hyperion.Job where
 
 import qualified Control.Concurrent.Async    as Async
-import           Control.Distributed.Process hiding (try)
+import           Control.Distributed.Process (NodeId, Process, spawnLocal)
 import           Control.Lens                (lens)
 import           Control.Monad.Catch         (throwM, try)
 import           Control.Monad.Cont          (ContT (..), runContT)
@@ -32,11 +32,12 @@ import           Hyperion.Cluster
 import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..),
-                                              remoteBind)
+                                              remoteBind, remoteClosure)
 import qualified Hyperion.Log                as Log
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
 import qualified Hyperion.Slurm              as Slurm
+import           Hyperion.Static             (Closure, Static, cAp, cPtr, cPure)
 import           Hyperion.Util               (myExecutable)
 import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHCommand,
                                               SSHError, WorkerAddr)
@@ -87,6 +88,9 @@ data JobEnv = JobEnv
     -- | a 'WorkerLauncher' that runs workers with the given number of CPUs allocated
   , jobTaskLauncher   :: NumCPUs -> WorkerLauncher JobId
   }
+
+instance HasProgramInfo JobEnv where
+  toProgramInfo = jobProgramInfo
 
 -- | Configuration for 'withNodeLauncher'.
 data NodeLauncherConfig = NodeLauncherConfig
@@ -316,3 +320,12 @@ remoteEvalJob
   -> a
   -> Cluster b
 remoteEvalJob k a = return a `remoteBindJob` k
+
+remoteClosureJob
+  :: (Static (Binary b), Typeable b)
+  => Closure (Job b)
+  -> Cluster b
+remoteClosureJob c = do
+  programInfo <- asks clusterProgramInfo
+  remoteClosure $
+    cPtr (static runJobSlurm) `cAp` cPure programInfo `cAp` c

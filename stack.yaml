@@ -13,5 +13,5 @@ extra-deps:
 - git: https://gitlab.com/pkravchuk/binaryhash.git
   commit: f5760f1912b97bdb9fe5ed5ce635010065c0c612
 - git: https://gitlab.com/davidsd/hyperion-static.git
-  commit: f4bffea14203ed6ee32cff8c8e45818952afc18f
+  commit: 61f990db312805bc4a87e3dc9ae46fc568062c6b
 resolver: lts-17.4
