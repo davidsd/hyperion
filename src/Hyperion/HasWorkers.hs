@@ -13,38 +13,45 @@ module Hyperion.HasWorkers where
 
 import           Control.Distributed.Process (Closure, Process)
 import           Control.Monad.Base          (MonadBase (..))
-import           Control.Monad.Reader        (ReaderT, asks)
-import           Control.Monad.Trans.Control (MonadBaseControl (..), StM,
-                                              control)
+import           Control.Monad.Reader        (ReaderT (..), asks, runReaderT)
 import           Data.Binary                 (Binary)
 import           Data.Constraint             (Dict (..))
 import           Data.Typeable               (Typeable)
 import           GHC.StaticPtr               (StaticPtr)
 import           Hyperion.Remote             (RemoteFunction (..),
                                               RemoteProcessRunner,
-                                              SerializableClosureProcess (..),
                                               WorkerLauncher, bindRemoteStatic,
                                               mkSerializableClosureProcess,
                                               withRemoteRunProcess)
 import           Hyperion.Slurm              (JobId)
 import           Hyperion.Static             (Serializable, Static (..))
+import Control.Monad.IO.Class (MonadIO)
 
 -- | A class for monads that can run things in the 'Process' monad,
 -- and have access to a 'WorkerLauncher'. An instance of 'HasWorkers'
 -- can use 'remoteBind' and 'remoteEval' to run computations in worker
 -- processes at remote locations.
-class MonadBaseControl Process m => HasWorkers m where
+class (MonadBase Process m, MonadUnliftProcess m, MonadIO m) => HasWorkers m where
   getWorkerLauncher :: m (WorkerLauncher JobId)
 
 -- | Trivial orphan instance of 'MonadBase' for 'Process'.
 instance MonadBase Process Process where
   liftBase = id
 
--- | Trivial orphan instance of 'MonadBaseControl' for 'Process'
-instance MonadBaseControl Process Process where
-  type StM Process a = a
-  liftBaseWith f = f id
-  restoreM = return
+-- | A class for Monads that can run continuations in the Process
+-- monad, modeled after MonadUnliftIO
+-- (https://hackage.haskell.org/package/unliftio-core-0.2.0.1/docs/Control-Monad-IO-Unlift.html).
+class MonadUnliftProcess m where
+  withRunInProcess :: ((forall a. m a -> Process a) -> Process b) -> m b
+
+instance MonadUnliftProcess Process where
+  withRunInProcess go = go id
+
+instance MonadUnliftProcess m => MonadUnliftProcess (ReaderT r m) where
+  withRunInProcess inner =
+    ReaderT $ \r ->
+    withRunInProcess $ \run ->
+    inner (run . flip runReaderT r)
 
 -- | A class indicating that type 'env' contains a 'WorkerLauncher'.
 class HasWorkerLauncher env where
@@ -60,21 +67,17 @@ instance HasWorkerLauncher env => HasWorkers (ReaderT env Process) where
 -- to the given continuation.
 --
 -- This function is essentially a composition of 'getWorkerLauncher' with
--- 'withRemoteRunProcess', lifted from 'Process' to 'm' using 'MonadBaseControl'.
+-- 'withRemoteRunProcess', lifted from 'Process' to 'm' using 'MonadUnliftProcess'.
 --
--- We use the machinery of 'MonadBaseControl' because
+-- We use the machinery of 'MonadUnliftProcess' because
 -- 'withRemoteRunProcess' expects something that runs in the 'Process'
 -- monad, not in 'm'. Our main use case is when 'm ~ ReaderT env
--- Process', where 'env' is an instance of 'HasWorkerLauncher'. In
--- that case, we would like to capture the 'env' at the beginning, and
--- then use @flip runReaderT env@ to get from 'm' to 'Process' and
--- 'lift' to get from 'Process' back to 'm'. This is what the
--- 'MonadBaseControl' instance for ReaderT does.
+-- Process', where 'env' is an instance of 'HasWorkerLauncher'.
 --
 withRemoteRun :: HasWorkers m => (RemoteProcessRunner -> m a) -> m a
 withRemoteRun go = do
   workerLauncher <- getWorkerLauncher
-  control $ \runInProcess ->
+  withRunInProcess $ \runInProcess ->
     withRemoteRunProcess workerLauncher $ \remoteRunProcess ->
     runInProcess (go remoteRunProcess)
 
@@ -92,16 +95,12 @@ withRemoteRun go = do
 -- TODO: There's a lot of duplication with applyRemoteStaticClosure in
 -- Hyperion.Remote.
 remoteBind
-  :: forall a b m .
-     ( Binary a, Typeable a, Binary b, Typeable b, HasWorkers m
-     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
-     , StM m a ~ a
-     )
+  :: (Binary a, Typeable a, Binary b, Typeable b, HasWorkers m)
   => m a
   -> StaticPtr (RemoteFunction a b)
   -> m b
 remoteBind ma f = do
-  scp <- control $ \runInProcess -> runInProcess ma `bindRemoteStatic` f
+  scp <- withRunInProcess $ \runInProcess -> runInProcess ma `bindRemoteStatic` f
   withRemoteRun (\remoteRun -> liftBase (remoteRun scp))
 
 -- | Evaluate a 'RemoteFunction' on the given argument at a remote
@@ -112,11 +111,7 @@ remoteBind ma f = do
 --
 -- Shorthand for 'remoteBind' appopriately composed with @'return' :: a -> m a@.
 remoteEval
-  :: forall a b m .
-     ( Binary a, Typeable a, Binary b, Typeable b, HasWorkers m
-     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
-     , StM m a ~ a
-     )
+  :: (Binary a, Typeable a, Binary b, Typeable b, HasWorkers m)
   => StaticPtr (RemoteFunction a b)
   -> a
   -> m b
@@ -132,27 +127,18 @@ remoteEval f a = pure a `remoteBind` f
 -- that 'Closure (Dict (Serializable ...))'s need to be supplied
 -- somehow -- either via the 'Static' typeclass or explicitly.
 remoteClosureWithDictM
-  :: ( HasWorkers m
-     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
-     , StM m (Closure (Process b)) ~ Closure (Process b)
-     , Serializable b
-     )
+  :: (HasWorkers m, Serializable b)
   => Closure (Dict (Serializable b))
   -> m (Closure (Process b))
   -> m b
 remoteClosureWithDictM bDict mb = do
-  scp <- control $ \runInProcess -> mkSerializableClosureProcess bDict (runInProcess mb)
+  scp <- withRunInProcess $ \runInProcess -> mkSerializableClosureProcess bDict (runInProcess mb)
   withRemoteRun (\remoteRun -> liftBase (remoteRun scp))
 
 -- | A version of remoteClosure' that gets the 'Closure (Dict
 -- (Serializable b))' from a 'Static'
 remoteClosureM
-  :: ( HasWorkers m
-     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
-     , StM m (Closure (Process b)) ~ Closure (Process b)
-     , Static (Binary b)
-     , Typeable b
-     )
+  :: (HasWorkers m, Static (Binary b), Typeable b)
   => m (Closure (Process b))
   -> m b
 remoteClosureM = remoteClosureWithDictM closureDict
@@ -160,12 +146,7 @@ remoteClosureM = remoteClosureWithDictM closureDict
 -- | A version of remoteClosure' that gets the 'Closure (Dict
 -- (Serializable b))' from a 'Static'
 remoteClosure
-  :: ( HasWorkers m
-     , StM m (SerializableClosureProcess b) ~ SerializableClosureProcess b
-     , StM m (Closure (Process b)) ~ Closure (Process b)
-     , Static (Binary b)
-     , Typeable b
-     )
+  :: (HasWorkers m, Static (Binary b), Typeable b)
   => Closure (Process b)
   -> m b
 remoteClosure = remoteClosureM . pure
