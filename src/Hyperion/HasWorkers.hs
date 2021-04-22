@@ -20,7 +20,8 @@ import           Data.Typeable               (Typeable)
 import           GHC.StaticPtr               (StaticPtr)
 import           Hyperion.Remote             (RemoteFunction (..),
                                               RemoteProcessRunner,
-                                              WorkerLauncher, bindRemoteStatic,
+                                              WorkerLauncher,
+                                              bindRemoteStatic,
                                               mkSerializableClosureProcess,
                                               withRemoteRunProcess)
 import           Hyperion.Slurm              (JobId)
@@ -150,4 +151,3 @@ remoteClosure
   => Closure (Process b)
   -> m b
 remoteClosure = remoteClosureM . pure
-

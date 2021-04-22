@@ -55,6 +55,7 @@ executable polymorphic-remote
     , constraints
     , binary
     , containers
+    , hyperion-static
 
 executable lock-map
   hs-source-dirs:      src-lock-map

@@ -37,7 +37,7 @@ import qualified Hyperion.Log                as Log
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
 import qualified Hyperion.Slurm              as Slurm
-import           Hyperion.Static             (Closure, Static, cAp, cPtr, cPure)
+import           Hyperion.Static             (Closure, Static(..), cAp, cPtr, cPure, ptrAp)
 import           Hyperion.Util               (myExecutable)
 import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHCommand,
                                               SSHError, WorkerAddr)
@@ -236,8 +236,10 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
     eitherResult <- try @Process @SSHError $ do
       withRemoteRunProcess sshLauncher $ \remoteRunNode ->
         let
-          runCmdOnNode =
-            remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocalLog))
+          runCmdOnNode cmd = do
+            scp <- mkSerializableClosureProcess closureDict $ pure $
+              static (liftIO . runCmdLocalLog) `ptrAp` cPure cmd
+            remoteRunNode scp
         in
           workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
           go (Just (addr', launcher))

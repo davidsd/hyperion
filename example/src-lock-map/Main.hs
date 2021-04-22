@@ -71,11 +71,11 @@ getGreetings names = local (setTaskCpus 1) $ do
 
 -- | Run a Slurm job to compute a greeting
 remoteGetGreeting :: String -> Job String
-remoteGetGreeting = remoteEval (static (remoteFn getGreeting))
+remoteGetGreeting = remoteClosure . ptrAp (static getGreeting) . cPure
 
 -- | Run a Slurm job to compute a greeting
 remoteGetGreetings :: [String] -> Cluster [String]
-remoteGetGreetings = remoteEvalJob (static (remoteFnJob getGreetings))
+remoteGetGreetings = remoteClosureJob . ptrAp (static getGreetings) . cPure
 
 -- | Compute greetings concurrently in separate Slurm jobs and print them
 printGreetings :: HelloOptions -> Cluster ()

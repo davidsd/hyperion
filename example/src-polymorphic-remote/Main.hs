@@ -30,24 +30,16 @@ import           GHC.TypeNats                (KnownNat, natVal)
 import           Hyperion
 import qualified Hyperion.Log                as Log
 import           Hyperion.Util               (withDict)
+import           Hyperion.Static.Reflection (withClosureDict)
 
 -- | A polymorphic function with a Show constraint
 sayHello :: Show a => a -> Process String
 sayHello x = pure ("Hello " <> show x <> "!")
 
-data Foo = MkFoo
-  deriving (Eq, Ord, Show, Generic, Binary)
-
--- | To call 'sayHello' on a 'Foo', we can use the old method of using
--- remoteFn, since the type is fixed at compile time.
-sayHelloFoo :: Foo -> Job String
-sayHelloFoo = remoteEval (static (remoteFn sayHello))
-
--- | Alternatively, we can define a polymorphic function that calls
--- 'sayHello' remotely. However, it has 'Static (...)' constraints
--- that must be satisfied by the caller. Note that 'Static (Binary
--- String)' is provided in 'Hyperion.Closure', which is why it doesn't
--- appear here.
+-- | We can define a polymorphic function that calls 'sayHello'
+-- remotely. However, it has 'Static (...)' constraints that must be
+-- satisfied by the caller. Note that 'Static (Binary String)' is
+-- provided in 'Hyperion.Static', which is why it doesn't appear here.
 sayHelloRemote :: (Static (Show a), Static (Binary a), Typeable a) => a -> Job String
 sayHelloRemote a =
   remoteClosure $
@@ -66,6 +58,17 @@ data Bar = MkBar
 -- With these instances we can use 'sayHelloRemote' with Bar.
 instance Static (Show Bar) where closureDict = cPtr (static Dict)
 instance Static (Binary Bar) where closureDict = cPtr (static Dict)
+
+-- | Optionally, using withClosureDict, we can also supply 'Static'
+-- instances "on the fly".
+data Foo = MkFoo
+  deriving (Eq, Ord, Show, Generic, Binary)
+
+sayHelloRemoteFoo :: Foo -> Job String
+sayHelloRemoteFoo =
+  withClosureDict @(Show Foo) (cPtr (static Dict)) $
+  withClosureDict @(Binary Foo) (cPtr (static Dict)) $
+  sayHelloRemote @Foo
 
 -- | In the above example, we had to define a bunch of 'Static'
 -- instances whenever we wanted to use a new type. However, sometimes
@@ -115,8 +118,8 @@ remoteNubOrd xs = remoteClosure $
 
 main :: IO ()
 main = runJobLocal pInfo $ do
-  Log.info "helloFoo" =<< sayHelloFoo MkFoo
   Log.info "helloBar" =<< sayHelloRemote MkBar
+  Log.info "helloFoo" =<< sayHelloRemoteFoo MkFoo
   Log.info "helloData" =<< sayHelloRemote ([MkBar, MkBar], 1 :: Integer, 'c', Just ("cool, huh?" :: Text))
   Log.info "remoteMultLabelCubed 42" =<< remoteMultLabelCubed (MkIntLabeled @42 1)
   Log.info "remoteMultLabelCubed 2"  =<< remoteMultLabelCubed (MkIntLabeled @2 1)
