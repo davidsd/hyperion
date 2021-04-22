@@ -41,7 +41,6 @@ dependencies:
 - rank1dynamic
 - sqlite-simple
 - resource-pool
-- monad-control
 - transformers-base
 - optparse-applicative
 - servant

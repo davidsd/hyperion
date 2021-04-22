@@ -32,7 +32,7 @@ import           Hyperion.Cluster
 import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..),
-                                              remoteBind, remoteClosure)
+                                              remoteBind, remoteClosureM)
 import qualified Hyperion.Log                as Log
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
@@ -321,11 +321,18 @@ remoteEvalJob
   -> Cluster b
 remoteEvalJob k a = return a `remoteBindJob` k
 
+remoteClosureJobM
+  :: (Static (Binary b), Typeable b)
+  => Cluster (Closure (Job b))
+  -> Cluster b
+remoteClosureJobM mc = do
+  programInfo <- asks clusterProgramInfo
+  remoteClosureM $ do
+    c <- mc
+    pure $ cPtr (static runJobSlurm) `cAp` cPure programInfo `cAp` c
+
 remoteClosureJob
   :: (Static (Binary b), Typeable b)
   => Closure (Job b)
   -> Cluster b
-remoteClosureJob c = do
-  programInfo <- asks clusterProgramInfo
-  remoteClosure $
-    cPtr (static runJobSlurm) `cAp` cPure programInfo `cAp` c
+remoteClosureJob = remoteClosureJobM . pure
