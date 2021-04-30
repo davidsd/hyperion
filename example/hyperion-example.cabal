@@ -1,3 +1,6 @@
+-- This file is not currently used and executables are treated as a part
+-- of 'hyperion' package
+
 name:                hyperion-example
 version:             0.1.0.0
 author:              Petr Kravchuk 

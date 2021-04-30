@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 41e7c4fbce2c4c91c364fab25411b41f8d8556b61d2b5a01a360a7f5cf5cea8a
+-- hash: 51729f61db05300e41574942d43fb197f96bacee784fdd7aac3e67e0435e1300
 
 name:           hyperion
 version:        0.1.0.0
@@ -90,4 +90,68 @@ library
     , unix
     , wai
     , warp
+  default-language: Haskell2010
+
+executable example-hello-world
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      example/src-hello-world
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  build-depends:
+      base
+    , hyperion
+    , optparse-applicative
+    , text
+  default-language: Haskell2010
+
+executable example-lock-map
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      example/src-lock-map
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  build-depends:
+      base
+    , distributed-process
+    , hyperion
+    , mtl
+    , optparse-applicative
+    , text
+  default-language: Haskell2010
+
+executable example-polymorphic-remote
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      example/src-polymorphic-remote
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  build-depends:
+      base
+    , binary
+    , constraints
+    , containers
+    , distributed-process
+    , hyperion
+    , hyperion-static
+    , text
+  default-language: Haskell2010
+
+executable example-root-search
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      example/src-root-search
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  build-depends:
+      base
+    , distributed-process
+    , filepath
+    , hyperion
+    , mtl
+    , optparse-applicative
   default-language: Haskell2010

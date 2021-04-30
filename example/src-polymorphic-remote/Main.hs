@@ -20,7 +20,6 @@ module Main where
 import           Control.Distributed.Process (Process)
 import           Control.Monad               ((>=>))
 import           Data.Binary                 (Binary)
-import           Data.Constraint             (Dict (..))
 import           Data.Proxy                  (Proxy (..))
 import qualified Data.Set                    as Set
 import           Data.Text                   (Text)

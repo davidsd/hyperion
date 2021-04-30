@@ -6,52 +6,107 @@ license: MIT
 
 ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
 
-dependencies:
-- base
-- process
-- time
-- random
-- filepath
-- attoparsec
-- bytestring
-- mtl
-- text
-- distributed-static
-- distributed-process
-- distributed-process-async
-- network-transport
-- network-transport-tcp
-- network
-- network-bsd
-- unix
-- binary
-- transformers
-- stm
-- ghc-prim
-- directory
-- aeson
-- containers
-- pretty-show
-- pretty
-- exceptions
-- lens
-- extra
-- concurrent-output
-- shell-escape
-- rank1dynamic
-- sqlite-simple
-- resource-pool
-- transformers-base
-- optparse-applicative
-- servant
-- servant-server
-- wai
-- warp
-- mime-mail
-- binaryhash
-- async
-- constraints
-- hyperion-static
-
 library:
   source-dirs: src
+  dependencies:
+    - base
+    - process
+    - time
+    - random
+    - filepath
+    - attoparsec
+    - bytestring
+    - mtl
+    - text
+    - distributed-static
+    - distributed-process
+    - distributed-process-async
+    - network-transport
+    - network-transport-tcp
+    - network
+    - network-bsd
+    - unix
+    - binary
+    - transformers
+    - stm
+    - ghc-prim
+    - directory
+    - aeson
+    - containers
+    - pretty-show
+    - pretty
+    - exceptions
+    - lens
+    - extra
+    - concurrent-output
+    - shell-escape
+    - rank1dynamic
+    - sqlite-simple
+    - resource-pool
+    - transformers-base
+    - optparse-applicative
+    - servant
+    - servant-server
+    - wai
+    - warp
+    - mime-mail
+    - binaryhash
+    - async
+    - constraints
+    - hyperion-static
+
+executables:
+  example-hello-world:
+    source-dirs: example/src-hello-world
+    main: Main.hs
+    dependencies:
+      - base
+      - hyperion
+      - optparse-applicative
+#      - filepath
+#      - distributed-process
+      - text
+
+  example-lock-map:
+    source-dirs: example/src-lock-map
+    main: Main.hs
+    dependencies:
+      - base
+      - hyperion
+      - optparse-applicative
+#      - filepath
+      - distributed-process
+      - mtl
+      - text
+
+  example-polymorphic-remote:
+    source-dirs: example/src-polymorphic-remote
+    main: Main.hs
+    dependencies:
+      - base
+      - hyperion
+#      - optparse-applicative
+#      - filepath
+#      - monad-control
+      - distributed-process
+#      - mtl
+#      - directory
+      - text
+      - constraints
+      - binary
+      - containers
+      - hyperion-static
+
+  example-root-search:
+    source-dirs: example/src-root-search
+    main: Main.hs
+    dependencies:
+      - base
+      - hyperion
+      - optparse-applicative
+      - filepath
+#      - monad-control
+      - distributed-process
+      - mtl
+#      - directory
+#      - text
