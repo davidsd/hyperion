@@ -123,7 +123,10 @@ runProcessLocalWithRT rt process = do
 -- Binds to the first available port by specifying port 0.
 runProcessLocalWithRT_ :: RemoteTable -> Process () -> IO ()
 runProcessLocalWithRT_ rtable process = do
+  -- This doesn't work on expanse. Comment this line out on expanse:
   host <- getHostName
+  -- This does work on expanse, but not anywhere else. Uncomment this
+  -- line on expanse:
   --host <- getExternalHostName
   NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
     Left e -> Log.throw e
