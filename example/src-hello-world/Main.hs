@@ -22,7 +22,7 @@ getGreeting name = do
 
 -- | Run a Slurm job to compute a greeting
 remoteGetGreeting :: String -> Cluster String
-remoteGetGreeting s = remoteClosure $
+remoteGetGreeting s = remoteEval $
   -- | Construct a 'Closure (Process String)' by applying a static
   -- pointer to a 'Closure String'
   static (liftIO . getGreeting) `ptrAp` cPure s

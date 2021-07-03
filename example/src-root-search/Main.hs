@@ -75,7 +75,7 @@ rootBinarySearch n x bracket eps = do
 -- | Run 'rootBinarySearch' remotely on a node available to the job
 -- (location chosen automatically).
 runRemoteRootBinarySearch :: Int -> Double -> Bracket -> Double -> Job Bracket
-runRemoteRootBinarySearch n x bracket eps = remoteClosure $
+runRemoteRootBinarySearch n x bracket eps = remoteEval $
   static rootBinarySearch `ptrAp` cPure n `cAp` cPure x `cAp` cPure bracket `cAp` cPure eps
 
 -- | The main computation for a Slurm job, which runs on the head node
@@ -103,7 +103,7 @@ binarySearchJob n points eps = do
 -- | Compute 'binarySearchJob' remotely in a new Slurm job (submitted
 -- automatically).
 runRemoteBinarySearchJob :: Int -> [Double] -> Double -> Cluster [Bracket]
-runRemoteBinarySearchJob n points eps = remoteClosureJob $
+runRemoteBinarySearchJob n points eps = remoteEvalJob $
   static binarySearchJob `ptrAp` cPure n `cAp` cPure points `cAp` cPure eps
 
 -- | The master computation, which can be run on a cluster node, login

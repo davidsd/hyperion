@@ -41,7 +41,7 @@ sayHello x = pure ("Hello " <> show x <> "!")
 -- provided in 'Hyperion.Static', which is why it doesn't appear here.
 sayHelloRemote :: (Static (Show a), Static (Binary a), Typeable a) => a -> Job String
 sayHelloRemote a =
-  remoteClosure $
+  remoteEval $
   static (withDict sayHello :: Dict (Show b) -> b -> Process String) `ptrAp` closureDict `cAp` cPure a
 
 -- | Here's an example of providing the 'Static' instances
@@ -98,7 +98,7 @@ multLabel = pure . (tautology *)
 
 -- | Remotely multiply a number by its label. Polymorphic in j!
 remoteMultLabel :: KnownNat j => IntLabeled j -> Job (IntLabeled j)
-remoteMultLabel k = remoteClosure $
+remoteMultLabel k = remoteEval $
   static (withDict multLabel :: Dict (KnownNat k) -> IntLabeled k -> Process (IntLabeled k)) `ptrAp`
   closureDict `cAp`
   cPure k
@@ -109,7 +109,7 @@ remoteMultLabelCubed :: KnownNat j => IntLabeled j -> Job (IntLabeled j)
 remoteMultLabelCubed = remoteMultLabel >=> remoteMultLabel >=> remoteMultLabel
 
 remoteNubOrd :: (Typeable a, Static (Ord a), Static (Binary a)) => [a] -> Job [a]
-remoteNubOrd xs = remoteClosure $
+remoteNubOrd xs = remoteEval $
   static nubOrd `ptrAp` closureDict `cAp` cPure xs
   where
     nubOrd :: Dict (Ord b) -> [b] -> Process [b]

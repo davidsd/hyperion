@@ -113,26 +113,6 @@ emailError = email "Error"
 shellEsc :: FilePath -> [String] -> String
 shellEsc cmd args = unwords $ cmd : map (B.unpack . Esc.bytes . Esc.sh . B.pack) args
 
--- | Given a function that takes a monadic action, allow us to inspect
--- the argument to that function. Only works if f is guaranteed to
--- evaluate its argument exactly once. This function is useful in
--- combination with remoteBind, since it allows one to inspect the
--- argument produced by the monadic action passed to the given
--- continuation.
-onceWithArgument :: (MonadIO m, MonadIO n) => (m a -> n b) -> m a -> n (a, b)
-onceWithArgument f ma = do
-  argVar <- liftIO newEmptyMVar
-  let ma' = do
-        a <- ma
-        couldPut <- liftIO (tryPutMVar argVar a)
-        when (not couldPut) $
-          -- TODO: should this be an exception?
-          Log.warn "onceWithArgument: argument evaluated multiple times" ()
-        return a
-  b <- f ma'
-  a <- liftIO $ readMVar argVar
-  return (a, b)
-
 ----------------- Time ----------------------
 
 minute :: NominalDiffTime
@@ -185,35 +165,6 @@ hashTruncateString len s =
 -- | Synonim for @'hashTruncateString' 230@
 hashTruncateFileName :: String -> String
 hashTruncateFileName = hashTruncateString 230
-
--- *  Tuples
--- $
--- These currying/uncurrying routines are useful because remote
--- functions can only take a single argument
-
--- | Converts an uncurried function to a curried function.
-curry3 :: ((a, b, c) -> d) -> a -> b -> c -> d
-curry3 fn a b c = fn (a,b,c)
-
--- | Converts a curried function to a function on a triple.
-uncurry3 :: (a -> b -> c -> d) -> ((a, b, c) -> d)
-uncurry3 fn ~(a,b,c) = fn a b c
-
--- | Converts an uncurried function to a curried function.
-curry4 :: ((a, b, c, d) -> e) -> a -> b -> c -> d -> e
-curry4 fn a b c d = fn (a,b,c,d)
-
--- | Converts a curried function to a function on a quadruple.
-uncurry4 :: (a -> b -> c -> d -> e) -> ((a, b, c, d) -> e)
-uncurry4 fn ~(a,b,c,d) = fn a b c d
-
--- | Converts a curried function to a function on a quintuple.
-uncurry5 :: (a -> b -> c -> d -> e -> f) -> ((a, b, c, d, e) -> f)
-uncurry5 fn ~(a,b,c,d,e) = fn a b c d e
-
--- | Converts a curried function to a function on a quintuple.
-uncurry6 :: (a -> b -> c -> d -> e -> f -> g) -> ((a, b, c, d, e, f) -> g)
-uncurry6 fn ~(a,b,c,d,e,f) = fn a b c d e f
 
 -- | Turn an expression with a constraint into a function of an
 -- explicit dictionary

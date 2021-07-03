@@ -31,7 +31,7 @@ import           Hyperion.Cluster
 import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..),
-                                              remoteClosureM)
+                                              remoteEvalM)
 import qualified Hyperion.Log                as Log
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
@@ -295,18 +295,18 @@ withPoolLauncher cfg addrs' go = flip runContT return $ do
     , onRemoteError     = \e _ -> throwM e
     }
 
-remoteClosureJobM
+remoteEvalJobM
   :: (Static (Binary b), Typeable b)
   => Cluster (Closure (Job b))
   -> Cluster b
-remoteClosureJobM mc = do
+remoteEvalJobM mc = do
   programInfo <- asks clusterProgramInfo
-  remoteClosureM $ do
+  remoteEvalM $ do
     c <- mc
     pure $ cPtr (static runJobSlurm) `cAp` cPure programInfo `cAp` c
 
-remoteClosureJob
+remoteEvalJob
   :: (Static (Binary b), Typeable b)
   => Closure (Job b)
   -> Cluster b
-remoteClosureJob = remoteClosureJobM . pure
+remoteEvalJob = remoteEvalJobM . pure

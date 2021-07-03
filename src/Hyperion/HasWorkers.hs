@@ -83,32 +83,27 @@ withRemoteRun go = do
 -- (Closure (...))' which is only evaluated when a remote worker
 -- becomes available (for example after the worker makes it out of the
 -- Slurm queue).
---
--- This function is more general that 'remoteBind' and 'remoteEval'
--- because the user can supply an arbitrary 'Closure'. The price is
--- that 'Closure (Dict (Serializable ...))'s need to be supplied
--- somehow -- either via the 'Static' typeclass or explicitly.
-remoteClosureWithDictM
+remoteEvalWithDictM
   :: (HasWorkers m, Serializable b)
   => Closure (Dict (Serializable b))
   -> m (Closure (Process b))
   -> m b
-remoteClosureWithDictM bDict mb = do
+remoteEvalWithDictM bDict mb = do
   scp <- withRunInProcess $ \runInProcess -> mkSerializableClosureProcess bDict (runInProcess mb)
   withRemoteRun (\remoteRun -> liftBase (remoteRun scp))
 
--- | A version of remoteClosure' that gets the 'Closure (Dict
--- (Serializable b))' from a 'Static'
-remoteClosureM
+-- | Evaluate a 'Closure' at a remote location, assuming a 'Static
+-- (Binary b)' instance. The Closure itself is ony computed when a
+-- worker becomes available.
+remoteEvalM
   :: (HasWorkers m, Static (Binary b), Typeable b)
   => m (Closure (Process b))
   -> m b
-remoteClosureM = remoteClosureWithDictM closureDict
+remoteEvalM = remoteEvalWithDictM closureDict
 
--- | A version of remoteClosure' that gets the 'Closure (Dict
--- (Serializable b))' from a 'Static'
-remoteClosure
+-- | Evaluate a 'Closure' at a remote location.
+remoteEval
   :: (HasWorkers m, Static (Binary b), Typeable b)
   => Closure (Process b)
   -> m b
-remoteClosure = remoteClosureM . pure
+remoteEval = remoteEvalM . pure
