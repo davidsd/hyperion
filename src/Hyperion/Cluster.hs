@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE StaticPointers        #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeFamilies          #-}
 
@@ -14,11 +15,12 @@ module Hyperion.Cluster where
 import           Control.Distributed.Process      (NodeId, Process)
 import           Control.Distributed.Process.Node (initRemoteTable)
 import           Control.Lens                     (lens)
-import           Control.Monad.Catch              (try)
+import           Control.Monad.Catch              (try, MonadCatch)
 import           Control.Monad.IO.Class           (MonadIO, liftIO)
-import           Control.Monad.Reader             (ReaderT, asks, runReaderT)
+import           Control.Monad.Reader             (ReaderT, asks, runReaderT, MonadReader)
 import           Data.Aeson                       (FromJSON, ToJSON)
 import           Data.Binary                      (Binary)
+import           Data.Constraint                  (Dict (..))
 import           Data.Text                        (Text)
 import qualified Data.Text                        as Text
 import           Data.Time.Clock                  (NominalDiffTime)
@@ -43,6 +45,7 @@ import           Hyperion.Slurm                   (JobId (..), SbatchError,
                                                    SbatchOptions (..),
                                                    sbatchCommand)
 import           Hyperion.TokenPool               (TokenPool, withToken)
+import           Hyperion.Static                  (Static (..), cPtr)
 import           Hyperion.Util                    (emailError, retryExponential)
 import           Hyperion.WorkerCpuPool           (SSHCommand)
 import           System.Directory                 (createDirectoryIfMissing)
@@ -128,6 +131,8 @@ data ProgramInfo = ProgramInfo
   , programSSHCommand :: SSHCommand
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
+instance Static (Binary ProgramInfo) where closureDict = cPtr (static Dict)
+
 -- | The environment for 'Cluster' monad.
 data ClusterEnv = ClusterEnv
   { clusterWorkerLauncher  :: SbatchOptions -> ProgramInfo -> WorkerLauncher JobId
@@ -137,6 +142,12 @@ data ClusterEnv = ClusterEnv
   , clusterDatabaseRetries :: Int
   , clusterLockMap         :: LockMap
   }
+
+class HasProgramInfo a where
+  toProgramInfo :: a -> ProgramInfo
+
+instance HasProgramInfo ClusterEnv where
+  toProgramInfo = clusterProgramInfo
 
 -- | The 'Cluster' monad. It is simply 'Process' with 'ClusterEnv' environment.
 type Cluster = ReaderT ClusterEnv Process
@@ -202,6 +213,9 @@ setSlurmConstraint c = modifyJobOptions $ \opts -> opts { constraint = Just c }
 
 setSlurmAccount :: Text -> ClusterEnv -> ClusterEnv
 setSlurmAccount a = modifyJobOptions $ \opts -> opts { account = Just a }
+
+setSlurmQos :: Text -> ClusterEnv -> ClusterEnv
+setSlurmQos a = modifyJobOptions $ \opts -> opts { qos = Just a }
 
 -- | The default number of retries to use in 'withConnectionRetry'. Set to 20.
 defaultDBRetries :: Int
@@ -282,9 +296,19 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool opts
 -- | Construct a working directory for the given object, using its
 -- ObjectId. Will be a subdirectory of 'programDataDir'. Created
 -- automatically, and saved in the database.
-newWorkDir :: (Binary a, Typeable a, ToJSON a) => a -> Cluster FilePath
+newWorkDir
+  :: ( Binary a
+     , Typeable a
+     , ToJSON a
+     , HasProgramInfo env
+     , DB.HasDB env
+     , MonadReader env m
+     , MonadIO m
+     , MonadCatch m
+     )
+  => a -> m FilePath
 newWorkDir = DB.memoizeWithMap (DB.KeyValMap "workDirectories") $ \obj -> do
-  dataDir <- asks (programDataDir . clusterProgramInfo)
+  dataDir <- asks (programDataDir . toProgramInfo)
   objId <- getObjectId obj
   let workDir = dataDir </> objectIdToString objId
   liftIO $ createDirectoryIfMissing True workDir

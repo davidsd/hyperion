@@ -1,3 +1,6 @@
+-- This file is not currently used and executables are treated as a part
+-- of 'hyperion' package
+
 name:                hyperion-example
 version:             0.1.0.0
 author:              Petr Kravchuk 
@@ -36,6 +39,26 @@ executable hello-world
     , mtl
     , directory
     , text
+
+executable polymorphic-remote
+  hs-source-dirs:      src-polymorphic-remote
+  main-is:             Main.hs
+  default-language:    Haskell2010
+--  other-modules:
+  build-depends:
+      base
+    , hyperion
+    , optparse-applicative
+    , filepath
+    , monad-control
+    , distributed-process
+    , mtl
+    , directory
+    , text
+    , constraints
+    , binary
+    , containers
+    , hyperion-static
 
 executable lock-map
   hs-source-dirs:      src-lock-map

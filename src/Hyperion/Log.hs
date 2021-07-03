@@ -26,6 +26,9 @@ import           Text.Show.Pretty          (ppDoc)
 -- 
 -- The output can be redirected from 'stderr' to a file by using 'redirectToFile'.
 
+showText :: Show a => a -> Text
+showText = T.pack . show
+
 prettyShowText :: Show a => a -> Text
 prettyShowText a = T.pack (PP.render (ppDoc a))
 

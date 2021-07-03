@@ -40,13 +40,14 @@
 --
 module Main where
 
+import           Control.Distributed.Process (Process)
 import           Control.Monad.Reader        (local)
 import           Hyperion
-import           Hyperion.Database.KeyValMap (KeyValMap(..), memoizeWithMap)
+import           Hyperion.Database.KeyValMap (KeyValMap (..), memoizeWithMap)
 import qualified Hyperion.Log                as Log
 import qualified Hyperion.Slurm              as Slurm
-import           Hyperion.Util               (curry3, curry4, uncurry3, uncurry4)
-import           Options.Applicative         (Parser, auto, help, long, metavar, option, str)
+import           Options.Applicative         (Parser, auto, help, long, metavar,
+                                              option, str)
 import           System.FilePath.Posix       ((</>))
 
 -- | lower and upper bounds for some quantity
@@ -64,7 +65,7 @@ binarySearchInverse f x bracket eps = go bracket
         mid = (down + up) / 2
 
 -- | Search for inverse of 'f(x)=x^n', and print the result.
-rootBinarySearch :: Int -> Double -> Bracket -> Double -> IO Bracket
+rootBinarySearch :: Int -> Double -> Bracket -> Double -> Process Bracket
 rootBinarySearch n x bracket eps = do
   Log.info "Running binary search at " (x, bracket, eps)
   let result = binarySearchInverse (^n) x bracket eps
@@ -74,12 +75,8 @@ rootBinarySearch n x bracket eps = do
 -- | Run 'rootBinarySearch' remotely on a node available to the job
 -- (location chosen automatically).
 runRemoteRootBinarySearch :: Int -> Double -> Bracket -> Double -> Job Bracket
-runRemoteRootBinarySearch = curry4 $ remoteEval rootBinarySearchStatic
-  where
-    -- | A StaticPtr (RemoteFunction a b) that can be used with
-    -- 'remoteEval'. A 'RemoteFunction' takes one argument, so we use
-    -- 'uncurry4'
-    rootBinarySearchStatic = static (remoteFnIO $ uncurry4 rootBinarySearch)
+runRemoteRootBinarySearch n x bracket eps = remoteClosure $
+  static rootBinarySearch `ptrAp` cPure n `cAp` cPure x `cAp` cPure bracket `cAp` cPure eps
 
 -- | The main computation for a Slurm job, which runs on the head node
 -- of the job. It concurrently runs computations on different job
@@ -106,9 +103,8 @@ binarySearchJob n points eps = do
 -- | Compute 'binarySearchJob' remotely in a new Slurm job (submitted
 -- automatically).
 runRemoteBinarySearchJob :: Int -> [Double] -> Double -> Cluster [Bracket]
-runRemoteBinarySearchJob = curry3 $ remoteEvalJob binarySearchJobStatic
-  where
-    binarySearchJobStatic = static (remoteFnJob $ uncurry3 binarySearchJob)
+runRemoteBinarySearchJob n points eps = remoteClosureJob $
+  static binarySearchJob `ptrAp` cPure n `cAp` cPure points `cAp` cPure eps
 
 -- | The master computation, which can be run on a cluster node, login
 -- node, or some other machine with access to sbatch. It concurrently
@@ -166,6 +162,7 @@ mkHyperionConfig ProgramOptions{..} =
     hyperionCommand       = Nothing
     initialDatabase       = Nothing
     emailAddr             = Nothing
+    maxSlurmJobs          = Nothing
     sshRunCommand         = Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
   in HyperionConfig{..}
 

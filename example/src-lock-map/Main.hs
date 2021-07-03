@@ -66,16 +66,16 @@ getGreeting name = do
   return $ "Hello " ++ name ++ "!"
 
 getGreetings :: [String] -> Job [String]
-getGreetings names = local (setTaskCpus 1) $ do
-  mapConcurrently remoteGetGreeting names
+getGreetings names' = local (setTaskCpus 1) $ do
+  mapConcurrently remoteGetGreeting names'
 
 -- | Run a Slurm job to compute a greeting
 remoteGetGreeting :: String -> Job String
-remoteGetGreeting = remoteEval (static (remoteFn getGreeting))
+remoteGetGreeting = remoteClosure . ptrAp (static getGreeting) . cPure
 
 -- | Run a Slurm job to compute a greeting
 remoteGetGreetings :: [String] -> Cluster [String]
-remoteGetGreetings = remoteEvalJob (static (remoteFnJob getGreetings))
+remoteGetGreetings = remoteClosureJob . ptrAp (static getGreetings) . cPure
 
 -- | Compute greetings concurrently in separate Slurm jobs and print them
 printGreetings :: HelloOptions -> Cluster ()

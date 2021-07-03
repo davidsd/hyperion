@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 7e29f048e2e60dd2cbab4416d961179cffcf4e2aa0695139c8c019e381291910
+-- hash: 68ff43cc2742e23493f4465fc982314190c887bbb9779c9f170cd171ff052419
 
 name:           hyperion
 version:        0.1.0.0
@@ -16,6 +16,7 @@ build-type:     Simple
 library
   exposed-modules:
       Hyperion
+      Hyperion.CallClosure
       Hyperion.Cluster
       Hyperion.Command
       Hyperion.Concurrent
@@ -36,7 +37,6 @@ library
       Hyperion.Slurm.Environment
       Hyperion.Slurm.JobId
       Hyperion.Slurm.Sbatch
-      Hyperion.Slurm.Scancel
       Hyperion.TokenPool
       Hyperion.Util
       Hyperion.WorkerCpuPool
@@ -44,17 +44,18 @@ library
       Paths_hyperion
   hs-source-dirs:
       src
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
   build-depends:
       aeson
+    , async
     , attoparsec
     , base
     , binary
     , binaryhash
     , bytestring
     , concurrent-output
+    , constraints
     , containers
-    , digits
     , directory
     , distributed-process
     , distributed-process-async
@@ -63,9 +64,9 @@ library
     , extra
     , filepath
     , ghc-prim
+    , hyperion-static
     , lens
     , mime-mail
-    , monad-control
     , mtl
     , network
     , network-bsd
@@ -90,4 +91,68 @@ library
     , unix
     , wai
     , warp
+  default-language: Haskell2010
+
+executable example-hello-world
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      example/src-hello-world
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  build-depends:
+      base
+    , hyperion
+    , optparse-applicative
+    , text
+  default-language: Haskell2010
+
+executable example-lock-map
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      example/src-lock-map
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  build-depends:
+      base
+    , distributed-process
+    , hyperion
+    , mtl
+    , optparse-applicative
+    , text
+  default-language: Haskell2010
+
+executable example-polymorphic-remote
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      example/src-polymorphic-remote
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  build-depends:
+      base
+    , binary
+    , constraints
+    , containers
+    , distributed-process
+    , hyperion
+    , hyperion-static
+    , text
+  default-language: Haskell2010
+
+executable example-root-search
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      example/src-root-search
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  build-depends:
+      base
+    , distributed-process
+    , filepath
+    , hyperion
+    , mtl
+    , optparse-applicative
   default-language: Haskell2010

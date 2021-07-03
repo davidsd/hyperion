@@ -15,9 +15,10 @@
 
 module Hyperion.Job where
 
-import           Control.Distributed.Process hiding (try)
+import qualified Control.Concurrent.Async    as Async
+import           Control.Distributed.Process (NodeId, Process, spawnLocal)
 import           Control.Lens                (lens)
-import           Control.Monad.Catch         (try, throwM)
+import           Control.Monad.Catch         (throwM, try)
 import           Control.Monad.Cont          (ContT (..), runContT)
 import           Control.Monad.Except
 import           Control.Monad.Reader
@@ -31,38 +32,39 @@ import           Hyperion.Cluster
 import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..),
-                                              remoteBind)
+                                              remoteBind, remoteClosureM)
 import qualified Hyperion.Log                as Log
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
 import qualified Hyperion.Slurm              as Slurm
+import           Hyperion.Static             (Closure, Static(..), cAp, cPtr, cPure, ptrAp)
 import           Hyperion.Util               (myExecutable)
-import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHError, WorkerAddr,
-                                              SSHCommand)
+import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHCommand,
+                                              SSHError, WorkerAddr)
 import qualified Hyperion.WorkerCpuPool      as WCP
 import           System.FilePath.Posix       ((<.>), (</>))
-import           System.Process              (createProcess, proc)
+import           System.Process              (callProcess)
 
 -- * General comments
 -- $
 -- In this module we define the 'Job' monad. It is nothing more than 'Process'
--- together with 'JobEnv' environment. 
+-- together with 'JobEnv' environment.
 --
 -- The 'JobEnv' environment represents the environment of a job running under
 -- @SLURM@. We should think about a computation in 'Job' as being run on a
--- node allocated for the job by @SLURM@ and running remote computations on the 
+-- node allocated for the job by @SLURM@ and running remote computations on the
 -- resources allocated to the job. The 'JobEnv' environment
--- contains 
+-- contains
 --
 --     * information about the master program that scheduled the job,
 --     * information about the database used for recording results of the calculations,
---     * number of CPUs available per node, as well as the number of CPUs to 
+--     * number of CPUs available per node, as well as the number of CPUs to
 --       use for remote computations spawned from the 'Job' computation ('jobTaskCpus'),
---     * 'jobTaskLauncher', which allocates 'jobTaskCpus' CPUs on some node from  
---       the resources available to the job and launches a worker on that node. 
+--     * 'jobTaskLauncher', which allocates 'jobTaskCpus' CPUs on some node from
+--       the resources available to the job and launches a worker on that node.
 --       That worker is then allowed to use the allocated number of CPUs.
---       Thanks to 'jobTaskLauncher', 'Job' is an instance of 'Hyperion.Remote.HasWorkers' and 
---       we can use functions such as 'Hyperion.Remote.remoteEval'. 
+--       Thanks to 'jobTaskLauncher', 'Job' is an instance of 'Hyperion.Remote.HasWorkers' and
+--       we can use functions such as 'Hyperion.Remote.remoteEval'.
 --
 -- The common usecase is that the 'Job' computation is spawned from a 'Cluster'
 -- calculation on login node via, e.g., 'remoteEvalJob' (which acquires job
@@ -72,9 +74,9 @@ import           System.Process              (createProcess, proc)
 -- * Documentation
 -- $
 
--- | The environment type for 'Job' monad. 
+-- | The environment type for 'Job' monad.
 data JobEnv = JobEnv
-  { 
+  {
     -- | 'DB.DatabaseConfig' for the database to use
     jobDatabaseConfig :: DB.DatabaseConfig
     -- | Number of CPUs available on each node in the job
@@ -86,6 +88,9 @@ data JobEnv = JobEnv
     -- | a 'WorkerLauncher' that runs workers with the given number of CPUs allocated
   , jobTaskLauncher   :: NumCPUs -> WorkerLauncher JobId
   }
+
+instance HasProgramInfo JobEnv where
+  toProgramInfo = jobProgramInfo
 
 -- | Configuration for 'withNodeLauncher'.
 data NodeLauncherConfig = NodeLauncherConfig
@@ -106,7 +111,7 @@ instance DB.HasDB JobEnv where
 -- | Make 'JobEnv' an instance of 'HasWorkerLauncher'. The 'WorkerLauncher' returned
 -- by 'toWorkerLauncher' launches workers with 'jobTaskCpus' CPUs available to them.
 --
--- This makes 'Job' an instance of 'HasWorkers' and gives us access to functions in 
+-- This makes 'Job' an instance of 'HasWorkers' and gives us access to functions in
 -- "Hyperion.Remote".
 instance HasWorkerLauncher JobEnv where
   toWorkerLauncher JobEnv{..} = jobTaskLauncher jobTaskCpus
@@ -190,7 +195,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 -- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the continuation
 -- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher'
 -- 'JobId')@.  Passing 'Nothing' repersents @ssh@ failure.
--- 
+--
 -- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher'
 -- launches workers on the node at 'WorkerAddr'. The launcher is
 -- derived from 'workerLauncherWithRunCmd', where command runner is
@@ -230,25 +235,40 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
     sshLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.sshRunCmd addr nodeSshCmd)
     eitherResult <- try @Process @SSHError $ do
       withRemoteRunProcess sshLauncher $ \remoteRunNode ->
-        let runCmdOnNode = remoteRunNode <=< applyRemoteStatic (static (remoteFnIO runCmdLocalLog))
-        in workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
-        go (Just (addr', launcher))
+        let
+          runCmdOnNode cmd = do
+            scp <- mkSerializableClosureProcess closureDict $ pure $
+              static (liftIO . runCmdLocalLog) `ptrAp` cPure cmd
+            remoteRunNode scp
+        in
+          workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
+          go (Just (addr', launcher))
     case eitherResult of
       Right result -> return result
       Left err -> do
         Log.warn "Couldn't start launcher" err
         go Nothing
-  WCP.LocalHost _ -> do
-    launcher <- workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocal)
+  WCP.LocalHost _ ->
+    workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
     go (Just (addr', launcher))
-  where
-    runCmdLocalLog c = do
-      Log.info "Running command" c
-      runCmdLocal c
 
-runCmdLocal :: (String, [String]) -> IO ()
-runCmdLocal (cmd, args) =
-  void $ createProcess $ proc cmd args
+-- | Run the given command in a child thread. Async.link ensures
+-- that exceptions from the child are propagated to the parent.
+--
+-- NB: Previously, this function used 'System.Process.createProcess'
+-- and discarded the resulting 'ProcessHandle'. This could result in
+-- "insufficient resource" errors for OS threads. Hopefully the
+-- current implementation avoids this problem.
+runCmdLocalAsync :: (String, [String]) -> IO ()
+runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
+
+-- | Run the given command and log the command. This is suitable
+-- for running on remote machines so we can keep track of what is
+-- being run where.
+runCmdLocalLog :: (String, [String]) -> IO ()
+runCmdLocalLog c = do
+  Log.info "Running command" c
+  runCmdLocalAsync c
 
 -- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to
 -- start \"worker-launcher\" workers on these addresses (see
@@ -302,3 +322,19 @@ remoteEvalJob
   -> a
   -> Cluster b
 remoteEvalJob k a = return a `remoteBindJob` k
+
+remoteClosureJobM
+  :: (Static (Binary b), Typeable b)
+  => Cluster (Closure (Job b))
+  -> Cluster b
+remoteClosureJobM mc = do
+  programInfo <- asks clusterProgramInfo
+  remoteClosureM $ do
+    c <- mc
+    pure $ cPtr (static runJobSlurm) `cAp` cPure programInfo `cAp` c
+
+remoteClosureJob
+  :: (Static (Binary b), Typeable b)
+  => Closure (Job b)
+  -> Cluster b
+remoteClosureJob = remoteClosureJobM . pure

@@ -1,11 +1,13 @@
 {-# LANGUAGE DeriveAnyClass      #-}
 {-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StaticPointers      #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Hyperion.Remote where
 
@@ -15,20 +17,18 @@ import           Control.Concurrent.MVar             (MVar, isEmptyMVar,
 import           Control.Distributed.Process         hiding (bracket, catch,
                                                       try)
 import           Control.Distributed.Process.Async   (AsyncResult (..), async,
-                                                      remoteTask, wait)
-import           Control.Distributed.Process.Closure (SerializableDict (..),
-                                                      staticDecode)
+                                                      task, wait)
+import           Control.Distributed.Process.Closure (SerializableDict (..))
 import qualified Control.Distributed.Process.Node    as Node
 import           Control.Distributed.Static          (registerStatic,
-                                                      staticApply,
-                                                      staticCompose,
-                                                      staticLabel, staticPtr)
+                                                      staticLabel)
 import           Control.Monad.Catch                 (Exception, SomeException,
                                                       bracket, catch, throwM,
                                                       try)
 import           Control.Monad.Extra                 (whenM)
 import           Control.Monad.Trans.Maybe           (MaybeT (..))
-import           Data.Binary                         (Binary, encode)
+import           Data.Binary                         (Binary)
+import           Data.Constraint                     (Dict (..))
 import           Data.Data                           (Typeable)
 import           Data.Foldable                       (asum)
 import           Data.Rank1Dynamic                   (toDynamic)
@@ -37,11 +37,15 @@ import qualified Data.Text.Encoding                  as E
 import           Data.Time.Clock                     (NominalDiffTime)
 import           GHC.Generics                        (Generic)
 import           GHC.StaticPtr                       (StaticPtr)
+import           Hyperion.CallClosure                (call')
 import qualified Hyperion.Log                        as Log
+import           Hyperion.Static                     (Serializable, cAp, cPtr,
+                                                      cPure', ptrAp)
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
 import           Network.BSD                         (HostEntry (..),
-                                                      getHostEntries)
+                                                      getHostEntries,
+                                                      getHostName)
 import           Network.Socket                      (hostAddressToTuple)
 import           Network.Transport                   (EndPointAddress (..))
 import qualified Network.Transport.TCP               as NT
@@ -119,7 +123,8 @@ runProcessLocalWithRT rt process = do
 -- Binds to the first available port by specifying port 0.
 runProcessLocalWithRT_ :: RemoteTable -> Process () -> IO ()
 runProcessLocalWithRT_ rtable process = do
-  host <- getExternalHostName
+  host <- getHostName
+  --host <- getExternalHostName
   NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
     Left e -> Log.throw e
     Right t -> do
@@ -256,18 +261,18 @@ data SerializableClosureProcess a = SerializableClosureProcess
   { -- | Process to generate a closure. This process will be run when
     -- a remote location has been identified that the closure can be
     -- sent to.
-    runClosureProcess :: Process (Closure (Process a))
+    runClosureProcess :: Process (Closure (Process (Either String a)))
     -- | Dict for seralizing the result.
-  , staticSDict       :: Static (SerializableDict a)
+  , staticSDict       :: Closure (SerializableDict (Either String a))
     -- | If a remote computation fails, it may be added to the 'HoldMap'
     -- to be tried again. In that case, we don't want to evaluate
     -- 'runClosureProcess' again, so we use an 'MVar' to memoize the
     -- result of 'runClosureProcess'.
-  , closureVar        :: MVar (Closure (Process a))
+  , closureVar        :: MVar (Closure (Process (Either String a)))
   }
 
 -- | Get closure and memoize the result
-getClosure :: SerializableClosureProcess a -> Process (Closure (Process a))
+getClosure :: SerializableClosureProcess a -> Process (Closure (Process (Either String a)))
 getClosure s = do
   whenM (liftIO (isEmptyMVar (closureVar s))) $ do
     c <- runClosureProcess s
@@ -280,7 +285,7 @@ getClosure s = do
 -- wrapped in 'RemoteError' of type 'RemoteException'. May throw other
 -- 'RemoteError's if remote execution fails in any way.
 type RemoteProcessRunner =
-  forall a . (Binary a, Typeable a) => SerializableClosureProcess (Either String a) -> Process a
+  forall a . (Binary a, Typeable a) => SerializableClosureProcess a -> Process a
 
 -- | Starts a new remote worker and runs a user function, which is
 -- supplied with 'RemoteProcessRunner' for running closures on that
@@ -298,7 +303,7 @@ withRemoteRunProcess workerLauncher go =
       withService workerLauncher $ \workerNodeId serviceId ->
       go $ \s -> do
       c <- getClosure s
-      a <- wait =<< async (remoteTask (staticSDict s) workerNodeId c)
+      a <- wait =<< async (task $ call' (staticSDict s) workerNodeId c)
       case a of
         AsyncDone (Right result) -> return result
         -- By throwing an exception out of withService, we ensure that
@@ -310,59 +315,57 @@ withRemoteRunProcess workerLauncher go =
         AsyncCancelled           -> throwM $ RemoteError serviceId $ RemoteAsyncCancelled
         AsyncPending             -> throwM $ RemoteError serviceId $ RemoteAsyncPending
 
--- | A monadic function, together with SerializableDicts for its input
--- and output. In the output type 'Either String b', String represents
--- an error in remote execution.
+-- | Catch any exception, log it, and return as a string. In this
+-- way, errors will be logged by the worker where they occurred,
+-- and also sent up the tree.
+tryLogException :: Process b -> Process (Either String b)
+tryLogException go = try go >>= \case
+  Left (e :: SomeException) -> do
+    Log.err e
+    return (Left (show e))
+  Right b ->
+    return (Right b)
+
+-- | Construct a SerializableClosureProcess for evaluating the closure
+-- 'mb' on a remote machine. The action 'mb' that produces the
+-- 'Closure' will only be run once -- when a worker first becomes
+-- available. The MVar 'v' caches the resulting Closure (so it can be
+-- re-used in the event of an error and retry), which will then be
+-- sent across the network.
+--
+-- Note that we wrap the given closure in tryLogException. Thus,
+-- exception handling is added by catching any exception @e@, logging
+-- @e@ with 'Log.err' (on the worker), and returning a 'Left' result
+-- with the textual representation of @e@ from 'Show' instance.
+mkSerializableClosureProcess
+  :: Typeable b
+  => Closure (Dict (Serializable b))
+  -> Process (Closure (Process b))
+  -> Process (SerializableClosureProcess b)
+mkSerializableClosureProcess bDict mb = do
+  v <- liftIO newEmptyMVar
+  pure $ SerializableClosureProcess
+    { runClosureProcess = fmap (static tryLogException `ptrAp`) mb
+    , staticSDict       = static (\Dict -> SerializableDict) `ptrAp` bDict
+    , closureVar        = v
+    }
+
+-- | A monadic function, together with 'Dict (Serializable a)' for its
+-- input and output. Constructing a 'RemoteFunction' via 'static
+-- (remoteFn f)' is useful when 'a' and 'b' are known at compile time.
 data RemoteFunction a b = RemoteFunction
-  { remoteFunctionRun :: a -> Process (Either String b)
-  , sDictIn           :: SerializableDict a
-  , sDictOut          :: SerializableDict (Either String b)
+  { remoteFunctionRun :: a -> Process b
+  , sDictIn           :: Dict (Serializable a)
+  , sDictOut          :: Dict (Serializable b)
   }
 
--- | Produces a 'RemoteFunction' from a monadic function. Exception handling is added
--- by catching any exception @e@, logging @e@ with 'Log.err' (on the worker),
--- and returning a 'Left' result with the textual representation of @e@ from
--- 'Show' instance.
-remoteFn
-  :: (Binary a, Typeable a, Binary b, Typeable b)
-  => (a -> Process b)
-  -> RemoteFunction a b
-remoteFn f = RemoteFunction f' SerializableDict SerializableDict
-  where
-    -- Catch any exception, log it, and return as a string. In this
-    -- way, errors will be logged by the worker where they occurred,
-    -- and also sent up the tree.
-    f' a = try (f a) >>= \case
-      Left (e :: SomeException) -> do
-        Log.err e
-        return (Left (show e))
-      Right b ->
-        return (Right b)
+-- | Produces a 'RemoteFunction' from a monadic function.
+remoteFn :: (Serializable a, Serializable b) => (a -> Process b) -> RemoteFunction a b
+remoteFn f = RemoteFunction f Dict Dict
 
 -- | Same as 'remoteFn' but takes a function in 'IO' monad.
-remoteFnIO
-  :: (Binary a, Typeable a, Binary b, Typeable b)
-  => (a -> IO b)
-  -> RemoteFunction a b
+remoteFnIO :: (Serializable a, Serializable b) => (a -> IO b) -> RemoteFunction a b
 remoteFnIO f = remoteFn (liftIO . f)
-
--- | 'remoteFunctionRun' of 'RemoteFunction' wrapped in 'Static'.
-remoteFunctionRunStatic
-  :: (Typeable a, Typeable b)
-  => Static (RemoteFunction a b -> a -> Process (Either String b))
-remoteFunctionRunStatic = staticPtr (static remoteFunctionRun)
-
--- | 'sDictIn' of 'RemoteFunction' wrapped in 'Static'.
-sDictInStatic
-  :: (Typeable a, Typeable b)
-  => Static (RemoteFunction a b -> SerializableDict a)
-sDictInStatic = staticPtr (static sDictIn)
-
--- | 'sDictOut' of 'RemoteFunction' wrapped in 'Static'.
-sDictOutStatic
-  :: (Typeable a, Typeable b)
-  => Static (RemoteFunction a b -> SerializableDict (Either String b))
-sDictOutStatic = staticPtr (static sDictOut)
 
 -- | Constructs 'SerializableClosureProcess' given an action that constructs
 -- the argument to the 'RemoteFunction', and a 'StaticPtr' to the remote function.
@@ -379,32 +382,28 @@ sDictOutStatic = staticPtr (static sDictOut)
 -- local definitions that could in principle be defined at top-level.
 -- A necessary condition is that the whole object to which 'static' is applied
 -- to is known at compile time.
+--
+-- To work with values that are not known at compile time, see
+-- 'Hyperion.HasWorkers.remoteClosure' and
+-- 'Hyperion.HasWorkers.StaticConstraint'
 bindRemoteStatic
-  :: (Binary a, Typeable a, Typeable b)
+  :: forall a b . (Typeable a, Binary a, Typeable b)
   => Process a
   -> StaticPtr (RemoteFunction a b)
-  -> Process (SerializableClosureProcess (Either String b))
-bindRemoteStatic ma kRemotePtr = do
-  v <- liftIO newEmptyMVar
-  return SerializableClosureProcess
-    { runClosureProcess = closureProcess
-    , staticSDict       = bDict
-    , closureVar        = v
-    }
+  -> Process (SerializableClosureProcess b)
+bindRemoteStatic ma f =
+  mkSerializableClosureProcess bDict $
+  cAp fStatic . cPure' aDict <$> ma
   where
-    closureProcess = do
-      a <- ma
-      return $ closure (f `staticCompose` staticDecode aDict) (encode a)
-    s     = staticPtr kRemotePtr
-    f     = remoteFunctionRunStatic `staticApply` s
-    aDict = sDictInStatic  `staticApply` s
-    bDict = sDictOutStatic `staticApply` s
+    fStatic = static remoteFunctionRun `ptrAp` cPtr f
+    aDict = static sDictIn  `ptrAp` cPtr f
+    bDict = static sDictOut `ptrAp` cPtr f
 
 -- | Same as 'bindRemoteStatic' where the argument to 'RemoteFunction' is
--- constructed by 'return' from the supplied argument.
+-- constructed by 'pure' from the supplied argument.
 applyRemoteStatic
-  :: (Binary a, Typeable a, Typeable b)
+  :: forall a b . (Typeable a, Binary a, Typeable b)
   => StaticPtr (RemoteFunction a b)
   -> a
-  -> Process (SerializableClosureProcess (Either String b))
-applyRemoteStatic k a = return a `bindRemoteStatic` k
+  -> Process (SerializableClosureProcess b)
+applyRemoteStatic f a = pure a `bindRemoteStatic` f
