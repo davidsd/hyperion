@@ -13,20 +13,17 @@ module Hyperion.HasWorkers where
 
 import           Control.Distributed.Process (Closure, Process)
 import           Control.Monad.Base          (MonadBase (..))
+import           Control.Monad.IO.Class      (MonadIO)
 import           Control.Monad.Reader        (ReaderT (..), asks, runReaderT)
 import           Data.Binary                 (Binary)
 import           Data.Constraint             (Dict (..))
 import           Data.Typeable               (Typeable)
-import           GHC.StaticPtr               (StaticPtr)
-import           Hyperion.Remote             (RemoteFunction (..),
-                                              RemoteProcessRunner,
+import           Hyperion.Remote             (RemoteProcessRunner,
                                               WorkerLauncher,
-                                              bindRemoteStatic,
                                               mkSerializableClosureProcess,
                                               withRemoteRunProcess)
 import           Hyperion.Slurm              (JobId)
 import           Hyperion.Static             (Serializable, Static (..))
-import Control.Monad.IO.Class (MonadIO)
 
 -- | A class for monads that can run things in the 'Process' monad,
 -- and have access to a 'WorkerLauncher'. An instance of 'HasWorkers'
@@ -81,42 +78,6 @@ withRemoteRun go = do
   withRunInProcess $ \runInProcess ->
     withRemoteRunProcess workerLauncher $ \remoteRunProcess ->
     runInProcess (go remoteRunProcess)
-
--- | Evaluate 'ma' to get an argument, and pass that argument to the
--- given 'RemoteFunction', evaluating the result at a remote
--- location. The result is automatically serialized and sent back over
--- the wire. If you squint and replace @'StaticPtr' ('RemoteFunction' a
--- b)@ with @a -> m b@, then the type becomes @m a -> (a -> m b) -> m
--- b@, which is the type of bind ('>>='); hence the name 'remoteBind'.
---
--- This function essentially uses 'withRemoteRun' to get a 'RemoteProcessRunner',
--- and 'bindRemoteStatic' to produce a 'SerializableClosureProcess' that is fed
--- to the 'RemoteProcessRunner'. All lifted to 'm'.
---
--- TODO: There's a lot of duplication with applyRemoteStaticClosure in
--- Hyperion.Remote.
-remoteBind
-  :: (Binary a, Typeable a, Binary b, Typeable b, HasWorkers m)
-  => m a
-  -> StaticPtr (RemoteFunction a b)
-  -> m b
-remoteBind ma f = do
-  scp <- withRunInProcess $ \runInProcess -> runInProcess ma `bindRemoteStatic` f
-  withRemoteRun (\remoteRun -> liftBase (remoteRun scp))
-
--- | Evaluate a 'RemoteFunction' on the given argument at a remote
--- location. The result is automatically serialized and sent back over
--- the wire. If you squint and replace 'StaticPtr (RemoteFunction a
--- b)' with 'a -> m b', then the type becomes '(a -> m b) -> a -> m
--- b', which is just function application.
---
--- Shorthand for 'remoteBind' appopriately composed with @'return' :: a -> m a@.
-remoteEval
-  :: (Binary a, Typeable a, Binary b, Typeable b, HasWorkers m)
-  => StaticPtr (RemoteFunction a b)
-  -> a
-  -> m b
-remoteEval f a = pure a `remoteBind` f
 
 -- | Compute a closure at a remote location. The user supplies an 'm
 -- (Closure (...))' which is only evaluated when a remote worker

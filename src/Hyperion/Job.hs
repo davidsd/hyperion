@@ -27,12 +27,11 @@ import qualified Data.Map                    as Map
 import           Data.Maybe                  (catMaybes)
 import qualified Data.Text                   as T
 import           Data.Typeable               (Typeable)
-import           GHC.StaticPtr               (StaticPtr)
 import           Hyperion.Cluster
 import           Hyperion.Command            (hyperionWorkerCommand)
 import qualified Hyperion.Database           as DB
 import           Hyperion.HasWorkers         (HasWorkerLauncher (..),
-                                              remoteBind, remoteClosureM)
+                                              remoteClosureM)
 import qualified Hyperion.Log                as Log
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
@@ -295,33 +294,6 @@ withPoolLauncher cfg addrs' go = flip runContT return $ do
     , connectionTimeout = Nothing
     , onRemoteError     = \e _ -> throwM e
     }
-
--- | Lifts 'remoteFn' to 'Job' monad using 'runJobSlurm'.
-remoteFnJob
-  :: (Binary a, Typeable a, Binary b, Typeable b)
-  => (a -> Job b)
-  -> RemoteFunction (a, ProgramInfo) b
-remoteFnJob f = remoteFn $ \(a, programInfo) -> do
-  runJobSlurm programInfo (f a)
-
--- | Runs a remote function of the type returned by 'remoteFnJob'
--- remotely from the 'Cluster' monad. Similar to 'remoteBind'.
-remoteBindJob
-  :: (Binary a, Typeable a, Binary b, Typeable b)
-  => Cluster a
-  -> StaticPtr (RemoteFunction (a, ProgramInfo) b)
-  -> Cluster b
-remoteBindJob ma k = do
-  programInfo <- asks clusterProgramInfo
-  fmap (\a -> (a, programInfo)) ma `remoteBind` k
-
--- | Shorthand for 'remoteBindJob' appopriately composed with @'return' :: a -> m a@.
-remoteEvalJob
-  :: (Binary a, Typeable a, Binary b, Typeable b)
-  => StaticPtr (RemoteFunction (a, ProgramInfo) b)
-  -> a
-  -> Cluster b
-remoteEvalJob k a = return a `remoteBindJob` k
 
 remoteClosureJobM
   :: (Static (Binary b), Typeable b)

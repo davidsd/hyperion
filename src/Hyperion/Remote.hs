@@ -36,11 +36,9 @@ import           Data.Text                           (Text, pack)
 import qualified Data.Text.Encoding                  as E
 import           Data.Time.Clock                     (NominalDiffTime)
 import           GHC.Generics                        (Generic)
-import           GHC.StaticPtr                       (StaticPtr)
 import           Hyperion.CallClosure                (call')
 import qualified Hyperion.Log                        as Log
-import           Hyperion.Static                     (Serializable, cAp, cPtr,
-                                                      cPure', ptrAp)
+import           Hyperion.Static                     (Serializable, ptrAp)
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                                       randomString)
 import           Network.BSD                         (HostEntry (..),
@@ -352,61 +350,3 @@ mkSerializableClosureProcess bDict mb = do
     , staticSDict       = static (\Dict -> SerializableDict) `ptrAp` bDict
     , closureVar        = v
     }
-
--- | A monadic function, together with 'Dict (Serializable a)' for its
--- input and output. Constructing a 'RemoteFunction' via 'static
--- (remoteFn f)' is useful when 'a' and 'b' are known at compile time.
-data RemoteFunction a b = RemoteFunction
-  { remoteFunctionRun :: a -> Process b
-  , sDictIn           :: Dict (Serializable a)
-  , sDictOut          :: Dict (Serializable b)
-  }
-
--- | Produces a 'RemoteFunction' from a monadic function.
-remoteFn :: (Serializable a, Serializable b) => (a -> Process b) -> RemoteFunction a b
-remoteFn f = RemoteFunction f Dict Dict
-
--- | Same as 'remoteFn' but takes a function in 'IO' monad.
-remoteFnIO :: (Serializable a, Serializable b) => (a -> IO b) -> RemoteFunction a b
-remoteFnIO f = remoteFn (liftIO . f)
-
--- | Constructs 'SerializableClosureProcess' given an action that constructs
--- the argument to the 'RemoteFunction', and a 'StaticPtr' to the remote function.
--- The action that constructs the argument is embedded into 'runClosureProcess'
--- of the resulting 'SerializableClosureProcess'.
---
--- 'StaticPtr' to the remote function can be constructed by using the keyword 'static'
--- from @StaticPointers@ extention. E.g.,
---
--- > static $ remoteFn f
---
--- Note, however, that @f@ should be either a top-level definition or a closed
--- local definition in order for 'static' to work. Closed local definitions are
--- local definitions that could in principle be defined at top-level.
--- A necessary condition is that the whole object to which 'static' is applied
--- to is known at compile time.
---
--- To work with values that are not known at compile time, see
--- 'Hyperion.HasWorkers.remoteClosure' and
--- 'Hyperion.HasWorkers.StaticConstraint'
-bindRemoteStatic
-  :: forall a b . (Typeable a, Binary a, Typeable b)
-  => Process a
-  -> StaticPtr (RemoteFunction a b)
-  -> Process (SerializableClosureProcess b)
-bindRemoteStatic ma f =
-  mkSerializableClosureProcess bDict $
-  cAp fStatic . cPure' aDict <$> ma
-  where
-    fStatic = static remoteFunctionRun `ptrAp` cPtr f
-    aDict = static sDictIn  `ptrAp` cPtr f
-    bDict = static sDictOut `ptrAp` cPtr f
-
--- | Same as 'bindRemoteStatic' where the argument to 'RemoteFunction' is
--- constructed by 'pure' from the supplied argument.
-applyRemoteStatic
-  :: forall a b . (Typeable a, Binary a, Typeable b)
-  => StaticPtr (RemoteFunction a b)
-  -> a
-  -> Process (SerializableClosureProcess b)
-applyRemoteStatic f a = pure a `bindRemoteStatic` f
