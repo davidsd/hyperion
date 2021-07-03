@@ -54,11 +54,9 @@ newtype NumCPUs = NumCPUs Int
 -- | The 'WorkerCpuPool' type, contaning a map of available CPU resources
 data WorkerCpuPool = WorkerCpuPool { cpuMap :: TVar (Map WorkerAddr NumCPUs) }
 
--- | 'mkWorkerCpuPool' creates a new 'WorkerCpuPool' from a 'Map'.
-mkWorkerCpuPool :: Map WorkerAddr NumCPUs -> IO WorkerCpuPool
-mkWorkerCpuPool cpus = do
-  cpuMap <- newTVarIO cpus
-  return WorkerCpuPool{..}
+-- | 'newWorkerCpuPool' creates a new 'WorkerCpuPool' from a 'Map'.
+newWorkerCpuPool :: Map WorkerAddr NumCPUs -> IO WorkerCpuPool
+newWorkerCpuPool cpus = WorkerCpuPool <$> newTVarIO cpus
 
 -- | Gets a list of all 'WorkerAddr' registered in 'WorkerCpuPool'
 getAddrs :: WorkerCpuPool -> IO [WorkerAddr]
@@ -88,7 +86,7 @@ newJobPool :: [WorkerAddr] -> IO WorkerCpuPool
 newJobPool nodes = do
   when (null nodes) (Log.throwError "Empty node list")
   cpusPerNode <- fmap NumCPUs Slurm.getNTasksPerNode
-  mkWorkerCpuPool $ Map.fromList $ zip nodes (repeat cpusPerNode)
+  newWorkerCpuPool $ Map.fromList $ zip nodes (repeat cpusPerNode)
 
 -- | Finds the worker with the most available CPUs and runs the given
 -- routine with the address of that worker. Blocks if the number of

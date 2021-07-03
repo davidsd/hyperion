@@ -14,6 +14,7 @@ import           Hyperion.ProgramId
 import qualified Hyperion.Slurm         as Slurm
 import           Hyperion.Util          (savedExecutable)
 import           Hyperion.WorkerCpuPool (SSHCommand)
+import           Hyperion.TokenPool     (newTokenPool)
 import           System.Directory       (copyFile, createDirectoryIfMissing)
 import           System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>),
                                          (</>))
@@ -24,6 +25,8 @@ data HyperionConfig = HyperionConfig
   { 
     -- | Default options to use for @sbatch@ submissions
     defaultSbatchOptions :: Slurm.SbatchOptions
+  , -- | Maximum number of jobs to submit at a time
+    maxSlurmJobs         :: Maybe Int
     -- | The base directory for working dirs produced by 'newWorkDir'
   , dataDir              :: FilePath
     -- | The base directory for all the log files 
@@ -51,6 +54,7 @@ data HyperionConfig = HyperionConfig
 defaultHyperionConfig :: FilePath -> HyperionConfig
 defaultHyperionConfig baseDirectory = HyperionConfig
   { defaultSbatchOptions = Slurm.defaultSbatchOptions
+  , maxSlurmJobs         = Nothing
   , dataDir              = baseDirectory </> "data"
   , logDir               = baseDirectory </> "log"
   , databaseDir          = baseDirectory </> "database"
@@ -86,10 +90,11 @@ newClusterEnv HyperionConfig{..} holdMap holdPort = do
   programDatabase <- newDatabasePath initialDatabase databaseDir programId
   programLogDir <- timedProgramDir logDir programId
   programDataDir <- timedProgramDir dataDir programId
+  sbatchTokenPool <- newTokenPool maxSlurmJobs
   let clusterJobOptions = defaultSbatchOptions
       programSSHCommand = sshRunCommand
       clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort
+      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool
       clusterDatabaseRetries = defaultDBRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   clusterLockMap <- newLockMap

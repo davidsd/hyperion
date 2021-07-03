@@ -42,6 +42,7 @@ import           Hyperion.Remote                  (RemoteError (..), ServiceId,
 import           Hyperion.Slurm                   (JobId (..), SbatchError,
                                                    SbatchOptions (..),
                                                    sbatchCommand)
+import           Hyperion.TokenPool               (TokenPool, withToken)
 import           Hyperion.Util                    (emailError, retryExponential)
 import           Hyperion.WorkerCpuPool           (SSHCommand)
 import           System.Directory                 (createDirectoryIfMissing)
@@ -218,16 +219,17 @@ runDBWithProgramInfo pInfo m = do
   dbConfigFromProgramInfo pInfo >>= runReaderT m
 
 slurmWorkerLauncher
-  :: Maybe Text    -- ^ Email address to send notifications to if sbatch
-                   -- fails or there is an error in a remote
-                   -- job. 'Nothing' means no emails will be sent.
-  -> FilePath      -- ^ Path to this hyperion executable
-  -> HoldMap       -- ^ HoldMap used by the HoldServer
-  -> Int           -- ^ Port used by the HoldServer (needed for error messages)
+  :: Maybe Text      -- ^ Email address to send notifications to if sbatch
+                     -- fails or there is an error in a remote
+                     -- job. 'Nothing' means no emails will be sent.
+  -> FilePath        -- ^ Path to this hyperion executable
+  -> HoldMap         -- ^ HoldMap used by the HoldServer
+  -> Int             -- ^ Port used by the HoldServer (needed for error messages)
+  -> TokenPool       -- ^ TokenPool for throttling the number of submitted jobs
   -> SbatchOptions
   -> ProgramInfo
   -> WorkerLauncher JobId
-slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort opts progInfo =
+slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
@@ -256,7 +258,7 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort opts progInfo =
       go
 
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker nid serviceId goJobId = do
+    withLaunchedWorker nid serviceId goJobId = withToken sbatchTokenPool $ do
       jobId <- liftIO $
         -- Repeatedly run sbatch, with exponentially increasing time
         -- intervals between failures. Email the user on each failure

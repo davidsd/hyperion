@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: a503152ead03c8532b3b9ca1d8a01aa1d0ae992f51a8f17ec55f65e448697861
+-- hash: 7e29f048e2e60dd2cbab4416d961179cffcf4e2aa0695139c8c019e381291910
 
 name:           hyperion
 version:        0.1.0.0
@@ -37,6 +37,7 @@ library
       Hyperion.Slurm.JobId
       Hyperion.Slurm.Sbatch
       Hyperion.Slurm.Scancel
+      Hyperion.TokenPool
       Hyperion.Util
       Hyperion.WorkerCpuPool
   other-modules:
