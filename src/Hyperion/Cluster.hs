@@ -284,7 +284,7 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool opts
       goJobId jobId
       where
         progId = programId progInfo
-        logFile = programLogDir progInfo </> "workers" </> serviceIdToString serviceId <.> "log"
+        logFile = programLogDir progInfo </> serviceIdToString serviceId <.> "log"
         opts' = opts
           { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText serviceId
           }

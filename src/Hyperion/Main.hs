@@ -23,7 +23,7 @@ import           Options.Applicative
 import           System.Console.Concurrent (withConcurrentOutput)
 import           System.Directory          (removeFile)
 import           System.Environment        (getEnvironment)
-import           System.FilePath.Posix     ((</>))
+import           System.FilePath.Posix     ((<.>))
 import           System.Posix.Process      (getProcessID)
 
 -- | The type for command-line options to 'hyperionMain'. Here @a@ is
@@ -105,7 +105,7 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     withHoldServer holdMap $ \holdPort -> do
       (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig holdMap holdPort
       let progId = programId clusterProgramInfo
-          masterLogFile = programLogDir clusterProgramInfo </> "master.log"
+          masterLogFile = programLogDir clusterProgramInfo <.> "log"
       pid <- getProcessID
       let logMasterInfo = do
             Log.info "Program id" progId

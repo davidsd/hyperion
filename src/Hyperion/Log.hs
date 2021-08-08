@@ -4,6 +4,7 @@ module Hyperion.Log where
 
 import           Control.Monad.Catch       (Exception, MonadThrow, throwM)
 import           Control.Monad.IO.Class    (MonadIO, liftIO)
+import           Data.IORef                (IORef, newIORef, readIORef, writeIORef)
 import           Data.Text                 (Text)
 import qualified Data.Text                 as T
 import           Data.Time.Format          (defaultTimeLocale, formatTime)
@@ -14,6 +15,7 @@ import           System.Directory          (createDirectoryIfMissing)
 import           System.FilePath.Posix     (takeDirectory)
 import           System.IO                 (IOMode (..), hFlush, openFile,
                                             stderr, stdout)
+import           System.IO.Unsafe          (unsafePerformIO)
 import           Text.PrettyPrint          ((<+>))
 import qualified Text.PrettyPrint          as PP (render, text)
 import           Text.Show.Pretty          (ppDoc)
@@ -23,7 +25,7 @@ import           Text.Show.Pretty          (ppDoc)
 -- This module contains some simple functions for logging and throwing errors.
 -- The logging is done to 'stderr'.
 -- The functions use 'errorConcurrent' to write to stderr (through 'text').
--- 
+--
 -- The output can be redirected from 'stderr' to a file by using 'redirectToFile'.
 
 showText :: Show a => a -> Text
@@ -71,10 +73,18 @@ throwError e = do
 flush :: IO ()
 flush = hFlush stderr
 
+currentLogFile :: IORef (Maybe FilePath)
+{-# NOINLINE currentLogFile #-}
+currentLogFile = unsafePerformIO (newIORef Nothing)
+
+getLogFile :: MonadIO m => m (Maybe FilePath)
+getLogFile = liftIO (readIORef currentLogFile)
+
 -- | Redirects log output to file by rewrting 'stdout' and 'stderr' handles.
 redirectToFile :: FilePath -> IO ()
 redirectToFile logFile = do
   createDirectoryIfMissing True (takeDirectory logFile)
   h <- openFile logFile WriteMode
+  writeIORef currentLogFile (Just logFile)
   hDuplicateTo h stdout
   hDuplicateTo h stderr

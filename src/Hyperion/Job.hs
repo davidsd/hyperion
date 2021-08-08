@@ -41,7 +41,7 @@ import           Hyperion.Util               (myExecutable)
 import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHCommand,
                                               SSHError, WorkerAddr)
 import qualified Hyperion.WorkerCpuPool      as WCP
-import           System.FilePath.Posix       ((<.>), (</>))
+import           System.FilePath.Posix       ((<.>), (</>), dropExtension)
 import           System.Process              (callProcess)
 
 -- * General comments
@@ -134,9 +134,20 @@ runJobSlurm programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   nodes <- liftIO WCP.getSlurmAddrs
   nodeCpus <- liftIO Slurm.getNTasksPerNode
-  let nodeLogDir = programLogDir programInfo </> "workers" </> "workers"
-      nodeSshCmd = programSSHCommand programInfo
-  withPoolLauncher NodeLauncherConfig{..} nodes $ \poolLauncher -> do
+  maybeLogFile <- Log.getLogFile
+  let
+    nodeLauncherConfig = NodeLauncherConfig
+      { nodeLogDir = case maybeLogFile of
+          -- | The log file has the form /a/b/c/progid/serviceid.log
+          -- . The log directory for the node is obtained by dropping
+          -- the .log extension: /a/b/c/progid/serviceid
+          Just logFile -> dropExtension logFile
+          -- | Fallback case for when Log.currentLogFile has not been
+          -- set. This should never happen.
+          Nothing -> programLogDir programInfo </> "workers" </> "workers"
+      , nodeSshCmd = programSSHCommand programInfo
+      }
+  withPoolLauncher nodeLauncherConfig nodes $ \poolLauncher -> do
     let cfg = JobEnv
           { jobDatabaseConfig = dbConfig
           , jobNodeCpus       = NumCPUs nodeCpus
