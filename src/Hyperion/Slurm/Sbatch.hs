@@ -102,7 +102,7 @@ sBatchOptionString SbatchOptions{..} =
       ]
 
 sbatchOutputParser :: Parser JobId
-sbatchOutputParser = JobById <$> ("Submitted batch job " *> takeWhile1 (not . isSpace) <* "\n")
+sbatchOutputParser = JobId <$> ("Submitted batch job " *> takeWhile1 (not . isSpace) <* "\n")
 
 -- | Runs @sbatch@ on a batch file with options pulled from 'SbatchOptions' and
 -- script given as the 'String' input parameter. If 'sbatch' exists with failure

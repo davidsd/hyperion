@@ -167,7 +167,7 @@ runJobLocal programInfo go = runProcessLocal $ do
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
     withLaunchedWorker nid serviceId goJobId = do
       _ <- spawnLocal (worker nid serviceId)
-      goJobId (JobByName (serviceIdToText serviceId))
+      goJobId (JobName (serviceIdToText serviceId))
     connectionTimeout = Nothing
     onRemoteError e _ = throwM e
   runReaderT go $ JobEnv
@@ -181,7 +181,7 @@ runJobLocal programInfo go = runProcessLocal $ do
 -- | 'WorkerLauncher' that uses the supplied command runner to launch
 -- workers.  Sets 'connectionTimeout' to 'Nothing'. Uses the
 -- 'ServiceId' supplied to 'withLaunchedWorker' to construct 'JobId'
--- (through 'JobByName').  The supplied 'FilePath' is used as log
+-- (through 'JobName').  The supplied 'FilePath' is used as log
 -- directory for the worker, with the log file name derived from
 -- 'ServiceId'.
 workerLauncherWithRunCmd
@@ -194,7 +194,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
   let
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
     withLaunchedWorker nid serviceId goJobId = do
-      let jobId = JobByName (serviceIdToText serviceId)
+      let jobId = JobName (serviceIdToText serviceId)
           logFile = logDir </> T.unpack (serviceIdToText serviceId) <.> "log"
       runCmd (hyperionWorkerCommand hyperionExec nid serviceId logFile)
       goJobId jobId
