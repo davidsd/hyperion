@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.34.4.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 68ff43cc2742e23493f4465fc982314190c887bbb9779c9f170cd171ff052419
+-- hash: 42624933610d1af9fb04539a9ef1fec3c50a656c9622fe6a80b04b2847f0a058
 
 name:           hyperion
 version:        0.1.0.0
@@ -89,6 +89,7 @@ library
     , transformers
     , transformers-base
     , unix
+    , vector
     , wai
     , warp
   default-language: Haskell2010

@@ -13,18 +13,45 @@ import           Control.Monad.Except
 import           Data.BinaryHash       (hashBase64Safe)
 import qualified Data.ByteString.Char8 as B
 import           Data.Constraint       (Constraint, Dict (..))
+import           Data.IORef            (IORef, atomicModifyIORef', newIORef)
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
 import qualified Data.Text.Lazy        as LazyText
 import           Data.Time.Clock       (NominalDiffTime)
+import qualified Data.Vector           as V
 import qualified Hyperion.Log          as Log
 import           Network.Mail.Mime     (Address (..), renderSendMail,
                                         simpleMail')
+import           Numeric               (showIntAtBase)
 import           System.Directory
 import           System.FilePath.Posix (replaceDirectory)
+import           System.IO.Unsafe      (unsafePerformIO)
 import           System.Posix.Files    (readSymbolicLink)
 import           System.Random         (randomRIO)
 import qualified Text.ShellEscape      as Esc
+
+-- | An opaque type representing a unique object. Only guaranteed to
+-- be unique in one instance of a running program. For example, if we
+-- allowed Unique's to be serialized and sent across the wire, or
+-- stored and retrieved from a database, they would no longer be
+-- guaranteed to be unique.
+newtype Unique = MkUnique Integer
+  deriving (Eq, Ord)
+
+-- | A Unique can be rendered to a unique string of the characters
+-- [0-9a-zA-Z]. This is used in Hyperion.Remote to generate new
+-- ServiceId's.
+instance Show Unique where
+  show (MkUnique c) = showIntAtBase (fromIntegral (V.length chars)) ((chars V.!) . fromIntegral) c ""
+    where
+      chars = V.fromList $ ['0'..'9'] ++ ['a'..'z'] ++ ['A'..'Z']
+
+uniqueSource :: IORef Integer
+uniqueSource = unsafePerformIO (newIORef 0)
+
+-- | Get a new Unique.
+newUnique :: IO Unique
+newUnique = fmap MkUnique $ atomicModifyIORef' uniqueSource $ \c -> (c+1,c)
 
 -- | 'IO' action that returns a random string of given length
 randomString :: Int -> IO String

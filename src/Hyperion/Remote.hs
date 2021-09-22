@@ -40,7 +40,7 @@ import           Hyperion.CallClosure                (call')
 import qualified Hyperion.Log                        as Log
 import           Hyperion.Static                     (Serializable, ptrAp)
 import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
-                                                      randomString)
+                                                      newUnique)
 import           Network.BSD                         (HostEntry (..),
                                                       getHostEntries,
                                                       getHostName)
@@ -209,7 +209,7 @@ withServiceId :: (ServiceId -> Process a) -> Process a
 withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
   where
     newServiceId = do
-      s <- liftIO $ randomString 5
+      s <- liftIO $ show <$> newUnique
       getSelfPid >>= register s
       return (ServiceId s)
 

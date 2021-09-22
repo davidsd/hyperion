@@ -54,6 +54,7 @@ library:
     - async
     - constraints
     - hyperion-static
+    - vector
 
 executables:
   example-hello-world:
