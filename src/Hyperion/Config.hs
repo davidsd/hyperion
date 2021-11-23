@@ -22,19 +22,20 @@ import Hyperion.LockMap (newLockMap)
 
 -- | Global configuration for "Hyperion" cluster. 
 data HyperionConfig = HyperionConfig
-  { 
-    -- | Default options to use for @sbatch@ submissions
+  { -- | Default options to use for @sbatch@ submissions
     defaultSbatchOptions :: Slurm.SbatchOptions
   , -- | Maximum number of jobs to submit at a time
     maxSlurmJobs         :: Maybe Int
-    -- | The base directory for working dirs produced by 'newWorkDir'
+    -- | Base directory for working dirs produced by 'newWorkDir'
   , dataDir              :: FilePath
-    -- | The base directory for all the log files 
+    -- | Base directory for all the log files 
   , logDir               :: FilePath
-    -- | The base directory for databases
+    -- | Base directory for databases
   , databaseDir          :: FilePath
-    -- | The base directory for copies of the main executable
+    -- | Base directory for copies of the main executable
   , execDir              :: FilePath
+    -- | Base directory for SLURM job files
+  , jobDir              :: FilePath
     -- | The command to run the main executable. Automatic if 'Nothing' (see 'newClusterEnv')
   , hyperionCommand      :: Maybe FilePath
     -- | The database from which to initiate the program database
@@ -56,9 +57,10 @@ defaultHyperionConfig baseDirectory = HyperionConfig
   { defaultSbatchOptions = Slurm.defaultSbatchOptions
   , maxSlurmJobs         = Nothing
   , dataDir              = baseDirectory </> "data"
-  , logDir               = baseDirectory </> "log"
-  , databaseDir          = baseDirectory </> "database"
-  , execDir              = baseDirectory </> "exec"
+  , logDir               = baseDirectory </> "logs"
+  , databaseDir          = baseDirectory </> "databases"
+  , execDir              = baseDirectory </> "executables"
+  , jobDir               = baseDirectory </> "jobs"
   , hyperionCommand      = Nothing
   , initialDatabase      = Nothing
   , sshRunCommand        = Nothing
@@ -91,7 +93,7 @@ newClusterEnv HyperionConfig{..} holdMap holdPort = do
   programLogDir <- timedProgramDir logDir programId
   programDataDir <- timedProgramDir dataDir programId
   sbatchTokenPool <- newTokenPool maxSlurmJobs
-  let clusterJobOptions = defaultSbatchOptions
+  let clusterJobOptions = defaultSbatchOptions { Slurm.chdir = Just jobDir }
       programSSHCommand = sshRunCommand
       clusterProgramInfo = ProgramInfo {..}
       clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool
