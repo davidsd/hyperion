@@ -78,7 +78,7 @@ defaultSbatchOptions = SbatchOptions
   , qos             = Nothing
   }
 
--- Convert 'SbatchOptions' to a string of options for @sbatch@
+-- | Convert 'SbatchOptions' to a string of options for @sbatch@
 sBatchOptionString :: SbatchOptions -> String
 sBatchOptionString SbatchOptions{..} =
   unwords [ opt ++ " " ++ val | (opt, Just val) <- optPairs]
