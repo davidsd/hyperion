@@ -159,6 +159,7 @@ mkHyperionConfig ProgramOptions{..} =
     logDir                = baseDirectory </> "logDir"
     databaseDir           = baseDirectory </> "databaseDir"
     execDir               = baseDirectory </> "execDir"
+    jobDir                = baseDirectory </> "jobDir"
     hyperionCommand       = Nothing
     initialDatabase       = Nothing
     emailAddr             = Nothing
