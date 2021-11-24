@@ -24,3 +24,8 @@ Installation and Running
 
 - Run an example computation: (TODO)
   
+Documentation
+-------------
+
+Documentation is available at
+[https://davidsd.github.io/hyperion/](https://davidsd.github.io/hyperion/).
