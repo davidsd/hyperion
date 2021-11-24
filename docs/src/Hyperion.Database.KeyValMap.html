@@ -1,0 +1,567 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass      #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DeriveGeneric       #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase          #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings   #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-6"></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.Database.KeyValMap</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Lens</span></span><span>                     </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">views</span></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Catch</span></span><span>              </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadCatch</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.IO.Class</span></span><span>           </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadIO</span></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Reader</span></span><span>             </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadReader</span></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Aeson</span></span><span>                       </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">FromJSON</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">ToJSON</span></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Aeson</span></span><span>                       </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Aeson</span></span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Binary</span></span><span>                      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Binary</span></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.ByteString.Lazy</span></span><span>             </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">LBS</span></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Data</span></span><span>                        </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Typeable</span></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span>                        </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text.Encoding</span></span><span>               </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Time.Clock</span></span><span>                  </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">UTCTime</span></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Database.SQLite.Simple</span></span><span>           </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Sql</span></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Database.SQLite.Simple.FromField</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Sql</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Database.SQLite.Simple.Ok</span></span><span>        </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Sql</span></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Database.SQLite.Simple.ToField</span></span><span>   </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Sql</span></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">GHC.Generics</span></span><span>                     </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Generic</span></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Database.HasDB.html"><span class="hs-identifier">Hyperion.Database.HasDB</span></a></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Prelude</span></span><span>                          </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">lookup</span></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- * General comments</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- &quot;Hyperion.Database.KeyValMap&quot; provides various actions with Sqlite</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- DB using 'withConnection' from &quot;Hyperion.Database.HasDB&quot;.</span><span>
+</span><span id="line-33"></span><span class="hs-comment">--</span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- The DB contains entries for 'KeyValMap': given 'kvMapName' and a</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- key, DB can produce value or values for the key.  We think about</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- this as a map, i.e. there is a preferred value for each key for a</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- given 'KeyValMap', even if DB contains the key several times. This</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- is described below.</span><span>
+</span><span id="line-39"></span><span class="hs-comment">--</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- The keys and values are represented by JSON encoding of Haskell</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- values. &quot;Data.Aeson&quot; is used to perform encoding/decoding.  Thus,</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- the keys and the values should implement 'ToJSON'/'FromJSON'</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- appropriately.</span><span>
+</span><span id="line-44"></span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- * Convention on DB entries with the same key</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- The database table for a 'KeyValMap' can contain multiple entries</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- with the same key. In this case, the newest entry is the active</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- one. Older entries are always ignored. Thus, an update can be</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- achieved by inserting a new key val pair.</span><span>
+</span><span id="line-52"></span><span class="hs-comment">--</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- The reason for this choice is that newer programs should not modify</span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- data associated with old programs. However, a new program may</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- lookup data from old programs. This convention allows one to change</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- the data that a new program sees without violating the above</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- constraint.</span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span>
+</span><span id="line-60"></span><span class="hs-comment">-- | Type for 'KeyValMap' holds the types of key and value, but only</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- contains 'kvMapName' the name of the map</span><span>
+</span><span id="line-62"></span><span id="local-6989586621679160180"><span id="local-6989586621679160181"></span></span><span class="hs-keyword">newtype</span><span> </span><span id="KeyValMap"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-var">KeyValMap</span></a></span></span><span> </span><span id="local-6989586621679160266"><span class="annot"><a href="#local-6989586621679160266"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span id="local-6989586621679160265"><span class="annot"><a href="#local-6989586621679160265"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="KeyValMap"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-var">KeyValMap</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="kvMapName"><span class="annot"><span class="annottext">KeyValMap a b -&gt; Text
+</span><a href="Hyperion.Database.KeyValMap.html#kvMapName"><span class="hs-identifier hs-var hs-var">kvMapName</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-63"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679160174"><span id="local-6989586621679160176"><span class="annot"><span class="annottext">KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+(KeyValMap a b -&gt; KeyValMap a b -&gt; Bool)
+-&gt; (KeyValMap a b -&gt; KeyValMap a b -&gt; Bool) -&gt; Eq (KeyValMap a b)
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+/= :: KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+$c/= :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+== :: KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+$c== :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160158"><span id="local-6989586621679160160"><span id="local-6989586621679160162"><span id="local-6989586621679160164"><span id="local-6989586621679160166"><span id="local-6989586621679160168"><span id="local-6989586621679160170"><span class="annot"><span class="annottext">Eq (KeyValMap a b)
+Eq (KeyValMap a b)
+-&gt; (KeyValMap a b -&gt; KeyValMap a b -&gt; Ordering)
+-&gt; (KeyValMap a b -&gt; KeyValMap a b -&gt; Bool)
+-&gt; (KeyValMap a b -&gt; KeyValMap a b -&gt; Bool)
+-&gt; (KeyValMap a b -&gt; KeyValMap a b -&gt; Bool)
+-&gt; (KeyValMap a b -&gt; KeyValMap a b -&gt; Bool)
+-&gt; (KeyValMap a b -&gt; KeyValMap a b -&gt; KeyValMap a b)
+-&gt; (KeyValMap a b -&gt; KeyValMap a b -&gt; KeyValMap a b)
+-&gt; Ord (KeyValMap a b)
+KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+KeyValMap a b -&gt; KeyValMap a b -&gt; Ordering
+KeyValMap a b -&gt; KeyValMap a b -&gt; KeyValMap a b
+forall a.
+Eq a
+-&gt; (a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+forall a b. Eq (KeyValMap a b)
+forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Ordering
+forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; KeyValMap a b
+min :: KeyValMap a b -&gt; KeyValMap a b -&gt; KeyValMap a b
+$cmin :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; KeyValMap a b
+max :: KeyValMap a b -&gt; KeyValMap a b -&gt; KeyValMap a b
+$cmax :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; KeyValMap a b
+&gt;= :: KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+$c&gt;= :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+&gt; :: KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+$c&gt; :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+&lt;= :: KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+$c&lt;= :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+&lt; :: KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+$c&lt; :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Bool
+compare :: KeyValMap a b -&gt; KeyValMap a b -&gt; Ordering
+$ccompare :: forall a b. KeyValMap a b -&gt; KeyValMap a b -&gt; Ordering
+$cp1Ord :: forall a b. Eq (KeyValMap a b)
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160151"><span id="local-6989586621679160153"><span id="local-6989586621679160155"><span class="annot"><span class="annottext">Int -&gt; KeyValMap a b -&gt; ShowS
+[KeyValMap a b] -&gt; ShowS
+KeyValMap a b -&gt; String
+(Int -&gt; KeyValMap a b -&gt; ShowS)
+-&gt; (KeyValMap a b -&gt; String)
+-&gt; ([KeyValMap a b] -&gt; ShowS)
+-&gt; Show (KeyValMap a b)
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+forall a b. Int -&gt; KeyValMap a b -&gt; ShowS
+forall a b. [KeyValMap a b] -&gt; ShowS
+forall a b. KeyValMap a b -&gt; String
+showList :: [KeyValMap a b] -&gt; ShowS
+$cshowList :: forall a b. [KeyValMap a b] -&gt; ShowS
+show :: KeyValMap a b -&gt; String
+$cshow :: forall a b. KeyValMap a b -&gt; String
+showsPrec :: Int -&gt; KeyValMap a b -&gt; ShowS
+$cshowsPrec :: forall a b. Int -&gt; KeyValMap a b -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x. KeyValMap a b -&gt; Rep (KeyValMap a b) x)
+-&gt; (forall x. Rep (KeyValMap a b) x -&gt; KeyValMap a b)
+-&gt; Generic (KeyValMap a b)
+forall x. Rep (KeyValMap a b) x -&gt; KeyValMap a b
+forall x. KeyValMap a b -&gt; Rep (KeyValMap a b) x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+forall a b x. Rep (KeyValMap a b) x -&gt; KeyValMap a b
+forall a b x. KeyValMap a b -&gt; Rep (KeyValMap a b) x
+$cto :: forall a b x. Rep (KeyValMap a b) x -&gt; KeyValMap a b
+$cfrom :: forall a b x. KeyValMap a b -&gt; Rep (KeyValMap a b) x
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160141"><span id="local-6989586621679160143"><span id="local-6989586621679160145"><span class="annot"><span class="annottext">Get (KeyValMap a b)
+[KeyValMap a b] -&gt; Put
+KeyValMap a b -&gt; Put
+(KeyValMap a b -&gt; Put)
+-&gt; Get (KeyValMap a b)
+-&gt; ([KeyValMap a b] -&gt; Put)
+-&gt; Binary (KeyValMap a b)
+forall t. (t -&gt; Put) -&gt; Get t -&gt; ([t] -&gt; Put) -&gt; Binary t
+forall a b. Get (KeyValMap a b)
+forall a b. [KeyValMap a b] -&gt; Put
+forall a b. KeyValMap a b -&gt; Put
+putList :: [KeyValMap a b] -&gt; Put
+$cputList :: forall a b. [KeyValMap a b] -&gt; Put
+get :: Get (KeyValMap a b)
+$cget :: forall a b. Get (KeyValMap a b)
+put :: KeyValMap a b -&gt; Put
+$cput :: forall a b. KeyValMap a b -&gt; Put
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Binary</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160136"><span id="local-6989586621679160138"><span class="annot"><span class="annottext">Value -&gt; Parser [KeyValMap a b]
+Value -&gt; Parser (KeyValMap a b)
+(Value -&gt; Parser (KeyValMap a b))
+-&gt; (Value -&gt; Parser [KeyValMap a b]) -&gt; FromJSON (KeyValMap a b)
+forall a.
+(Value -&gt; Parser a) -&gt; (Value -&gt; Parser [a]) -&gt; FromJSON a
+forall a b. Value -&gt; Parser [KeyValMap a b]
+forall a b. Value -&gt; Parser (KeyValMap a b)
+parseJSONList :: Value -&gt; Parser [KeyValMap a b]
+$cparseJSONList :: forall a b. Value -&gt; Parser [KeyValMap a b]
+parseJSON :: Value -&gt; Parser (KeyValMap a b)
+$cparseJSON :: forall a b. Value -&gt; Parser (KeyValMap a b)
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">FromJSON</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160127"><span id="local-6989586621679160129"><span id="local-6989586621679160131"><span id="local-6989586621679160133"><span class="annot"><span class="annottext">[KeyValMap a b] -&gt; Encoding
+[KeyValMap a b] -&gt; Value
+KeyValMap a b -&gt; Encoding
+KeyValMap a b -&gt; Value
+(KeyValMap a b -&gt; Value)
+-&gt; (KeyValMap a b -&gt; Encoding)
+-&gt; ([KeyValMap a b] -&gt; Value)
+-&gt; ([KeyValMap a b] -&gt; Encoding)
+-&gt; ToJSON (KeyValMap a b)
+forall a.
+(a -&gt; Value)
+-&gt; (a -&gt; Encoding)
+-&gt; ([a] -&gt; Value)
+-&gt; ([a] -&gt; Encoding)
+-&gt; ToJSON a
+forall a b. [KeyValMap a b] -&gt; Encoding
+forall a b. [KeyValMap a b] -&gt; Value
+forall a b. KeyValMap a b -&gt; Encoding
+forall a b. KeyValMap a b -&gt; Value
+toEncodingList :: [KeyValMap a b] -&gt; Encoding
+$ctoEncodingList :: forall a b. [KeyValMap a b] -&gt; Encoding
+toJSONList :: [KeyValMap a b] -&gt; Value
+$ctoJSONList :: forall a b. [KeyValMap a b] -&gt; Value
+toEncoding :: KeyValMap a b -&gt; Encoding
+$ctoEncoding :: forall a b. KeyValMap a b -&gt; Encoding
+toJSON :: KeyValMap a b -&gt; Value
+$ctoJSON :: forall a b. KeyValMap a b -&gt; Value
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">ToJSON</span></span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span class="hs-comment">-- | 'KeyValMap' is an instance of 'ToField' in order to use with Sqlite</span><span>
+</span><span id="line-66"></span><span id="local-6989586621679160124"><span id="local-6989586621679160125"><span class="hs-keyword">instance</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Sql.ToField</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-type">KeyValMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160125"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160124"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-67"></span><span>  </span><span id="local-6989586621679160121"><span class="annot"><span class="annottext">toField :: KeyValMap a b -&gt; SQLData
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">toField</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; SQLData
+forall a. ToField a =&gt; a -&gt; SQLData
+</span><span class="hs-identifier hs-var">Sql.toField</span></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; SQLData)
+-&gt; (KeyValMap a b -&gt; Text) -&gt; KeyValMap a b -&gt; SQLData
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">KeyValMap a b -&gt; Text
+forall a b. KeyValMap a b -&gt; Text
+</span><a href="Hyperion.Database.KeyValMap.html#kvMapName"><span class="hs-identifier hs-var hs-var">kvMapName</span></a></span></span></span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span class="hs-comment">-- | 'setupKeyValTable' creates the table &quot;hyperion_key_val&quot; if it</span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- doesn't yet exist.  This table will hold the map-key-val entries.</span><span>
+</span><span id="line-71"></span><span class="hs-comment">--</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- The entry format is @program_id, kv_map, key, val, created_at@.</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- These are the program id, map name, key, value, and timestamp,</span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- respectively.</span><span>
+</span><span id="line-75"></span><span class="hs-comment">--</span><span>
+</span><span id="line-76"></span><span class="hs-comment">-- @program_id@ is not used in lookups</span><span>
+</span><span id="line-77"></span><span id="local-6989586621679160117"><span id="local-6989586621679160118"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#setupKeyValTable"><span class="hs-identifier hs-type">setupKeyValTable</span></a></span><span>
+</span><span id="line-78"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679160118"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadReader</span></span><span> </span><span class="annot"><a href="#local-6989586621679160117"><span class="hs-identifier hs-type">env</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160118"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#HasDB"><span class="hs-identifier hs-type">HasDB</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160117"><span class="hs-identifier hs-type">env</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadCatch</span></span><span> </span><span class="annot"><a href="#local-6989586621679160118"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160118"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-80"></span><span id="setupKeyValTable"><span class="annot"><span class="annottext">setupKeyValTable :: m ()
+</span><a href="Hyperion.Database.KeyValMap.html#setupKeyValTable"><span class="hs-identifier hs-var hs-var">setupKeyValTable</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Connection -&gt; IO ()) -&gt; m ()
+forall (m :: * -&gt; *) env a.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m) =&gt;
+(Connection -&gt; IO a) -&gt; m a
+</span><a href="Hyperion.Database.HasDB.html#withConnectionRetry"><span class="hs-identifier hs-var">withConnectionRetry</span></a></span><span> </span><span class="annot"><span class="annottext">((Connection -&gt; IO ()) -&gt; m ()) -&gt; (Connection -&gt; IO ()) -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679160114"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679160114"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-81"></span><span>  </span><span class="annot"><span class="annottext">Connection -&gt; Query -&gt; IO ()
+</span><span class="hs-identifier hs-var">Sql.execute_</span></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679160114"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679160112"><span class="hs-identifier hs-var">sql</span></a></span><span>
+</span><span id="line-82"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-83"></span><span>    </span><span id="local-6989586621679160112"><span class="annot"><span class="annottext">sql :: Query
+</span><a href="#local-6989586621679160112"><span class="hs-identifier hs-var hs-var">sql</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-84"></span><span>      </span><span class="annot"><span class="annottext">Query
+</span><span class="hs-string">&quot;create table if not exists hyperion_key_val \
+      \( program_id text not null \
+      \, kv_map text not null \
+      \, key text not null \
+      \, val text not null \
+      \, created_at timestamp default current_timestamp not null \
+      \)&quot;</span></span><span>
+</span><span id="line-91"></span><span>
+</span><span id="line-92"></span><span class="hs-keyword">newtype</span><span> </span><span id="JsonField"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-var">JsonField</span></a></span></span><span> </span><span id="local-6989586621679160236"><span class="annot"><a href="#local-6989586621679160236"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="JsonField"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-var">JsonField</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679160236"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- | Make 'JsonField' an instance of 'FromField'. First turns the field into Text and then tries to decode JSON.</span><span>
+</span><span id="line-95"></span><span class="hs-comment">-- Returns 'Sql.Errors' or 'Sql.Ok' with the result.</span><span>
+</span><span id="line-96"></span><span id="local-6989586621679160110"><span class="hs-keyword">instance</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679160110"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FromJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160110"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Sql.FromField</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-type">JsonField</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160110"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-97"></span><span>  </span><span id="local-6989586621679160107"><span class="annot"><span class="annottext">fromField :: FieldParser (JsonField a)
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">fromField</span></span></span><span> </span><span id="local-6989586621679160105"><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679160105"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">FieldParser Text
+forall a. FromField a =&gt; FieldParser a
+</span><span class="hs-identifier hs-var">Sql.fromField</span></span><span> </span><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679160105"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-98"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Sql.Ok</span></span><span> </span><span id="local-6989586621679160103"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679160103"><span class="hs-identifier hs-var">txt</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Either String a
+forall a. FromJSON a =&gt; ByteString -&gt; Either String a
+</span><span class="hs-identifier hs-var">Aeson.eitherDecode</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; ByteString
+</span><span class="hs-identifier hs-var">LBS.fromStrict</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><span class="hs-identifier hs-var">T.encodeUtf8</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679160103"><span class="hs-identifier hs-var">txt</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-99"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span id="local-6989586621679160099"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160099"><span class="hs-identifier hs-var">err</span></a></span></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(String -&gt; String -&gt; String -&gt; ResultError)
+-&gt; Field -&gt; String -&gt; Ok (JsonField a)
+forall a err.
+(Typeable a, Exception err) =&gt;
+(String -&gt; String -&gt; String -&gt; err) -&gt; Field -&gt; String -&gt; Ok a
+</span><span class="hs-identifier hs-var">Sql.returnError</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String -&gt; ResultError
+</span><span class="hs-identifier hs-var">Sql.ConversionFailed</span></span><span> </span><span class="annot"><span class="annottext">Field
+</span><a href="#local-6989586621679160105"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160099"><span class="hs-identifier hs-var">err</span></a></span><span>
+</span><span id="line-100"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621679160096"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160096"><span class="hs-identifier hs-var">result</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">JsonField a -&gt; Ok (JsonField a)
+forall a. a -&gt; Ok a
+</span><span class="hs-identifier hs-var">Sql.Ok</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; JsonField a
+forall a. a -&gt; JsonField a
+</span><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-var">JsonField</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160096"><span class="hs-identifier hs-var">result</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-101"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Sql.Errors</span></span><span> </span><span id="local-6989586621679160094"><span class="annot"><span class="annottext">[SomeException]
+</span><a href="#local-6989586621679160094"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[SomeException] -&gt; Ok (JsonField a)
+forall a. [SomeException] -&gt; Ok a
+</span><span class="hs-identifier hs-var">Sql.Errors</span></span><span> </span><span class="annot"><span class="annottext">[SomeException]
+</span><a href="#local-6989586621679160094"><span class="hs-identifier hs-var">err</span></a></span></span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- | Make 'JsonField' an instance of 'ToField'.</span><span>
+</span><span id="line-104"></span><span id="local-6989586621679160093"><span class="hs-keyword">instance</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ToJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160093"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Sql.ToField</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-type">JsonField</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160093"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-105"></span><span>  </span><span id="local-6989586621679160091"><span class="annot"><span class="annottext">toField :: JsonField a -&gt; SQLData
+</span><a href="#local-6989586621679160091"><span class="hs-identifier hs-var hs-var hs-var hs-var">toField</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-type">JsonField</span></a></span><span> </span><span id="local-6989586621679160090"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160090"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; SQLData
+</span><span class="hs-identifier hs-var">Sql.SQLText</span></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; SQLData) -&gt; Text -&gt; SQLData
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Text
+</span><span class="hs-identifier hs-var">T.decodeUtf8</span></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Text) -&gt; ByteString -&gt; Text
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; ByteString
+</span><span class="hs-identifier hs-var">LBS.toStrict</span></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; ByteString) -&gt; ByteString -&gt; ByteString
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; ByteString
+forall a. ToJSON a =&gt; a -&gt; ByteString
+</span><span class="hs-identifier hs-var">Aeson.encode</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160090"><span class="hs-identifier hs-var">a</span></a></span></span><span>
+</span><span id="line-106"></span><span>
+</span><span id="line-107"></span><span class="hs-comment">-- | Inserts an map-key-val entry into the database.</span><span>
+</span><span id="line-108"></span><span class="hs-comment">--</span><span>
+</span><span id="line-109"></span><span class="hs-comment">-- If fails, retries using 'withConnectionRetry'</span><span>
+</span><span id="line-110"></span><span id="local-6989586621679160184"><span id="local-6989586621679160185"><span id="local-6989586621679160186"><span id="local-6989586621679160187"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#insert"><span class="hs-identifier hs-type">insert</span></a></span><span>
+</span><span id="line-111"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679160187"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadReader</span></span><span> </span><span class="annot"><a href="#local-6989586621679160186"><span class="hs-identifier hs-type">env</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160187"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#HasDB"><span class="hs-identifier hs-type">HasDB</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160186"><span class="hs-identifier hs-type">env</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadCatch</span></span><span> </span><span class="annot"><a href="#local-6989586621679160187"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ToJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160185"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ToJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160184"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-112"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-type">KeyValMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160185"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160184"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-113"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160185"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-114"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160184"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-115"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160187"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-116"></span><span id="insert"><span class="annot"><span class="annottext">insert :: KeyValMap a b -&gt; a -&gt; b -&gt; m ()
+</span><a href="Hyperion.Database.KeyValMap.html#insert"><span class="hs-identifier hs-var hs-var">insert</span></a></span></span><span> </span><span id="local-6989586621679160084"><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160084"><span class="hs-identifier hs-var">kvMap</span></a></span></span><span> </span><span id="local-6989586621679160083"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160083"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span id="local-6989586621679160082"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160082"><span class="hs-identifier hs-var">val</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-117"></span><span>  </span><span id="local-6989586621679160081"><span class="annot"><span class="annottext">ProgramId
+</span><a href="#local-6989586621679160081"><span class="hs-identifier hs-var">programId</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">LensLike' (Const ProgramId) env DatabaseConfig
+-&gt; (DatabaseConfig -&gt; ProgramId) -&gt; m ProgramId
+forall s (m :: * -&gt; *) r a.
+MonadReader s m =&gt;
+LensLike' (Const r) s a -&gt; (a -&gt; r) -&gt; m r
+</span><span class="hs-identifier hs-var">views</span></span><span> </span><span class="annot"><span class="annottext">LensLike' (Const ProgramId) env DatabaseConfig
+forall env. HasDB env =&gt; Lens' env DatabaseConfig
+</span><a href="Hyperion.Database.HasDB.html#dbConfigLens"><span class="hs-identifier hs-var">dbConfigLens</span></a></span><span> </span><span class="annot"><span class="annottext">DatabaseConfig -&gt; ProgramId
+</span><a href="Hyperion.Database.HasDB.html#dbProgramId"><span class="hs-identifier hs-var hs-var">dbProgramId</span></a></span><span>
+</span><span id="line-118"></span><span>  </span><span class="annot"><span class="annottext">(Connection -&gt; IO ()) -&gt; m ()
+forall (m :: * -&gt; *) env a.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m) =&gt;
+(Connection -&gt; IO a) -&gt; m a
+</span><a href="Hyperion.Database.HasDB.html#withConnectionRetry"><span class="hs-identifier hs-var">withConnectionRetry</span></a></span><span> </span><span class="annot"><span class="annottext">((Connection -&gt; IO ()) -&gt; m ()) -&gt; (Connection -&gt; IO ()) -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679160078"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679160078"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Connection
+-&gt; Query
+-&gt; (ProgramId, KeyValMap a b, JsonField a, JsonField b)
+-&gt; IO ()
+forall q. ToRow q =&gt; Connection -&gt; Query -&gt; q -&gt; IO ()
+</span><span class="hs-identifier hs-var">Sql.execute</span></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679160078"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679160076"><span class="hs-identifier hs-var">sql</span></a></span><span>
+</span><span id="line-119"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">ProgramId
+</span><a href="#local-6989586621679160081"><span class="hs-identifier hs-var">programId</span></a></span><span>
+</span><span id="line-120"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160084"><span class="hs-identifier hs-var">kvMap</span></a></span><span>
+</span><span id="line-121"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">a -&gt; JsonField a
+forall a. a -&gt; JsonField a
+</span><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-var">JsonField</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160083"><span class="hs-identifier hs-var">key</span></a></span><span>
+</span><span id="line-122"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">b -&gt; JsonField b
+forall a. a -&gt; JsonField a
+</span><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-var">JsonField</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160082"><span class="hs-identifier hs-var">val</span></a></span><span>
+</span><span id="line-123"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-124"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-125"></span><span>    </span><span id="local-6989586621679160076"><span class="annot"><span class="annottext">sql :: Query
+</span><a href="#local-6989586621679160076"><span class="hs-identifier hs-var hs-var">sql</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-126"></span><span>      </span><span class="annot"><span class="annottext">Query
+</span><span class="hs-string">&quot;insert into hyperion_key_val(program_id, kv_map, key, val) \
+      \values (?, ?, ?, ?)&quot;</span></span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- | Looks up a value in the database given the map name and the</span><span>
+</span><span id="line-130"></span><span class="hs-comment">-- key. Takes the most recent matching entry according to the</span><span>
+</span><span id="line-131"></span><span class="hs-comment">-- convention.</span><span>
+</span><span id="line-132"></span><span class="hs-comment">--</span><span>
+</span><span id="line-133"></span><span class="hs-comment">-- If fails, retries using 'withConnectionRetry'</span><span>
+</span><span id="line-134"></span><span id="local-6989586621679160193"><span id="local-6989586621679160194"><span id="local-6989586621679160195"><span id="local-6989586621679160196"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#lookup"><span class="hs-identifier hs-type">lookup</span></a></span><span>
+</span><span id="line-135"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679160196"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadReader</span></span><span> </span><span class="annot"><a href="#local-6989586621679160195"><span class="hs-identifier hs-type">env</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160196"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#HasDB"><span class="hs-identifier hs-type">HasDB</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160195"><span class="hs-identifier hs-type">env</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadCatch</span></span><span> </span><span class="annot"><a href="#local-6989586621679160196"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ToJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160194"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679160193"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FromJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160193"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-136"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-type">KeyValMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160194"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160193"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-137"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160194"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-138"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160196"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679160193"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-139"></span><span id="lookup"><span class="annot"><span class="annottext">lookup :: KeyValMap a b -&gt; a -&gt; m (Maybe b)
+</span><a href="Hyperion.Database.KeyValMap.html#lookup"><span class="hs-identifier hs-var hs-var">lookup</span></a></span></span><span> </span><span id="local-6989586621679160074"><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160074"><span class="hs-identifier hs-var">kvMap</span></a></span></span><span> </span><span id="local-6989586621679160073"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160073"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Connection -&gt; IO (Maybe b)) -&gt; m (Maybe b)
+forall (m :: * -&gt; *) env a.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m) =&gt;
+(Connection -&gt; IO a) -&gt; m a
+</span><a href="Hyperion.Database.HasDB.html#withConnectionRetry"><span class="hs-identifier hs-var">withConnectionRetry</span></a></span><span> </span><span class="annot"><span class="annottext">((Connection -&gt; IO (Maybe b)) -&gt; m (Maybe b))
+-&gt; (Connection -&gt; IO (Maybe b)) -&gt; m (Maybe b)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679160072"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679160072"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-140"></span><span>  </span><span id="local-6989586621679160071"><span class="annot"><span class="annottext">[Only (JsonField b)]
+</span><a href="#local-6989586621679160071"><span class="hs-identifier hs-var">result</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection
+-&gt; Query -&gt; (KeyValMap a b, JsonField a) -&gt; IO [Only (JsonField b)]
+forall q r.
+(ToRow q, FromRow r) =&gt;
+Connection -&gt; Query -&gt; q -&gt; IO [r]
+</span><span class="hs-identifier hs-var">Sql.query</span></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679160072"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679160069"><span class="hs-identifier hs-var">sql</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160074"><span class="hs-identifier hs-var">kvMap</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">a -&gt; JsonField a
+forall a. a -&gt; JsonField a
+</span><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-var">JsonField</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160073"><span class="hs-identifier hs-var">key</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">[Only (JsonField b)]
+</span><a href="#local-6989586621679160071"><span class="hs-identifier hs-var">result</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-142"></span><span>    </span><span class="hs-special">[</span><span class="hs-special">]</span><span>                         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe b -&gt; IO (Maybe b)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Maybe b
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-143"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Sql.Only</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-type">JsonField</span></a></span><span> </span><span id="local-6989586621679160067"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160067"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="annot"><span class="annottext">[Only (JsonField b)]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe b -&gt; IO (Maybe b)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(Maybe b -&gt; IO (Maybe b)) -&gt; Maybe b -&gt; IO (Maybe b)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">b -&gt; Maybe b
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160067"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-144"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-145"></span><span>    </span><span id="local-6989586621679160069"><span class="annot"><span class="annottext">sql :: Query
+</span><a href="#local-6989586621679160069"><span class="hs-identifier hs-var hs-var">sql</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-146"></span><span>      </span><span class="annot"><span class="annottext">Query
+</span><span class="hs-string">&quot;select val from hyperion_key_val \
+      \where kv_map = ? and key = ? \
+      \order by created_at desc \
+      \limit 1&quot;</span></span><span>
+</span><span id="line-150"></span><span>
+</span><span id="line-151"></span><span class="hs-comment">-- | Returns the list of all kev-value pairs for a given map. Again</span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- only keeps the latest versino of the value accroding to the</span><span>
+</span><span id="line-153"></span><span class="hs-comment">-- convention.</span><span>
+</span><span id="line-154"></span><span class="hs-comment">--</span><span>
+</span><span id="line-155"></span><span class="hs-comment">-- If fails, retries using 'withConnectionRetry'</span><span>
+</span><span id="line-156"></span><span id="local-6989586621679160063"><span id="local-6989586621679160064"><span id="local-6989586621679160065"><span id="local-6989586621679160066"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#lookupAll"><span class="hs-identifier hs-type">lookupAll</span></a></span><span>
+</span><span id="line-157"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679160066"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadReader</span></span><span> </span><span class="annot"><a href="#local-6989586621679160065"><span class="hs-identifier hs-type">env</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160066"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#HasDB"><span class="hs-identifier hs-type">HasDB</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160065"><span class="hs-identifier hs-type">env</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadCatch</span></span><span> </span><span class="annot"><a href="#local-6989586621679160066"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679160064"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FromJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160064"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679160063"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FromJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160063"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-158"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-type">KeyValMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160064"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160063"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-159"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160066"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679160064"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679160063"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span></span></span></span></span><span>
+</span><span id="line-160"></span><span id="lookupAll"><span class="annot"><span class="annottext">lookupAll :: KeyValMap a b -&gt; m [(a, b)]
+</span><a href="Hyperion.Database.KeyValMap.html#lookupAll"><span class="hs-identifier hs-var hs-var">lookupAll</span></a></span></span><span> </span><span id="local-6989586621679160061"><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160061"><span class="hs-identifier hs-var">kvMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Connection -&gt; IO [(a, b)]) -&gt; m [(a, b)]
+forall (m :: * -&gt; *) env a.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m) =&gt;
+(Connection -&gt; IO a) -&gt; m a
+</span><a href="Hyperion.Database.HasDB.html#withConnectionRetry"><span class="hs-identifier hs-var">withConnectionRetry</span></a></span><span> </span><span class="annot"><span class="annottext">((Connection -&gt; IO [(a, b)]) -&gt; m [(a, b)])
+-&gt; (Connection -&gt; IO [(a, b)]) -&gt; m [(a, b)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679160060"><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679160060"><span class="hs-identifier hs-var">conn</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-161"></span><span>  </span><span id="local-6989586621679160059"><span class="annot"><span class="annottext">[(JsonField a, JsonField b, UTCTime)]
+</span><a href="#local-6989586621679160059"><span class="hs-identifier hs-var">result</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Connection
+-&gt; Query
+-&gt; Only (KeyValMap a b)
+-&gt; IO [(JsonField a, JsonField b, UTCTime)]
+forall q r.
+(ToRow q, FromRow r) =&gt;
+Connection -&gt; Query -&gt; q -&gt; IO [r]
+</span><span class="hs-identifier hs-var">Sql.query</span></span><span> </span><span class="annot"><span class="annottext">Connection
+</span><a href="#local-6989586621679160060"><span class="hs-identifier hs-var">conn</span></a></span><span> </span><span class="annot"><span class="annottext">Query
+</span><a href="#local-6989586621679160058"><span class="hs-identifier hs-var">sql</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">KeyValMap a b -&gt; Only (KeyValMap a b)
+forall a. a -&gt; Only a
+</span><span class="hs-identifier hs-var">Sql.Only</span></span><span> </span><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160061"><span class="hs-identifier hs-var">kvMap</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-162"></span><span>  </span><span class="annot"><span class="annottext">[(a, b)] -&gt; IO [(a, b)]
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">([(a, b)] -&gt; IO [(a, b)]) -&gt; [(a, b)] -&gt; IO [(a, b)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">((JsonField a, JsonField b, UTCTime) -&gt; (a, b))
+-&gt; [(JsonField a, JsonField b, UTCTime)] -&gt; [(a, b)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-type">JsonField</span></a></span><span> </span><span id="local-6989586621679160057"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160057"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#JsonField"><span class="hs-identifier hs-type">JsonField</span></a></span><span> </span><span id="local-6989586621679160056"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160056"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">UTCTime</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160057"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160056"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(JsonField a, JsonField b, UTCTime)]
+</span><a href="#local-6989586621679160059"><span class="hs-identifier hs-var">result</span></a></span><span>
+</span><span id="line-163"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-164"></span><span>    </span><span id="local-6989586621679160058"><span class="annot"><span class="annottext">sql :: Query
+</span><a href="#local-6989586621679160058"><span class="hs-identifier hs-var hs-var">sql</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-165"></span><span>      </span><span class="annot"><span class="annottext">Query
+</span><span class="hs-string">&quot;select key, val, max(created_at) from hyperion_key_val \
+      \where kv_map = ? \
+      \group by key \
+      \order by created_at&quot;</span></span><span>
+</span><span id="line-169"></span><span>
+</span><span id="line-170"></span><span class="hs-comment">-- | Same as 'lookup' but with a default value provided</span><span>
+</span><span id="line-171"></span><span id="local-6989586621679160052"><span id="local-6989586621679160053"><span id="local-6989586621679160054"><span id="local-6989586621679160055"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#lookupDefault"><span class="hs-identifier hs-type">lookupDefault</span></a></span><span>
+</span><span id="line-172"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679160055"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadReader</span></span><span> </span><span class="annot"><a href="#local-6989586621679160054"><span class="hs-identifier hs-type">env</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160055"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#HasDB"><span class="hs-identifier hs-type">HasDB</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160054"><span class="hs-identifier hs-type">env</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadCatch</span></span><span> </span><span class="annot"><a href="#local-6989586621679160055"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ToJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160053"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679160052"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FromJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160052"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-type">KeyValMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160053"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160052"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-174"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160052"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-175"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160053"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-176"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160055"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160052"><span class="hs-identifier hs-type">b</span></a></span></span></span></span></span><span>
+</span><span id="line-177"></span><span id="lookupDefault"><span class="annot"><span class="annottext">lookupDefault :: KeyValMap a b -&gt; b -&gt; a -&gt; m b
+</span><a href="Hyperion.Database.KeyValMap.html#lookupDefault"><span class="hs-identifier hs-var hs-var">lookupDefault</span></a></span></span><span> </span><span id="local-6989586621679160050"><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160050"><span class="hs-identifier hs-var">kvMap</span></a></span></span><span> </span><span id="local-6989586621679160049"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160049"><span class="hs-identifier hs-var">def</span></a></span></span><span> </span><span id="local-6989586621679160048"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160048"><span class="hs-identifier hs-var">key</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KeyValMap a b -&gt; a -&gt; m (Maybe b)
+forall (m :: * -&gt; *) env a b.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a,
+ Typeable b, FromJSON b) =&gt;
+KeyValMap a b -&gt; a -&gt; m (Maybe b)
+</span><a href="Hyperion.Database.KeyValMap.html#lookup"><span class="hs-identifier hs-var">lookup</span></a></span><span> </span><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160050"><span class="hs-identifier hs-var">kvMap</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160048"><span class="hs-identifier hs-var">key</span></a></span><span> </span><span class="annot"><span class="annottext">m (Maybe b) -&gt; (Maybe b -&gt; m b) -&gt; m b
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-178"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679160047"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160047"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">b -&gt; m b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160047"><span class="hs-identifier hs-var">v</span></a></span><span>
+</span><span id="line-179"></span><span>  </span><span class="annot"><span class="annottext">Maybe b
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">b -&gt; m b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160049"><span class="hs-identifier hs-var">def</span></a></span><span>
+</span><span id="line-180"></span><span>
+</span><span id="line-181"></span><span class="hs-comment">-- | This implements memoization using the DB.  Given a function, it</span><span>
+</span><span id="line-182"></span><span class="hs-comment">-- first tries to look up the function result in the DB and if no</span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- result is available, runs the function and inserts the result into</span><span>
+</span><span id="line-184"></span><span class="hs-comment">-- the DB</span><span>
+</span><span id="line-185"></span><span id="local-6989586621679160043"><span id="local-6989586621679160044"><span id="local-6989586621679160045"><span id="local-6989586621679160046"><span class="annot"><a href="Hyperion.Database.KeyValMap.html#memoizeWithMap"><span class="hs-identifier hs-type">memoizeWithMap</span></a></span><span>
+</span><span id="line-186"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679160046"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadReader</span></span><span> </span><span class="annot"><a href="#local-6989586621679160045"><span class="hs-identifier hs-type">env</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160046"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#HasDB"><span class="hs-identifier hs-type">HasDB</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160045"><span class="hs-identifier hs-type">env</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadCatch</span></span><span> </span><span class="annot"><a href="#local-6989586621679160046"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ToJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160044"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ToJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160043"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679160043"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FromJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160043"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-187"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-type">KeyValMap</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160044"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160043"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-comment">-- ^ The 'KeyValMap' in which to memoize</span><span>
+</span><span id="line-188"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679160044"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160046"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160043"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-189"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160044"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-190"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160046"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160043"><span class="hs-identifier hs-type">b</span></a></span></span></span></span></span><span>
+</span><span id="line-191"></span><span id="memoizeWithMap"><span class="annot"><span class="annottext">memoizeWithMap :: KeyValMap a b -&gt; (a -&gt; m b) -&gt; a -&gt; m b
+</span><a href="Hyperion.Database.KeyValMap.html#memoizeWithMap"><span class="hs-identifier hs-var hs-var">memoizeWithMap</span></a></span></span><span> </span><span id="local-6989586621679160041"><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160041"><span class="hs-identifier hs-var">kvMap</span></a></span></span><span> </span><span id="local-6989586621679160040"><span class="annot"><span class="annottext">a -&gt; m b
+</span><a href="#local-6989586621679160040"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679160039"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160039"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-192"></span><span>  </span><span class="annot"><span class="annottext">KeyValMap a b -&gt; a -&gt; m (Maybe b)
+forall (m :: * -&gt; *) env a b.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a,
+ Typeable b, FromJSON b) =&gt;
+KeyValMap a b -&gt; a -&gt; m (Maybe b)
+</span><a href="Hyperion.Database.KeyValMap.html#lookup"><span class="hs-identifier hs-var">lookup</span></a></span><span> </span><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160041"><span class="hs-identifier hs-var">kvMap</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160039"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">m (Maybe b) -&gt; (Maybe b -&gt; m b) -&gt; m b
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-193"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679160038"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160038"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">b -&gt; m b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160038"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-194"></span><span>    </span><span class="annot"><span class="annottext">Maybe b
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-195"></span><span>      </span><span id="local-6989586621679160037"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160037"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">a -&gt; m b
+</span><a href="#local-6989586621679160040"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160039"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-196"></span><span>      </span><span class="annot"><span class="annottext">KeyValMap a b -&gt; a -&gt; b -&gt; m ()
+forall (m :: * -&gt; *) env a b.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a,
+ ToJSON b) =&gt;
+KeyValMap a b -&gt; a -&gt; b -&gt; m ()
+</span><a href="Hyperion.Database.KeyValMap.html#insert"><span class="hs-identifier hs-var">insert</span></a></span><span> </span><span class="annot"><span class="annottext">KeyValMap a b
+</span><a href="#local-6989586621679160041"><span class="hs-identifier hs-var">kvMap</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679160039"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160037"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-197"></span><span>      </span><span class="annot"><span class="annottext">b -&gt; m b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679160037"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-198"></span></pre></body></html>

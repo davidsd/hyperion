@@ -1,7 +1,6 @@
 flags: {}
 packages:
 - '.'
-# - './example'
 extra-deps:
 - distributed-static-0.3.9
 - git: https://github.com/davidsd/network-transport-tcp
@@ -15,3 +14,9 @@ extra-deps:
 - git: https://gitlab.com/davidsd/hyperion-static.git
   commit: 83e504f6e37d3cd4eb254477b9f1684e6686b8c0
 resolver: lts-17.4
+build:
+  haddock-arguments:
+    haddock-args:
+    - "--odir=./docs"
+    - "--hyperlinked-source"
+  haddock-deps: false

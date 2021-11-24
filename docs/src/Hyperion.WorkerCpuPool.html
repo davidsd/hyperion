@@ -1,0 +1,577 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span id="%24con2tag_F84xaU5vn2qApkr5o0ysvr"></span><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass             #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DerivingStrategies         #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE GeneralizedNewtypeDeriving #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings          #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE RecordWildCards            #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications           #-}</span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.WorkerCpuPool</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-9"></span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM</span></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">atomically</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">check</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM.TVar</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">TVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">modifyTVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">newTVarIO</span></span><span class="hs-special">,</span><span>
+</span><span id="line-12"></span><span>                                              </span><span class="annot"><span class="hs-identifier">readTVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">readTVarIO</span></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Exception</span></span><span>           </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Exception</span></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad</span></span><span>               </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">when</span></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Catch</span></span><span>         </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadMask</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">bracket</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">try</span></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.IO.Class</span></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadIO</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">liftIO</span></span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.List.Extra</span></span><span>             </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">maximumOn</span></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Map.Strict</span></span><span>             </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Map</span></span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Maybe</span></span><span>                  </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">fromMaybe</span></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map.Strict</span></span><span>             </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Log.html"><span class="hs-identifier">Hyperion.Log</span></a></span><span>                </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Log</span></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Slurm.html"><span class="hs-identifier">Hyperion.Slurm</span></a></span><span>              </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Slurm</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Util.html"><span class="hs-identifier">Hyperion.Util</span></a></span><span>               </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Util.html#retryRepeated"><span class="hs-identifier">retryRepeated</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Util.html#shellEsc"><span class="hs-identifier">shellEsc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Exit</span></span><span>                 </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">ExitCode</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Process</span></span><span>              </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">readCreateProcessWithExitCode</span></span><span>
+</span><span id="line-26"></span><span>                                             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">proc</span></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- * General comments</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- This module defines 'WorkerCpuPool', a datatype that provides a mechanism</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- for @hyperion@ to manage the resources allocated to it by @SLURM@. The only</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- resource that is managed are the CPU's on the allocated nodes. This module</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- works under the assumption that the same number of CPU's has been allocated </span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- on all the nodes allocated to the job.</span><span>
+</span><span id="line-35"></span><span class="hs-comment">--</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- A 'WorkerCpuPool' is essentially a 'TVar' containing the 'Map' that maps</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- node addresses to the number of CPU's available on that node. The addess can</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- be a remote node or the local node on which 'WorkerCpuPool' is hosted.</span><span>
+</span><span id="line-39"></span><span class="hs-comment">--</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- The most important function defined in this module is 'withWorkerAddr' which</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- allocates the requested number of CPUs from the pull on a single node and </span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- runs a user function with the address of that node. The allocation mechanism</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- is very simple and allocates CPU's on the worker which has the most idle CPUs.</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- We also provide 'sshRunCmd' for running commands on the nodes via @ssh@.</span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- * 'WorkerCpuPool' documentation</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-49"></span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- | A newtype for the number of available CPUs</span><span>
+</span><span id="line-51"></span><span class="hs-keyword">newtype</span><span> </span><span id="NumCPUs"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-var">NumCPUs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="NumCPUs"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-var">NumCPUs</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">newtype</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679160545"><span id="local-6989586621679160547"><span class="annot"><span class="annottext">NumCPUs -&gt; NumCPUs -&gt; Bool
+(NumCPUs -&gt; NumCPUs -&gt; Bool)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; Bool) -&gt; Eq NumCPUs
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: NumCPUs -&gt; NumCPUs -&gt; Bool
+$c/= :: NumCPUs -&gt; NumCPUs -&gt; Bool
+== :: NumCPUs -&gt; NumCPUs -&gt; Bool
+$c== :: NumCPUs -&gt; NumCPUs -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160529"><span id="local-6989586621679160531"><span id="local-6989586621679160533"><span id="local-6989586621679160535"><span id="local-6989586621679160537"><span id="local-6989586621679160539"><span id="local-6989586621679160541"><span class="annot"><span class="annottext">Eq NumCPUs
+Eq NumCPUs
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; Ordering)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; Bool)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; Bool)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; Bool)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; Bool)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; NumCPUs)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; NumCPUs)
+-&gt; Ord NumCPUs
+NumCPUs -&gt; NumCPUs -&gt; Bool
+NumCPUs -&gt; NumCPUs -&gt; Ordering
+NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+forall a.
+Eq a
+-&gt; (a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+min :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+$cmin :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+max :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+$cmax :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+&gt;= :: NumCPUs -&gt; NumCPUs -&gt; Bool
+$c&gt;= :: NumCPUs -&gt; NumCPUs -&gt; Bool
+&gt; :: NumCPUs -&gt; NumCPUs -&gt; Bool
+$c&gt; :: NumCPUs -&gt; NumCPUs -&gt; Bool
+&lt;= :: NumCPUs -&gt; NumCPUs -&gt; Bool
+$c&lt;= :: NumCPUs -&gt; NumCPUs -&gt; Bool
+&lt; :: NumCPUs -&gt; NumCPUs -&gt; Bool
+$c&lt; :: NumCPUs -&gt; NumCPUs -&gt; Bool
+compare :: NumCPUs -&gt; NumCPUs -&gt; Ordering
+$ccompare :: NumCPUs -&gt; NumCPUs -&gt; Ordering
+$cp1Ord :: Eq NumCPUs
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160514"><span id="local-6989586621679160516"><span id="local-6989586621679160518"><span id="local-6989586621679160520"><span id="local-6989586621679160522"><span id="local-6989586621679160524"><span id="local-6989586621679160526"><span class="annot"><span class="annottext">Integer -&gt; NumCPUs
+NumCPUs -&gt; NumCPUs
+NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+(NumCPUs -&gt; NumCPUs -&gt; NumCPUs)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; NumCPUs)
+-&gt; (NumCPUs -&gt; NumCPUs -&gt; NumCPUs)
+-&gt; (NumCPUs -&gt; NumCPUs)
+-&gt; (NumCPUs -&gt; NumCPUs)
+-&gt; (NumCPUs -&gt; NumCPUs)
+-&gt; (Integer -&gt; NumCPUs)
+-&gt; Num NumCPUs
+forall a.
+(a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a)
+-&gt; (a -&gt; a)
+-&gt; (a -&gt; a)
+-&gt; (Integer -&gt; a)
+-&gt; Num a
+fromInteger :: Integer -&gt; NumCPUs
+$cfromInteger :: Integer -&gt; NumCPUs
+signum :: NumCPUs -&gt; NumCPUs
+$csignum :: NumCPUs -&gt; NumCPUs
+abs :: NumCPUs -&gt; NumCPUs
+$cabs :: NumCPUs -&gt; NumCPUs
+negate :: NumCPUs -&gt; NumCPUs
+$cnegate :: NumCPUs -&gt; NumCPUs
+* :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+$c* :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+- :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+$c- :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
++ :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+$c+ :: NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Num</span></span></span></span></span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- | The 'WorkerCpuPool' type, contaning a map of available CPU resources</span><span>
+</span><span id="line-55"></span><span class="hs-keyword">data</span><span> </span><span id="WorkerCpuPool"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-var">WorkerCpuPool</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="WorkerCpuPool"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-var">WorkerCpuPool</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="cpuMap"><span class="annot"><span class="annottext">WorkerCpuPool -&gt; TVar (Map WorkerAddr NumCPUs)
+</span><a href="Hyperion.WorkerCpuPool.html#cpuMap"><span class="hs-identifier hs-var hs-var">cpuMap</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">TVar</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Map</span></span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-type">NumCPUs</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-56"></span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- | 'newWorkerCpuPool' creates a new 'WorkerCpuPool' from a 'Map'.</span><span>
+</span><span id="line-58"></span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#newWorkerCpuPool"><span class="hs-identifier hs-type">newWorkerCpuPool</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Map</span></span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-type">NumCPUs</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-type">WorkerCpuPool</span></a></span><span>
+</span><span id="line-59"></span><span id="newWorkerCpuPool"><span class="annot"><span class="annottext">newWorkerCpuPool :: Map WorkerAddr NumCPUs -&gt; IO WorkerCpuPool
+</span><a href="Hyperion.WorkerCpuPool.html#newWorkerCpuPool"><span class="hs-identifier hs-var hs-var">newWorkerCpuPool</span></a></span></span><span> </span><span id="local-6989586621679160509"><span class="annot"><span class="annottext">Map WorkerAddr NumCPUs
+</span><a href="#local-6989586621679160509"><span class="hs-identifier hs-var">cpus</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs) -&gt; WorkerCpuPool
+</span><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-var">WorkerCpuPool</span></a></span><span> </span><span class="annot"><span class="annottext">(TVar (Map WorkerAddr NumCPUs) -&gt; WorkerCpuPool)
+-&gt; IO (TVar (Map WorkerAddr NumCPUs)) -&gt; IO WorkerCpuPool
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Map WorkerAddr NumCPUs -&gt; IO (TVar (Map WorkerAddr NumCPUs))
+forall a. a -&gt; IO (TVar a)
+</span><span class="hs-identifier hs-var">newTVarIO</span></span><span> </span><span class="annot"><span class="annottext">Map WorkerAddr NumCPUs
+</span><a href="#local-6989586621679160509"><span class="hs-identifier hs-var">cpus</span></a></span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- | Gets a list of all 'WorkerAddr' registered in 'WorkerCpuPool'</span><span>
+</span><span id="line-62"></span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#getAddrs"><span class="hs-identifier hs-type">getAddrs</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-type">WorkerCpuPool</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-63"></span><span id="getAddrs"><span class="annot"><span class="annottext">getAddrs :: WorkerCpuPool -&gt; IO [WorkerAddr]
+</span><a href="Hyperion.WorkerCpuPool.html#getAddrs"><span class="hs-identifier hs-var hs-var">getAddrs</span></a></span></span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-type">WorkerCpuPool</span></a></span><span class="hs-special">{</span><span id="local-6989586621679160506"><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs)
+cpuMap :: TVar (Map WorkerAddr NumCPUs)
+cpuMap :: WorkerCpuPool -&gt; TVar (Map WorkerAddr NumCPUs)
+</span><a href="#local-6989586621679160506"><span class="hs-glyph hs-var hs-var">..</span></a></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Map WorkerAddr NumCPUs -&gt; [WorkerAddr])
+-&gt; IO (Map WorkerAddr NumCPUs) -&gt; IO [WorkerAddr]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">Map WorkerAddr NumCPUs -&gt; [WorkerAddr]
+forall k a. Map k a -&gt; [k]
+</span><span class="hs-identifier hs-var">Map.keys</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs) -&gt; IO (Map WorkerAddr NumCPUs)
+forall a. TVar a -&gt; IO a
+</span><span class="hs-identifier hs-var">readTVarIO</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs)
+</span><a href="#local-6989586621679160506"><span class="hs-identifier hs-var">cpuMap</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span>
+</span><span id="line-65"></span><span class="hs-comment">-- | A 'WorkerAddr' representing a node address. Can be a remote node or the local node</span><span>
+</span><span id="line-66"></span><span class="hs-keyword">data</span><span> </span><span id="WorkerAddr"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-var">WorkerAddr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="LocalHost"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#LocalHost"><span class="hs-identifier hs-var">LocalHost</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="RemoteAddr"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#RemoteAddr"><span class="hs-identifier hs-var">RemoteAddr</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span>
+</span><span id="line-67"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679160499"><span id="local-6989586621679160501"><span class="annot"><span class="annottext">WorkerAddr -&gt; WorkerAddr -&gt; Bool
+(WorkerAddr -&gt; WorkerAddr -&gt; Bool)
+-&gt; (WorkerAddr -&gt; WorkerAddr -&gt; Bool) -&gt; Eq WorkerAddr
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+$c/= :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+== :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+$c== :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160484"><span id="local-6989586621679160486"><span id="local-6989586621679160488"><span id="local-6989586621679160490"><span id="local-6989586621679160492"><span id="local-6989586621679160494"><span id="local-6989586621679160496"><span class="annot"><span class="annottext">Eq WorkerAddr
+Eq WorkerAddr
+-&gt; (WorkerAddr -&gt; WorkerAddr -&gt; Ordering)
+-&gt; (WorkerAddr -&gt; WorkerAddr -&gt; Bool)
+-&gt; (WorkerAddr -&gt; WorkerAddr -&gt; Bool)
+-&gt; (WorkerAddr -&gt; WorkerAddr -&gt; Bool)
+-&gt; (WorkerAddr -&gt; WorkerAddr -&gt; Bool)
+-&gt; (WorkerAddr -&gt; WorkerAddr -&gt; WorkerAddr)
+-&gt; (WorkerAddr -&gt; WorkerAddr -&gt; WorkerAddr)
+-&gt; Ord WorkerAddr
+WorkerAddr -&gt; WorkerAddr -&gt; Bool
+WorkerAddr -&gt; WorkerAddr -&gt; Ordering
+WorkerAddr -&gt; WorkerAddr -&gt; WorkerAddr
+forall a.
+Eq a
+-&gt; (a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+min :: WorkerAddr -&gt; WorkerAddr -&gt; WorkerAddr
+$cmin :: WorkerAddr -&gt; WorkerAddr -&gt; WorkerAddr
+max :: WorkerAddr -&gt; WorkerAddr -&gt; WorkerAddr
+$cmax :: WorkerAddr -&gt; WorkerAddr -&gt; WorkerAddr
+&gt;= :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+$c&gt;= :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+&gt; :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+$c&gt; :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+&lt;= :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+$c&lt;= :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+&lt; :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+$c&lt; :: WorkerAddr -&gt; WorkerAddr -&gt; Bool
+compare :: WorkerAddr -&gt; WorkerAddr -&gt; Ordering
+$ccompare :: WorkerAddr -&gt; WorkerAddr -&gt; Ordering
+$cp1Ord :: Eq WorkerAddr
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160478"><span id="local-6989586621679160480"><span id="local-6989586621679160482"><span class="annot"><span class="annottext">Int -&gt; WorkerAddr -&gt; ShowS
+[WorkerAddr] -&gt; ShowS
+WorkerAddr -&gt; String
+(Int -&gt; WorkerAddr -&gt; ShowS)
+-&gt; (WorkerAddr -&gt; String)
+-&gt; ([WorkerAddr] -&gt; ShowS)
+-&gt; Show WorkerAddr
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [WorkerAddr] -&gt; ShowS
+$cshowList :: [WorkerAddr] -&gt; ShowS
+show :: WorkerAddr -&gt; String
+$cshow :: WorkerAddr -&gt; String
+showsPrec :: Int -&gt; WorkerAddr -&gt; ShowS
+$cshowsPrec :: Int -&gt; WorkerAddr -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span class="hs-comment">-- | Reads the system environment to obtain the list of nodes allocated to the job. </span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- If the local node is in the list, then records it too, as 'LocalHost'.</span><span>
+</span><span id="line-71"></span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#getSlurmAddrs"><span class="hs-identifier hs-type">getSlurmAddrs</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-72"></span><span id="getSlurmAddrs"><span class="annot"><span class="annottext">getSlurmAddrs :: IO [WorkerAddr]
+</span><a href="Hyperion.WorkerCpuPool.html#getSlurmAddrs"><span class="hs-identifier hs-var hs-var">getSlurmAddrs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-73"></span><span>  </span><span id="local-6989586621679160475"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679160475"><span class="hs-identifier hs-var">jobNodes</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO [String]
+</span><a href="Hyperion.Slurm.Environment.html#getJobNodes"><span class="hs-identifier hs-var">Slurm.getJobNodes</span></a></span><span>
+</span><span id="line-74"></span><span>  </span><span id="local-6989586621679160473"><span class="annot"><span class="annottext">Maybe String
+</span><a href="#local-6989586621679160473"><span class="hs-identifier hs-var">mHeadNode</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (Maybe String)
+</span><a href="Hyperion.Slurm.Environment.html#lookupHeadNode"><span class="hs-identifier hs-var">Slurm.lookupHeadNode</span></a></span><span>
+</span><span id="line-75"></span><span>  </span><span class="annot"><span class="annottext">[WorkerAddr] -&gt; IO [WorkerAddr]
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">([WorkerAddr] -&gt; IO [WorkerAddr])
+-&gt; [WorkerAddr] -&gt; IO [WorkerAddr]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(String -&gt; WorkerAddr) -&gt; [String] -&gt; [WorkerAddr]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe String -&gt; String -&gt; WorkerAddr
+</span><a href="#local-6989586621679160471"><span class="hs-identifier hs-var">toAddr</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe String
+</span><a href="#local-6989586621679160473"><span class="hs-identifier hs-var">mHeadNode</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679160475"><span class="hs-identifier hs-var">jobNodes</span></a></span><span>
+</span><span id="line-76"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-77"></span><span>    </span><span id="local-6989586621679160471"><span class="annot"><span class="annottext">toAddr :: Maybe String -&gt; String -&gt; WorkerAddr
+</span><a href="#local-6989586621679160471"><span class="hs-identifier hs-var hs-var">toAddr</span></a></span></span><span> </span><span id="local-6989586621679160470"><span class="annot"><span class="annottext">Maybe String
+</span><a href="#local-6989586621679160470"><span class="hs-identifier hs-var">mh</span></a></span></span><span> </span><span id="local-6989586621679160469"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160469"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-78"></span><span>      </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Maybe String
+</span><a href="#local-6989586621679160470"><span class="hs-identifier hs-var">mh</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe String -&gt; Maybe String -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; Maybe String
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160469"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-79"></span><span>      </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">String -&gt; WorkerAddr
+</span><a href="Hyperion.WorkerCpuPool.html#LocalHost"><span class="hs-identifier hs-var">LocalHost</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160469"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-80"></span><span>      </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">String -&gt; WorkerAddr
+</span><a href="Hyperion.WorkerCpuPool.html#RemoteAddr"><span class="hs-identifier hs-var">RemoteAddr</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160469"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- | Reads the system environment to determine the number of CPUs available on</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- each node (the same number on each node), and creates a new 'WorkerCpuPool'</span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- for the @['WorkerAddr']@ assuming that all CPUs are available.</span><span>
+</span><span id="line-85"></span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#newJobPool"><span class="hs-identifier hs-type">newJobPool</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-type">WorkerCpuPool</span></a></span><span>
+</span><span id="line-86"></span><span id="newJobPool"><span class="annot"><span class="annottext">newJobPool :: [WorkerAddr] -&gt; IO WorkerCpuPool
+</span><a href="Hyperion.WorkerCpuPool.html#newJobPool"><span class="hs-identifier hs-var hs-var">newJobPool</span></a></span></span><span> </span><span id="local-6989586621679160467"><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679160467"><span class="hs-identifier hs-var">nodes</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-87"></span><span>  </span><span class="annot"><span class="annottext">Bool -&gt; IO () -&gt; IO ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><span class="hs-identifier hs-var">when</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[WorkerAddr] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">null</span></span><span> </span><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679160467"><span class="hs-identifier hs-var">nodes</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; IO ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; String -&gt; m a
+</span><a href="Hyperion.Log.html#throwError"><span class="hs-identifier hs-var">Log.throwError</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Empty node list&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span>  </span><span id="local-6989586621679160464"><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679160464"><span class="hs-identifier hs-var">cpusPerNode</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Int -&gt; NumCPUs) -&gt; IO Int -&gt; IO NumCPUs
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">Int -&gt; NumCPUs
+</span><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-var">NumCPUs</span></a></span><span> </span><span class="annot"><span class="annottext">IO Int
+</span><a href="Hyperion.Slurm.Environment.html#getNTasksPerNode"><span class="hs-identifier hs-var">Slurm.getNTasksPerNode</span></a></span><span>
+</span><span id="line-89"></span><span>  </span><span class="annot"><span class="annottext">Map WorkerAddr NumCPUs -&gt; IO WorkerCpuPool
+</span><a href="Hyperion.WorkerCpuPool.html#newWorkerCpuPool"><span class="hs-identifier hs-var">newWorkerCpuPool</span></a></span><span> </span><span class="annot"><span class="annottext">(Map WorkerAddr NumCPUs -&gt; IO WorkerCpuPool)
+-&gt; Map WorkerAddr NumCPUs -&gt; IO WorkerCpuPool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">[(WorkerAddr, NumCPUs)] -&gt; Map WorkerAddr NumCPUs
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><span class="hs-identifier hs-var">Map.fromList</span></span><span> </span><span class="annot"><span class="annottext">([(WorkerAddr, NumCPUs)] -&gt; Map WorkerAddr NumCPUs)
+-&gt; [(WorkerAddr, NumCPUs)] -&gt; Map WorkerAddr NumCPUs
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">[WorkerAddr] -&gt; [NumCPUs] -&gt; [(WorkerAddr, NumCPUs)]
+forall a b. [a] -&gt; [b] -&gt; [(a, b)]
+</span><span class="hs-identifier hs-var">zip</span></span><span> </span><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679160467"><span class="hs-identifier hs-var">nodes</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NumCPUs -&gt; [NumCPUs]
+forall a. a -&gt; [a]
+</span><span class="hs-identifier hs-var">repeat</span></span><span> </span><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679160464"><span class="hs-identifier hs-var">cpusPerNode</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span class="hs-comment">-- | Finds the worker with the most available CPUs and runs the given</span><span>
+</span><span id="line-92"></span><span class="hs-comment">-- routine with the address of that worker. Blocks if the number of</span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- available CPUs is less than the number requested.</span><span>
+</span><span id="line-94"></span><span id="local-6989586621679160459"><span id="local-6989586621679160460"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#withWorkerAddr"><span class="hs-identifier hs-type">withWorkerAddr</span></a></span><span>
+</span><span id="line-95"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679160460"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadMask</span></span><span> </span><span class="annot"><a href="#local-6989586621679160460"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-type">WorkerCpuPool</span></a></span><span>
+</span><span id="line-97"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-type">NumCPUs</span></a></span><span>
+</span><span id="line-98"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160460"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160459"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-99"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160460"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160459"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-100"></span><span id="withWorkerAddr"><span class="annot"><span class="annottext">withWorkerAddr :: WorkerCpuPool -&gt; NumCPUs -&gt; (WorkerAddr -&gt; m a) -&gt; m a
+</span><a href="Hyperion.WorkerCpuPool.html#withWorkerAddr"><span class="hs-identifier hs-var hs-var">withWorkerAddr</span></a></span></span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerCpuPool"><span class="hs-identifier hs-type">WorkerCpuPool</span></a></span><span class="hs-special">{</span><span id="local-6989586621679160457"><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs)
+cpuMap :: TVar (Map WorkerAddr NumCPUs)
+cpuMap :: WorkerCpuPool -&gt; TVar (Map WorkerAddr NumCPUs)
+</span><a href="#local-6989586621679160457"><span class="hs-glyph hs-var hs-var">..</span></a></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679160456"><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679160456"><span class="hs-identifier hs-var">cpus</span></a></span></span><span> </span><span id="local-6989586621679160455"><span class="annot"><span class="annottext">WorkerAddr -&gt; m a
+</span><a href="#local-6989586621679160455"><span class="hs-identifier hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-101"></span><span>  </span><span class="annot"><span class="annottext">m WorkerAddr -&gt; (WorkerAddr -&gt; m ()) -&gt; (WorkerAddr -&gt; m a) -&gt; m a
+forall (m :: * -&gt; *) a c b.
+MonadMask m =&gt;
+m a -&gt; (a -&gt; m c) -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-identifier hs-var">bracket</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO WorkerAddr -&gt; m WorkerAddr
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">IO WorkerAddr
+</span><a href="#local-6989586621679160454"><span class="hs-identifier hs-var">getWorkerAddr</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; m ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; m ()) -&gt; (WorkerAddr -&gt; IO ()) -&gt; WorkerAddr -&gt; m ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">WorkerAddr -&gt; IO ()
+</span><a href="#local-6989586621679160452"><span class="hs-identifier hs-var">replaceWorkerAddr</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">WorkerAddr -&gt; m a
+</span><a href="#local-6989586621679160455"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-102"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-103"></span><span>    </span><span id="local-6989586621679160454"><span class="annot"><span class="annottext">getWorkerAddr :: IO WorkerAddr
+</span><a href="#local-6989586621679160454"><span class="hs-identifier hs-var hs-var">getWorkerAddr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">STM WorkerAddr -&gt; IO WorkerAddr
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM WorkerAddr -&gt; IO WorkerAddr)
+-&gt; STM WorkerAddr -&gt; IO WorkerAddr
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-104"></span><span>      </span><span id="local-6989586621679160451"><span class="annot"><span class="annottext">Map WorkerAddr NumCPUs
+</span><a href="#local-6989586621679160451"><span class="hs-identifier hs-var">workers</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs) -&gt; STM (Map WorkerAddr NumCPUs)
+forall a. TVar a -&gt; STM a
+</span><span class="hs-identifier hs-var">readTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs)
+</span><a href="#local-6989586621679160457"><span class="hs-identifier hs-var">cpuMap</span></a></span><span>
+</span><span id="line-105"></span><span>      </span><span class="hs-comment">-- find the worker with the largest number of cpus</span><span>
+</span><span id="line-106"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679160450"><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679160450"><span class="hs-identifier hs-var">addr</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160449"><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679160449"><span class="hs-identifier hs-var">availCpus</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((WorkerAddr, NumCPUs) -&gt; NumCPUs)
+-&gt; [(WorkerAddr, NumCPUs)] -&gt; (WorkerAddr, NumCPUs)
+forall b a. (Partial, Ord b) =&gt; (a -&gt; b) -&gt; [a] -&gt; a
+</span><span class="hs-identifier hs-var">maximumOn</span></span><span> </span><span class="annot"><span class="annottext">(WorkerAddr, NumCPUs) -&gt; NumCPUs
+forall a b. (a, b) -&gt; b
+</span><span class="hs-identifier hs-var">snd</span></span><span> </span><span class="annot"><span class="annottext">([(WorkerAddr, NumCPUs)] -&gt; (WorkerAddr, NumCPUs))
+-&gt; [(WorkerAddr, NumCPUs)] -&gt; (WorkerAddr, NumCPUs)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Map WorkerAddr NumCPUs -&gt; [(WorkerAddr, NumCPUs)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><span class="hs-identifier hs-var">Map.toList</span></span><span> </span><span class="annot"><span class="annottext">Map WorkerAddr NumCPUs
+</span><a href="#local-6989586621679160451"><span class="hs-identifier hs-var">workers</span></a></span><span>
+</span><span id="line-107"></span><span>      </span><span class="hs-comment">-- If not enough cpus are available, retry</span><span>
+</span><span id="line-108"></span><span>      </span><span class="annot"><span class="annottext">Bool -&gt; STM ()
+</span><span class="hs-identifier hs-var">check</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679160449"><span class="hs-identifier hs-var">availCpus</span></a></span><span> </span><span class="annot"><span class="annottext">NumCPUs -&gt; NumCPUs -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679160456"><span class="hs-identifier hs-var">cpus</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span>      </span><span class="hs-comment">-- subtract the requested cpus from the worker's total</span><span>
+</span><span id="line-110"></span><span>      </span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs)
+-&gt; (Map WorkerAddr NumCPUs -&gt; Map WorkerAddr NumCPUs) -&gt; STM ()
+forall a. TVar a -&gt; (a -&gt; a) -&gt; STM ()
+</span><span class="hs-identifier hs-var">modifyTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs)
+</span><a href="#local-6989586621679160457"><span class="hs-identifier hs-var">cpuMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(NumCPUs -&gt; NumCPUs)
+-&gt; WorkerAddr -&gt; Map WorkerAddr NumCPUs -&gt; Map WorkerAddr NumCPUs
+forall k a. Ord k =&gt; (a -&gt; a) -&gt; k -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">Map.adjust</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-identifier hs-var">subtract</span></span><span> </span><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679160456"><span class="hs-identifier hs-var">cpus</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679160450"><span class="hs-identifier hs-var">addr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-111"></span><span>      </span><span class="annot"><span class="annottext">WorkerAddr -&gt; STM WorkerAddr
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679160450"><span class="hs-identifier hs-var">addr</span></a></span><span>
+</span><span id="line-112"></span><span>    </span><span id="local-6989586621679160452"><span class="annot"><span class="annottext">replaceWorkerAddr :: WorkerAddr -&gt; IO ()
+</span><a href="#local-6989586621679160452"><span class="hs-identifier hs-var hs-var">replaceWorkerAddr</span></a></span></span><span> </span><span id="local-6989586621679160445"><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679160445"><span class="hs-identifier hs-var">addr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; IO ()) -&gt; STM () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-113"></span><span>        </span><span class="hs-comment">-- add back the requested cpus to the worker's total</span><span>
+</span><span id="line-114"></span><span>        </span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs)
+-&gt; (Map WorkerAddr NumCPUs -&gt; Map WorkerAddr NumCPUs) -&gt; STM ()
+forall a. TVar a -&gt; (a -&gt; a) -&gt; STM ()
+</span><span class="hs-identifier hs-var">modifyTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map WorkerAddr NumCPUs)
+</span><a href="#local-6989586621679160457"><span class="hs-identifier hs-var">cpuMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(NumCPUs -&gt; NumCPUs)
+-&gt; WorkerAddr -&gt; Map WorkerAddr NumCPUs -&gt; Map WorkerAddr NumCPUs
+forall k a. Ord k =&gt; (a -&gt; a) -&gt; k -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">Map.adjust</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NumCPUs -&gt; NumCPUs -&gt; NumCPUs
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679160456"><span class="hs-identifier hs-var">cpus</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679160445"><span class="hs-identifier hs-var">addr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-115"></span><span>
+</span><span id="line-116"></span><span class="hs-comment">-- * 'sshRunCmd' documentation</span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-118"></span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- Type for @ssh@ errors. The 'String's are 'stdout' and 'stderr' of @ssh@.</span><span>
+</span><span id="line-120"></span><span class="hs-keyword">data</span><span> </span><span id="SSHError"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHError"><span class="hs-identifier hs-var">SSHError</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="SSHError"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHError"><span class="hs-identifier hs-var">SSHError</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ExitCode</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">)</span><span>
+</span><span id="line-121"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679160437"><span id="local-6989586621679160439"><span id="local-6989586621679160441"><span class="annot"><span class="annottext">Int -&gt; SSHError -&gt; ShowS
+[SSHError] -&gt; ShowS
+SSHError -&gt; String
+(Int -&gt; SSHError -&gt; ShowS)
+-&gt; (SSHError -&gt; String) -&gt; ([SSHError] -&gt; ShowS) -&gt; Show SSHError
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [SSHError] -&gt; ShowS
+$cshowList :: [SSHError] -&gt; ShowS
+show :: SSHError -&gt; String
+$cshow :: SSHError -&gt; String
+showsPrec :: Int -&gt; SSHError -&gt; ShowS
+$cshowsPrec :: Int -&gt; SSHError -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160429"><span id="local-6989586621679160431"><span id="local-6989586621679160433"><span class="annot"><span class="annottext">Show SSHError
+Typeable SSHError
+Typeable SSHError
+-&gt; Show SSHError
+-&gt; (SSHError -&gt; SomeException)
+-&gt; (SomeException -&gt; Maybe SSHError)
+-&gt; (SSHError -&gt; String)
+-&gt; Exception SSHError
+SomeException -&gt; Maybe SSHError
+SSHError -&gt; String
+SSHError -&gt; SomeException
+forall e.
+Typeable e
+-&gt; Show e
+-&gt; (e -&gt; SomeException)
+-&gt; (SomeException -&gt; Maybe e)
+-&gt; (e -&gt; String)
+-&gt; Exception e
+displayException :: SSHError -&gt; String
+$cdisplayException :: SSHError -&gt; String
+fromException :: SomeException -&gt; Maybe SSHError
+$cfromException :: SomeException -&gt; Maybe SSHError
+toException :: SSHError -&gt; SomeException
+$ctoException :: SSHError -&gt; SomeException
+$cp2Exception :: Show SSHError
+$cp1Exception :: Typeable SSHError
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Exception</span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-122"></span><span>
+</span><span id="line-123"></span><span class="hs-comment">-- | The type for the command used to run @ssh@. If a 'Just' value, then </span><span>
+</span><span id="line-124"></span><span class="hs-comment">-- the first 'String' gives the name of @ssh@ executable, e.g. @\&quot;ssh\&quot;@, and the</span><span>
+</span><span id="line-125"></span><span class="hs-comment">-- list of 'String's gives the options to pass to @ssh@. For example, with</span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- 'SSHCommand' given by @(\&quot;XX\&quot;, [\&quot;-a\&quot;, \&quot;-b\&quot;])@, @ssh@ is run as</span><span>
+</span><span id="line-127"></span><span class="hs-comment">--</span><span>
+</span><span id="line-128"></span><span class="hs-comment">-- &gt; XX -a -b &lt;addr&gt; &lt;command&gt;</span><span>
+</span><span id="line-129"></span><span class="hs-comment">--</span><span>
+</span><span id="line-130"></span><span class="hs-comment">-- where @\&lt;addr\&gt;@ is the remote address and @\&lt;command\&gt;@ is the command we need</span><span>
+</span><span id="line-131"></span><span class="hs-comment">-- to run there.</span><span>
+</span><span id="line-132"></span><span class="hs-comment">--</span><span>
+</span><span id="line-133"></span><span class="hs-comment">-- The value of 'Nothing' is equivalent to using</span><span>
+</span><span id="line-134"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-135"></span><span class="hs-comment">-- &gt; ssh -f -o &quot;UserKnownHostsFile /dev/null&quot; &lt;addr&gt; &lt;command&gt;</span><span>
+</span><span id="line-136"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-137"></span><span class="hs-comment">-- We need @-o \&quot;...\&quot;@ option to deal with host key verification</span><span>
+</span><span id="line-138"></span><span class="hs-comment">-- failures. We use @-f@ to force @ssh@ to go to the background before executing</span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- the @sh@ call. This allows for a faster return from 'readCreateProcessWithExitCode'.</span><span>
+</span><span id="line-140"></span><span class="hs-comment">--</span><span>
+</span><span id="line-141"></span><span class="hs-comment">-- Note that @\&quot;UserKnownHostsFile \/dev\/null\&quot;@ doesn't seem to work on Helios. </span><span>
+</span><span id="line-142"></span><span class="hs-comment">-- Using instead @\&quot;StrictHostKeyChecking=no\&quot;@ seems to work. </span><span>
+</span><span id="line-143"></span><span class="hs-keyword">type</span><span> </span><span id="SSHCommand"><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHCommand"><span class="hs-identifier hs-var">SSHCommand</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-144"></span><span>
+</span><span id="line-145"></span><span class="hs-comment">-- | Runs a given command on remote host (with address given by the first 'String') with the</span><span>
+</span><span id="line-146"></span><span class="hs-comment">-- given arguments via @ssh@ using the 'SSHCommand'. Makes at most 10 attempts via 'retryRepeated'.</span><span>
+</span><span id="line-147"></span><span class="hs-comment">-- If fails, propagates 'SSHError' outside.</span><span>
+</span><span id="line-148"></span><span class="hs-comment">--</span><span>
+</span><span id="line-149"></span><span class="hs-comment">-- @ssh@ needs to be able to authenticate on the remote</span><span>
+</span><span id="line-150"></span><span class="hs-comment">-- node without a password. In practice you will probably need to set up public</span><span>
+</span><span id="line-151"></span><span class="hs-comment">-- key authentiticaion. </span><span>
+</span><span id="line-152"></span><span class="hs-comment">--</span><span>
+</span><span id="line-153"></span><span class="hs-comment">-- @ssh@ is invoked to run @sh@ that calls @nohup@ to run the supplied command</span><span>
+</span><span id="line-154"></span><span class="hs-comment">-- in background.</span><span>
+</span><span id="line-155"></span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#sshRunCmd"><span class="hs-identifier hs-type">sshRunCmd</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHCommand"><span class="hs-identifier hs-type">SSHCommand</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-156"></span><span id="sshRunCmd"><span class="annot"><span class="annottext">sshRunCmd :: String -&gt; SSHCommand -&gt; (String, [String]) -&gt; IO ()
+</span><a href="Hyperion.WorkerCpuPool.html#sshRunCmd"><span class="hs-identifier hs-var hs-var">sshRunCmd</span></a></span></span><span> </span><span id="local-6989586621679160426"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160426"><span class="hs-identifier hs-var">addr</span></a></span></span><span> </span><span id="local-6989586621679160425"><span class="annot"><span class="annottext">SSHCommand
+</span><a href="#local-6989586621679160425"><span class="hs-identifier hs-var">sshCmd</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679160424"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160424"><span class="hs-identifier hs-var">cmd</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160423"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679160423"><span class="hs-identifier hs-var">args</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; (IO () -&gt; IO (Either SSHError ())) -&gt; IO () -&gt; IO ()
+forall e (m :: * -&gt; *) a.
+(Show e, MonadIO m) =&gt;
+Int -&gt; (m a -&gt; m (Either e a)) -&gt; m a -&gt; m a
+</span><a href="Hyperion.Util.html#retryRepeated"><span class="hs-identifier hs-var">retryRepeated</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">10</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall a.
+(MonadCatch IO, Exception SSHError) =&gt;
+IO a -&gt; IO (Either SSHError a)
+forall (m :: * -&gt; *) e a.
+(MonadCatch m, Exception e) =&gt;
+m a -&gt; m (Either e a)
+</span><span class="hs-identifier hs-var">try</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHError"><span class="hs-identifier hs-type">SSHError</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; IO ()) -&gt; IO () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-157"></span><span>  </span><span id="local-6989586621679160422"><span class="annot"><span class="annottext">result :: (ExitCode, String, String)
+</span><a href="#local-6989586621679160422"><span class="hs-identifier hs-var">result</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span id="local-6989586621679160421"><span class="annot"><span class="annottext">ExitCode
+</span><a href="#local-6989586621679160421"><span class="hs-identifier hs-var">exit</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">CreateProcess -&gt; String -&gt; IO (ExitCode, String, String)
+</span><span class="hs-identifier hs-var">readCreateProcessWithExitCode</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; [String] -&gt; CreateProcess
+</span><span class="hs-identifier hs-var">proc</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160420"><span class="hs-identifier hs-var">ssh</span></a></span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679160419"><span class="hs-identifier hs-var">sshArgs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-158"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ExitCode
+</span><a href="#local-6989586621679160421"><span class="hs-identifier hs-var">exit</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-159"></span><span>    </span><span class="annot"><span class="annottext">ExitCode
+</span><span class="hs-identifier hs-var">ExitSuccess</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-160"></span><span>    </span><span class="annot"><span class="annottext">ExitCode
+</span><span class="hs-identifier">_</span></span><span>           </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">SSHError -&gt; IO ()
+forall (m :: * -&gt; *) e a.
+(MonadThrow m, MonadIO m, Exception e) =&gt;
+e -&gt; m a
+</span><a href="Hyperion.Log.html#throw"><span class="hs-identifier hs-var">Log.throw</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; (ExitCode, String, String) -&gt; SSHError
+</span><a href="Hyperion.WorkerCpuPool.html#SSHError"><span class="hs-identifier hs-var">SSHError</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160426"><span class="hs-identifier hs-var">addr</span></a></span><span> </span><span class="annot"><span class="annottext">(ExitCode, String, String)
+</span><a href="#local-6989586621679160422"><span class="hs-identifier hs-var">result</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-161"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-162"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621679160420"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160420"><span class="hs-identifier hs-var">ssh</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160416"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679160416"><span class="hs-identifier hs-var">sshOpts</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(String, [String]) -&gt; SSHCommand -&gt; (String, [String])
+forall a. a -&gt; Maybe a -&gt; a
+</span><span class="hs-identifier hs-var">fromMaybe</span></span><span> </span><span class="annot"><span class="annottext">(String, [String])
+</span><a href="#local-6989586621679160415"><span class="hs-identifier hs-var">defaultCmd</span></a></span><span> </span><span class="annot"><span class="annottext">SSHCommand
+</span><a href="#local-6989586621679160425"><span class="hs-identifier hs-var">sshCmd</span></a></span><span>
+</span><span id="line-163"></span><span>    </span><span id="local-6989586621679160419"><span class="annot"><span class="annottext">sshArgs :: [String]
+</span><a href="#local-6989586621679160419"><span class="hs-identifier hs-var hs-var">sshArgs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679160416"><span class="hs-identifier hs-var">sshOpts</span></a></span><span> </span><span class="annot"><span class="annottext">[String] -&gt; [String] -&gt; [String]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><span class="hs-operator hs-var">++</span></span><span> </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160426"><span class="hs-identifier hs-var">addr</span></a></span><span>
+</span><span id="line-164"></span><span>                         </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String -&gt; [String] -&gt; String
+</span><a href="Hyperion.Util.html#shellEsc"><span class="hs-identifier hs-var">shellEsc</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;sh&quot;</span></span><span>
+</span><span id="line-165"></span><span>                           </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;-c&quot;</span></span><span>
+</span><span id="line-166"></span><span>                           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String -&gt; [String] -&gt; String
+</span><a href="Hyperion.Util.html#shellEsc"><span class="hs-identifier hs-var">shellEsc</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;nohup&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160424"><span class="hs-identifier hs-var">cmd</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; [String] -&gt; [String]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679160423"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-167"></span><span>                             </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><span class="hs-operator hs-var">++</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; &amp;&quot;</span></span><span>
+</span><span id="line-168"></span><span>                           </span><span class="hs-special">]</span><span>
+</span><span id="line-169"></span><span>                         </span><span class="hs-special">]</span><span>
+</span><span id="line-170"></span><span>    </span><span class="hs-comment">-- update SSHCommand haddock if changing this default.</span><span>
+</span><span id="line-171"></span><span>    </span><span id="local-6989586621679160415"><span class="annot"><span class="annottext">defaultCmd :: (String, [String])
+</span><a href="#local-6989586621679160415"><span class="hs-identifier hs-var hs-var">defaultCmd</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;ssh&quot;</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;-f&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;-o&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;UserKnownHostsFile /dev/null&quot;</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span>
+</span><span id="line-172"></span></pre></body></html>

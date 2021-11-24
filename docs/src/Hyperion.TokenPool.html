@@ -1,0 +1,116 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.TokenPool</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM</span></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">atomically</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">check</span></span><span class="hs-special">)</span><span>
+</span><span id="line-4"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM.TVar</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">TVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">modifyTVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">newTVarIO</span></span><span class="hs-special">,</span><span>
+</span><span id="line-5"></span><span>                                              </span><span class="annot"><span class="hs-identifier">readTVar</span></span><span class="hs-special">)</span><span>
+</span><span id="line-6"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Catch</span></span><span>         </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadMask</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">bracket</span></span><span class="hs-special">)</span><span>
+</span><span id="line-7"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.IO.Class</span></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadIO</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">liftIO</span></span><span class="hs-special">)</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- | A 'TokenPool' keeps track of the number of resources of some</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- kind, represented by &quot;tokens&quot;. 'TokenPool (Just var)' indicates a</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- limited number of tokens, and 'var' contains the number of</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- available tokens. When 'var' contains 0, processes wishing to use a</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- token must block until one becomes available (see</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- 'withToken'). 'TokenPool Nothing' represents an unlimited number of</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- tokens.</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">newtype</span><span> </span><span id="TokenPool"><span class="annot"><a href="Hyperion.TokenPool.html#TokenPool"><span class="hs-identifier hs-var">TokenPool</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="TokenPool"><span class="annot"><a href="Hyperion.TokenPool.html#TokenPool"><span class="hs-identifier hs-var">TokenPool</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">TVar</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- | Create a new 'TokenPool' containing the given number of</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- tokens. 'Nothing' indicates an unlimited pool.</span><span>
+</span><span id="line-20"></span><span class="annot"><a href="Hyperion.TokenPool.html#newTokenPool"><span class="hs-identifier hs-type">newTokenPool</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Hyperion.TokenPool.html#TokenPool"><span class="hs-identifier hs-type">TokenPool</span></a></span><span>
+</span><span id="line-21"></span><span id="newTokenPool"><span class="annot"><span class="annottext">newTokenPool :: Maybe Int -&gt; IO TokenPool
+</span><a href="Hyperion.TokenPool.html#newTokenPool"><span class="hs-identifier hs-var hs-var">newTokenPool</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679158505"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679158505"><span class="hs-identifier hs-var">n</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (TVar Int) -&gt; TokenPool
+</span><a href="Hyperion.TokenPool.html#TokenPool"><span class="hs-identifier hs-var">TokenPool</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe (TVar Int) -&gt; TokenPool)
+-&gt; (TVar Int -&gt; Maybe (TVar Int)) -&gt; TVar Int -&gt; TokenPool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">TVar Int -&gt; Maybe (TVar Int)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">(TVar Int -&gt; TokenPool) -&gt; IO (TVar Int) -&gt; IO TokenPool
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int -&gt; IO (TVar Int)
+forall a. a -&gt; IO (TVar a)
+</span><span class="hs-identifier hs-var">newTVarIO</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679158505"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-22"></span><span class="annot"><a href="Hyperion.TokenPool.html#newTokenPool"><span class="hs-identifier hs-var">newTokenPool</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Int
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TokenPool -&gt; IO TokenPool
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">(TokenPool -&gt; IO TokenPool) -&gt; TokenPool -&gt; IO TokenPool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Maybe (TVar Int) -&gt; TokenPool
+</span><a href="Hyperion.TokenPool.html#TokenPool"><span class="hs-identifier hs-var">TokenPool</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (TVar Int)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-23"></span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- | Remove a token from the pool, run the given process, and then</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- replace the token. If no token is initially available, block until</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- one becomes available.</span><span>
+</span><span id="line-27"></span><span id="local-6989586621679158501"><span id="local-6989586621679158502"><span class="annot"><a href="Hyperion.TokenPool.html#withToken"><span class="hs-identifier hs-type">withToken</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679158502"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadMask</span></span><span> </span><span class="annot"><a href="#local-6989586621679158502"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.TokenPool.html#TokenPool"><span class="hs-identifier hs-type">TokenPool</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679158502"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158501"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679158502"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158501"><span class="hs-identifier hs-type">a</span></a></span></span></span><span>
+</span><span id="line-28"></span><span id="withToken"><span class="annot"><span class="annottext">withToken :: TokenPool -&gt; m a -&gt; m a
+</span><a href="Hyperion.TokenPool.html#withToken"><span class="hs-identifier hs-var hs-var">withToken</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.TokenPool.html#TokenPool"><span class="hs-identifier hs-type">TokenPool</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (TVar Int)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679158499"><span class="annot"><span class="annottext">m a
+</span><a href="#local-6989586621679158499"><span class="hs-identifier hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m a
+</span><a href="#local-6989586621679158499"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-29"></span><span class="annot"><a href="Hyperion.TokenPool.html#withToken"><span class="hs-identifier hs-var">withToken</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.TokenPool.html#TokenPool"><span class="hs-identifier hs-type">TokenPool</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679158498"><span class="annot"><span class="annottext">TVar Int
+</span><a href="#local-6989586621679158498"><span class="hs-identifier hs-var">tokenVar</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span id="local-6989586621679158497"><span class="annot"><span class="annottext">m a
+</span><a href="#local-6989586621679158497"><span class="hs-identifier hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-30"></span><span>  </span><span class="annot"><span class="annottext">m () -&gt; (() -&gt; m ()) -&gt; (() -&gt; m a) -&gt; m a
+forall (m :: * -&gt; *) a c b.
+MonadMask m =&gt;
+m a -&gt; (a -&gt; m c) -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-identifier hs-var">bracket</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; m ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679158496"><span class="hs-identifier hs-var">getToken</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; m ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; m ()) -&gt; (() -&gt; IO ()) -&gt; () -&gt; m ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall p. p -&gt; IO ()
+</span><a href="#local-6989586621679158495"><span class="hs-identifier hs-var">replaceToken</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="annot"><span class="annottext">()
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">m a
+</span><a href="#local-6989586621679158497"><span class="hs-identifier hs-var">go</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-32"></span><span>    </span><span id="local-6989586621679158496"><span class="annot"><span class="annottext">getToken :: IO ()
+</span><a href="#local-6989586621679158496"><span class="hs-identifier hs-var hs-var">getToken</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; IO ()) -&gt; STM () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-33"></span><span>      </span><span id="local-6989586621679158494"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679158494"><span class="hs-identifier hs-var">tokens</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TVar Int -&gt; STM Int
+forall a. TVar a -&gt; STM a
+</span><span class="hs-identifier hs-var">readTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar Int
+</span><a href="#local-6989586621679158498"><span class="hs-identifier hs-var">tokenVar</span></a></span><span>
+</span><span id="line-34"></span><span>      </span><span class="annot"><span class="annottext">Bool -&gt; STM ()
+</span><span class="hs-identifier hs-var">check</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679158494"><span class="hs-identifier hs-var">tokens</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span>      </span><span class="annot"><span class="annottext">TVar Int -&gt; (Int -&gt; Int) -&gt; STM ()
+forall a. TVar a -&gt; (a -&gt; a) -&gt; STM ()
+</span><span class="hs-identifier hs-var">modifyTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar Int
+</span><a href="#local-6989586621679158498"><span class="hs-identifier hs-var">tokenVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-identifier hs-var">subtract</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-36"></span><span>      </span><span class="annot"><span class="annottext">() -&gt; STM ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span>    </span><span id="local-6989586621679158495"><span class="annot"><span class="annottext">replaceToken :: p -&gt; IO ()
+</span><a href="#local-6989586621679158495"><span class="hs-identifier hs-var hs-var">replaceToken</span></a></span></span><span> </span><span class="annot"><span class="annottext">p
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-38"></span><span>      </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; IO ()) -&gt; STM () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">TVar Int -&gt; (Int -&gt; Int) -&gt; STM ()
+forall a. TVar a -&gt; (a -&gt; a) -&gt; STM ()
+</span><span class="hs-identifier hs-var">modifyTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar Int
+</span><a href="#local-6989586621679158498"><span class="hs-identifier hs-var">tokenVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span></pre></body></html>

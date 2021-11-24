@@ -1,0 +1,176 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass    #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DeriveGeneric     #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.ObjectId</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-6"></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Catch</span></span><span>    </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadCatch</span></span><span class="hs-special">)</span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.IO.Class</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadIO</span></span><span class="hs-special">)</span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Reader</span></span><span>   </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadReader</span></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Aeson</span></span><span>             </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">FromJSON</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">ToJSON</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Binary</span></span><span>            </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Binary</span></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.BinaryHash</span></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">hashBase64Safe</span></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span>              </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Text</span></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Typeable</span></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Typeable</span></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">GHC.Generics</span></span><span>           </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Generic</span></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Database.html"><span class="hs-identifier">Hyperion.Database</span></a></span><span>      </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">DB</span></span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- | An identifier for an object, useful for building filenames and</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- database entries.</span><span>
+</span><span id="line-20"></span><span id="local-6989586621679160371"><span id="local-6989586621679160372"></span></span><span class="hs-keyword">newtype</span><span> </span><span id="ObjectId"><span class="annot"><a href="Hyperion.ObjectId.html#ObjectId"><span class="hs-identifier hs-var">ObjectId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="ObjectId"><span class="annot"><a href="Hyperion.ObjectId.html#ObjectId"><span class="hs-identifier hs-var">ObjectId</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span>
+</span><span id="line-21"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679160366"><span id="local-6989586621679160368"><span class="annot"><span class="annottext">ObjectId -&gt; ObjectId -&gt; Bool
+(ObjectId -&gt; ObjectId -&gt; Bool)
+-&gt; (ObjectId -&gt; ObjectId -&gt; Bool) -&gt; Eq ObjectId
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: ObjectId -&gt; ObjectId -&gt; Bool
+$c/= :: ObjectId -&gt; ObjectId -&gt; Bool
+== :: ObjectId -&gt; ObjectId -&gt; Bool
+$c== :: ObjectId -&gt; ObjectId -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160350"><span id="local-6989586621679160352"><span id="local-6989586621679160354"><span id="local-6989586621679160356"><span id="local-6989586621679160358"><span id="local-6989586621679160360"><span id="local-6989586621679160362"><span class="annot"><span class="annottext">Eq ObjectId
+Eq ObjectId
+-&gt; (ObjectId -&gt; ObjectId -&gt; Ordering)
+-&gt; (ObjectId -&gt; ObjectId -&gt; Bool)
+-&gt; (ObjectId -&gt; ObjectId -&gt; Bool)
+-&gt; (ObjectId -&gt; ObjectId -&gt; Bool)
+-&gt; (ObjectId -&gt; ObjectId -&gt; Bool)
+-&gt; (ObjectId -&gt; ObjectId -&gt; ObjectId)
+-&gt; (ObjectId -&gt; ObjectId -&gt; ObjectId)
+-&gt; Ord ObjectId
+ObjectId -&gt; ObjectId -&gt; Bool
+ObjectId -&gt; ObjectId -&gt; Ordering
+ObjectId -&gt; ObjectId -&gt; ObjectId
+forall a.
+Eq a
+-&gt; (a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+min :: ObjectId -&gt; ObjectId -&gt; ObjectId
+$cmin :: ObjectId -&gt; ObjectId -&gt; ObjectId
+max :: ObjectId -&gt; ObjectId -&gt; ObjectId
+$cmax :: ObjectId -&gt; ObjectId -&gt; ObjectId
+&gt;= :: ObjectId -&gt; ObjectId -&gt; Bool
+$c&gt;= :: ObjectId -&gt; ObjectId -&gt; Bool
+&gt; :: ObjectId -&gt; ObjectId -&gt; Bool
+$c&gt; :: ObjectId -&gt; ObjectId -&gt; Bool
+&lt;= :: ObjectId -&gt; ObjectId -&gt; Bool
+$c&lt;= :: ObjectId -&gt; ObjectId -&gt; Bool
+&lt; :: ObjectId -&gt; ObjectId -&gt; Bool
+$c&lt; :: ObjectId -&gt; ObjectId -&gt; Bool
+compare :: ObjectId -&gt; ObjectId -&gt; Ordering
+$ccompare :: ObjectId -&gt; ObjectId -&gt; Ordering
+$cp1Ord :: Eq ObjectId
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x. ObjectId -&gt; Rep ObjectId x)
+-&gt; (forall x. Rep ObjectId x -&gt; ObjectId) -&gt; Generic ObjectId
+forall x. Rep ObjectId x -&gt; ObjectId
+forall x. ObjectId -&gt; Rep ObjectId x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cto :: forall x. Rep ObjectId x -&gt; ObjectId
+$cfrom :: forall x. ObjectId -&gt; Rep ObjectId x
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160340"><span id="local-6989586621679160342"><span id="local-6989586621679160344"><span class="annot"><span class="annottext">Get ObjectId
+[ObjectId] -&gt; Put
+ObjectId -&gt; Put
+(ObjectId -&gt; Put)
+-&gt; Get ObjectId -&gt; ([ObjectId] -&gt; Put) -&gt; Binary ObjectId
+forall t. (t -&gt; Put) -&gt; Get t -&gt; ([t] -&gt; Put) -&gt; Binary t
+putList :: [ObjectId] -&gt; Put
+$cputList :: [ObjectId] -&gt; Put
+get :: Get ObjectId
+$cget :: Get ObjectId
+put :: ObjectId -&gt; Put
+$cput :: ObjectId -&gt; Put
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Binary</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160335"><span id="local-6989586621679160337"><span class="annot"><span class="annottext">Value -&gt; Parser [ObjectId]
+Value -&gt; Parser ObjectId
+(Value -&gt; Parser ObjectId)
+-&gt; (Value -&gt; Parser [ObjectId]) -&gt; FromJSON ObjectId
+forall a.
+(Value -&gt; Parser a) -&gt; (Value -&gt; Parser [a]) -&gt; FromJSON a
+parseJSONList :: Value -&gt; Parser [ObjectId]
+$cparseJSONList :: Value -&gt; Parser [ObjectId]
+parseJSON :: Value -&gt; Parser ObjectId
+$cparseJSON :: Value -&gt; Parser ObjectId
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">FromJSON</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679160326"><span id="local-6989586621679160328"><span id="local-6989586621679160330"><span id="local-6989586621679160332"><span class="annot"><span class="annottext">[ObjectId] -&gt; Encoding
+[ObjectId] -&gt; Value
+ObjectId -&gt; Encoding
+ObjectId -&gt; Value
+(ObjectId -&gt; Value)
+-&gt; (ObjectId -&gt; Encoding)
+-&gt; ([ObjectId] -&gt; Value)
+-&gt; ([ObjectId] -&gt; Encoding)
+-&gt; ToJSON ObjectId
+forall a.
+(a -&gt; Value)
+-&gt; (a -&gt; Encoding)
+-&gt; ([a] -&gt; Value)
+-&gt; ([a] -&gt; Encoding)
+-&gt; ToJSON a
+toEncodingList :: [ObjectId] -&gt; Encoding
+$ctoEncodingList :: [ObjectId] -&gt; Encoding
+toJSONList :: [ObjectId] -&gt; Value
+$ctoJSONList :: [ObjectId] -&gt; Value
+toEncoding :: ObjectId -&gt; Encoding
+$ctoEncoding :: ObjectId -&gt; Encoding
+toJSON :: ObjectId -&gt; Value
+$ctoJSON :: ObjectId -&gt; Value
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">ToJSON</span></span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- | Convert an ObjectId to a String.</span><span>
+</span><span id="line-24"></span><span class="annot"><a href="Hyperion.ObjectId.html#objectIdToString"><span class="hs-identifier hs-type">objectIdToString</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.ObjectId.html#ObjectId"><span class="hs-identifier hs-type">ObjectId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span>
+</span><span id="line-25"></span><span id="objectIdToString"><span class="annot"><span class="annottext">objectIdToString :: ObjectId -&gt; String
+</span><a href="Hyperion.ObjectId.html#objectIdToString"><span class="hs-identifier hs-var hs-var">objectIdToString</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.ObjectId.html#ObjectId"><span class="hs-identifier hs-type">ObjectId</span></a></span><span> </span><span id="local-6989586621679160323"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160323"><span class="hs-identifier hs-var">i</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Object_&quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><span class="hs-operator hs-var">++</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679160323"><span class="hs-identifier hs-var">i</span></a></span><span>
+</span><span id="line-26"></span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- | Convert an ObjectId to Text.</span><span>
+</span><span id="line-28"></span><span class="annot"><a href="Hyperion.ObjectId.html#objectIdToText"><span class="hs-identifier hs-type">objectIdToText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.ObjectId.html#ObjectId"><span class="hs-identifier hs-type">ObjectId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text.Text</span></span><span>
+</span><span id="line-29"></span><span id="objectIdToText"><span class="annot"><span class="annottext">objectIdToText :: ObjectId -&gt; Text
+</span><a href="Hyperion.ObjectId.html#objectIdToText"><span class="hs-identifier hs-var hs-var">objectIdToText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Text
+</span><span class="hs-identifier hs-var">Text.pack</span></span><span> </span><span class="annot"><span class="annottext">(String -&gt; Text) -&gt; (ObjectId -&gt; String) -&gt; ObjectId -&gt; Text
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">ObjectId -&gt; String
+</span><a href="Hyperion.ObjectId.html#objectIdToString"><span class="hs-identifier hs-var">objectIdToString</span></a></span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- | The ObjectId of an object is the result of 'hashBase64Safe'. The</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- first time 'getObjectId' is called, it comptues the ObjectId and</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- stores it in the database before returning it. Subsequent calls</span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- read the value from the database.</span><span>
+</span><span id="line-35"></span><span id="local-6989586621679160317"><span id="local-6989586621679160318"><span id="local-6989586621679160319"><span class="annot"><a href="Hyperion.ObjectId.html#getObjectId"><span class="hs-identifier hs-type">getObjectId</span></a></span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679160319"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-37"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679160319"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-38"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ToJSON</span></span><span> </span><span class="annot"><a href="#local-6989586621679160319"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-39"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#HasDB"><span class="hs-identifier hs-type">DB.HasDB</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160318"><span class="hs-identifier hs-type">env</span></a></span><span>
+</span><span id="line-40"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadReader</span></span><span> </span><span class="annot"><a href="#local-6989586621679160318"><span class="hs-identifier hs-type">env</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679160317"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-41"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679160317"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-42"></span><span>     </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadCatch</span></span><span> </span><span class="annot"><a href="#local-6989586621679160317"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-43"></span><span>     </span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160319"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679160317"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="Hyperion.ObjectId.html#ObjectId"><span class="hs-identifier hs-type">ObjectId</span></a></span></span></span></span><span>
+</span><span id="line-45"></span><span id="getObjectId"><span class="annot"><span class="annottext">getObjectId :: a -&gt; m ObjectId
+</span><a href="Hyperion.ObjectId.html#getObjectId"><span class="hs-identifier hs-var hs-var">getObjectId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KeyValMap a ObjectId -&gt; (a -&gt; m ObjectId) -&gt; a -&gt; m ObjectId
+forall (m :: * -&gt; *) env a b.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m, ToJSON a,
+ ToJSON b, Typeable b, FromJSON b) =&gt;
+KeyValMap a b -&gt; (a -&gt; m b) -&gt; a -&gt; m b
+</span><a href="Hyperion.Database.KeyValMap.html#memoizeWithMap"><span class="hs-identifier hs-var">DB.memoizeWithMap</span></a></span><span>
+</span><span id="line-46"></span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; KeyValMap a ObjectId
+forall a b. Text -&gt; KeyValMap a b
+</span><a href="Hyperion.Database.KeyValMap.html#KeyValMap"><span class="hs-identifier hs-var">DB.KeyValMap</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;objectIds&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ObjectId -&gt; m ObjectId
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">(ObjectId -&gt; m ObjectId) -&gt; (a -&gt; ObjectId) -&gt; a -&gt; m ObjectId
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; ObjectId
+</span><a href="Hyperion.ObjectId.html#ObjectId"><span class="hs-identifier hs-var">ObjectId</span></a></span><span> </span><span class="annot"><span class="annottext">(String -&gt; ObjectId) -&gt; (a -&gt; String) -&gt; a -&gt; ObjectId
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; String
+forall a. (Binary a, Typeable a) =&gt; a -&gt; String
+</span><span class="hs-identifier hs-var">hashBase64Safe</span></span><span class="hs-special">)</span><span>
+</span><span id="line-48"></span></pre></body></html>

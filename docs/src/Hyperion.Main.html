@@ -1,0 +1,364 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE ApplicativeDo       #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase          #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings   #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE RecordWildCards     #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-6"></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.Main</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-8"></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad</span></span><span>             </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">unless</span></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Maybe</span></span><span>                </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">isJust</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Cluster.html"><span class="hs-identifier">Hyperion.Cluster</span></a></span><span>          </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Cluster.html#Cluster"><span class="hs-identifier">Cluster</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#ClusterEnv"><span class="hs-identifier">ClusterEnv</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-12"></span><span>                                            </span><span class="annot"><a href="Hyperion.Cluster.html#ProgramInfo"><span class="hs-identifier">ProgramInfo</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#runCluster"><span class="hs-identifier">runCluster</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-13"></span><span>                                            </span><span class="annot"><a href="Hyperion.Cluster.html#runDBWithProgramInfo"><span class="hs-identifier">runDBWithProgramInfo</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Command.html"><span class="hs-identifier">Hyperion.Command</span></a></span><span>          </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Command.html#Worker"><span class="hs-identifier">Worker</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Command.html#workerOpts"><span class="hs-identifier">workerOpts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Config.html"><span class="hs-identifier">Hyperion.Config</span></a></span><span>           </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Config.html#HyperionConfig"><span class="hs-identifier">HyperionConfig</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Config.html#newClusterEnv"><span class="hs-identifier">newClusterEnv</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Database.html"><span class="hs-identifier">Hyperion.Database</span></a></span><span>         </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">DB</span></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.HoldServer.html"><span class="hs-identifier">Hyperion.HoldServer</span></a></span><span>       </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.HoldServer.html#withHoldServer"><span class="hs-identifier">withHoldServer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.HoldServer.html#newHoldMap"><span class="hs-identifier">newHoldMap</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Log.html"><span class="hs-identifier">Hyperion.Log</span></a></span><span>              </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Log</span></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Remote.html"><span class="hs-identifier">Hyperion.Remote</span></a></span><span>           </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Remote.html#addressToNodeId"><span class="hs-identifier">addressToNodeId</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-20"></span><span>                                            </span><span class="annot"><a href="Hyperion.Remote.html#initWorkerRemoteTable"><span class="hs-identifier">initWorkerRemoteTable</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-21"></span><span>                                            </span><span class="annot"><a href="Hyperion.Remote.html#runProcessLocalWithRT"><span class="hs-identifier">runProcessLocalWithRT</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Remote.html#worker"><span class="hs-identifier">worker</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Options.Applicative</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Console.Concurrent</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">withConcurrentOutput</span></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Directory</span></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">removeFile</span></span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Environment</span></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">getEnvironment</span></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.FilePath.Posix</span></span><span>     </span><span class="hs-special">(</span><span class="annot"><span class="hs-operator">(&lt;.&gt;)</span></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Posix.Process</span></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">getProcessID</span></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- | The type for command-line options to 'hyperionMain'. Here @a@ is</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- the type for program-specific options.  In practice we want @a@ to</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- be an instance of 'Show'</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">data</span><span> </span><span id="HyperionOpts"><span class="annot"><a href="Hyperion.Main.html#HyperionOpts"><span class="hs-identifier hs-var">HyperionOpts</span></a></span></span><span> </span><span id="local-6989586621679161668"><span class="annot"><a href="#local-6989586621679161668"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-33"></span><span>    </span><span id="HyperionMaster"><span class="annot"><a href="Hyperion.Main.html#HyperionMaster"><span class="hs-identifier hs-var">HyperionMaster</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679161668"><span class="hs-identifier hs-type">a</span></a></span><span>      </span><span class="hs-comment">-- ^ Constructor for the case of a master</span><span>
+</span><span id="line-34"></span><span>                          </span><span class="hs-comment">-- process, holds program-specific options</span><span>
+</span><span id="line-35"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="HyperionWorker"><span class="annot"><a href="Hyperion.Main.html#HyperionWorker"><span class="hs-identifier hs-var">HyperionWorker</span></a></span></span><span> </span><span class="annot"><a href="Hyperion.Command.html#Worker"><span class="hs-identifier hs-type">Worker</span></a></span><span> </span><span class="hs-comment">-- ^ Constructor for the case of a worker</span><span>
+</span><span id="line-36"></span><span>                          </span><span class="hs-comment">-- process, holds 'Worker' which is parsed</span><span>
+</span><span id="line-37"></span><span>                          </span><span class="hs-comment">-- by 'workerOpts'</span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- | Main command-line option parser for 'hyperionMain'.  Returns a</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- 'Parser' that supports commands &quot;worker&quot; and &quot;master&quot;, and uses</span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- 'workerOpts' or the supplied parser, respectively, to parse the</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- remaining options</span><span>
+</span><span id="line-44"></span><span id="local-6989586621679161662"><span class="annot"><a href="Hyperion.Main.html#hyperionOpts"><span class="hs-identifier hs-type">hyperionOpts</span></a></span><span>
+</span><span id="line-45"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Parser</span></span><span> </span><span class="annot"><a href="#local-6989586621679161662"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-comment">-- ^ 'Parser' for program-specific options</span><span>
+</span><span id="line-46"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Parser</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Main.html#HyperionOpts"><span class="hs-identifier hs-type">HyperionOpts</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679161662"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-47"></span><span id="hyperionOpts"><span class="annot"><span class="annottext">hyperionOpts :: Parser a -&gt; Parser (HyperionOpts a)
+</span><a href="Hyperion.Main.html#hyperionOpts"><span class="hs-identifier hs-var hs-var">hyperionOpts</span></a></span></span><span> </span><span id="local-6989586621679161593"><span class="annot"><span class="annottext">Parser a
+</span><a href="#local-6989586621679161593"><span class="hs-identifier hs-var">programOpts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Mod CommandFields (HyperionOpts a) -&gt; Parser (HyperionOpts a)
+forall a. Mod CommandFields a -&gt; Parser a
+</span><span class="hs-identifier hs-var">subparser</span></span><span> </span><span class="annot"><span class="annottext">(Mod CommandFields (HyperionOpts a) -&gt; Parser (HyperionOpts a))
+-&gt; Mod CommandFields (HyperionOpts a) -&gt; Parser (HyperionOpts a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">[Mod CommandFields (HyperionOpts a)]
+-&gt; Mod CommandFields (HyperionOpts a)
+forall a. Monoid a =&gt; [a] -&gt; a
+</span><span class="hs-identifier hs-var">mconcat</span></span><span>
+</span><span id="line-48"></span><span>  </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">String
+-&gt; ParserInfo (HyperionOpts a)
+-&gt; Mod CommandFields (HyperionOpts a)
+forall a. String -&gt; ParserInfo a -&gt; Mod CommandFields a
+</span><span class="hs-identifier hs-var">command</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;worker&quot;</span></span><span> </span><span class="annot"><span class="annottext">(ParserInfo (HyperionOpts a) -&gt; Mod CommandFields (HyperionOpts a))
+-&gt; ParserInfo (HyperionOpts a)
+-&gt; Mod CommandFields (HyperionOpts a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-49"></span><span>    </span><span class="annot"><span class="annottext">Parser (HyperionOpts a)
+-&gt; InfoMod (HyperionOpts a) -&gt; ParserInfo (HyperionOpts a)
+forall a. Parser a -&gt; InfoMod a -&gt; ParserInfo a
+</span><span class="hs-identifier hs-var">info</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser (HyperionOpts a -&gt; HyperionOpts a)
+forall a. Parser (a -&gt; a)
+</span><span class="hs-identifier hs-var">helper</span></span><span> </span><span class="annot"><span class="annottext">Parser (HyperionOpts a -&gt; HyperionOpts a)
+-&gt; Parser (HyperionOpts a) -&gt; Parser (HyperionOpts a)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;*&gt;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Worker -&gt; HyperionOpts a
+forall a. Worker -&gt; HyperionOpts a
+</span><a href="Hyperion.Main.html#HyperionWorker"><span class="hs-identifier hs-var">HyperionWorker</span></a></span><span> </span><span class="annot"><span class="annottext">(Worker -&gt; HyperionOpts a)
+-&gt; Parser Worker -&gt; Parser (HyperionOpts a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Parser Worker
+</span><a href="Hyperion.Command.html#workerOpts"><span class="hs-identifier hs-var">workerOpts</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(InfoMod (HyperionOpts a) -&gt; ParserInfo (HyperionOpts a))
+-&gt; InfoMod (HyperionOpts a) -&gt; ParserInfo (HyperionOpts a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-50"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; InfoMod (HyperionOpts a)
+forall a. String -&gt; InfoMod a
+</span><span class="hs-identifier hs-var">progDesc</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Run a worker process. Usually this is run automatically.&quot;</span></span><span>
+</span><span id="line-51"></span><span>  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String
+-&gt; ParserInfo (HyperionOpts a)
+-&gt; Mod CommandFields (HyperionOpts a)
+forall a. String -&gt; ParserInfo a -&gt; Mod CommandFields a
+</span><span class="hs-identifier hs-var">command</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;master&quot;</span></span><span> </span><span class="annot"><span class="annottext">(ParserInfo (HyperionOpts a) -&gt; Mod CommandFields (HyperionOpts a))
+-&gt; ParserInfo (HyperionOpts a)
+-&gt; Mod CommandFields (HyperionOpts a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-52"></span><span>    </span><span class="annot"><span class="annottext">Parser (HyperionOpts a)
+-&gt; InfoMod (HyperionOpts a) -&gt; ParserInfo (HyperionOpts a)
+forall a. Parser a -&gt; InfoMod a -&gt; ParserInfo a
+</span><span class="hs-identifier hs-var">info</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser (HyperionOpts a -&gt; HyperionOpts a)
+forall a. Parser (a -&gt; a)
+</span><span class="hs-identifier hs-var">helper</span></span><span> </span><span class="annot"><span class="annottext">Parser (HyperionOpts a -&gt; HyperionOpts a)
+-&gt; Parser (HyperionOpts a) -&gt; Parser (HyperionOpts a)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;*&gt;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; HyperionOpts a
+forall a. a -&gt; HyperionOpts a
+</span><a href="Hyperion.Main.html#HyperionMaster"><span class="hs-identifier hs-var">HyperionMaster</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; HyperionOpts a) -&gt; Parser a -&gt; Parser (HyperionOpts a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Parser a
+</span><a href="#local-6989586621679161593"><span class="hs-identifier hs-var">programOpts</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(InfoMod (HyperionOpts a) -&gt; ParserInfo (HyperionOpts a))
+-&gt; InfoMod (HyperionOpts a) -&gt; ParserInfo (HyperionOpts a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-53"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; InfoMod (HyperionOpts a)
+forall a. String -&gt; InfoMod a
+</span><span class="hs-identifier hs-var">progDesc</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;Run a master process&quot;</span></span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-special">]</span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- | Same as 'hyperionOpts' but with added @--help@ option and wrapped</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- into 'ParserInfo' (by adding program description).  This now can be</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- used in 'execParser' from &quot;Options.Applicative&quot;.</span><span>
+</span><span id="line-59"></span><span id="local-6989586621679161652"><span class="annot"><a href="Hyperion.Main.html#opts"><span class="hs-identifier hs-type">opts</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Parser</span></span><span> </span><span class="annot"><a href="#local-6989586621679161652"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ParserInfo</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Main.html#HyperionOpts"><span class="hs-identifier hs-type">HyperionOpts</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679161652"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-60"></span><span id="opts"><span class="annot"><span class="annottext">opts :: Parser a -&gt; ParserInfo (HyperionOpts a)
+</span><a href="Hyperion.Main.html#opts"><span class="hs-identifier hs-var hs-var">opts</span></a></span></span><span> </span><span id="local-6989586621679161585"><span class="annot"><span class="annottext">Parser a
+</span><a href="#local-6989586621679161585"><span class="hs-identifier hs-var">programOpts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Parser (HyperionOpts a)
+-&gt; InfoMod (HyperionOpts a) -&gt; ParserInfo (HyperionOpts a)
+forall a. Parser a -&gt; InfoMod a -&gt; ParserInfo a
+</span><span class="hs-identifier hs-var">info</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser (HyperionOpts a -&gt; HyperionOpts a)
+forall a. Parser (a -&gt; a)
+</span><span class="hs-identifier hs-var">helper</span></span><span> </span><span class="annot"><span class="annottext">Parser (HyperionOpts a -&gt; HyperionOpts a)
+-&gt; Parser (HyperionOpts a) -&gt; Parser (HyperionOpts a)
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;*&gt;</span></span><span> </span><span class="annot"><span class="annottext">Parser a -&gt; Parser (HyperionOpts a)
+forall a. Parser a -&gt; Parser (HyperionOpts a)
+</span><a href="Hyperion.Main.html#hyperionOpts"><span class="hs-identifier hs-var">hyperionOpts</span></a></span><span> </span><span class="annot"><span class="annottext">Parser a
+</span><a href="#local-6989586621679161585"><span class="hs-identifier hs-var">programOpts</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">InfoMod (HyperionOpts a)
+forall a. InfoMod a
+</span><span class="hs-identifier hs-var">fullDesc</span></span><span>
+</span><span id="line-61"></span><span>
+</span><span id="line-62"></span><span class="hs-comment">-- | 'hyperionMain' produces an @'IO' ()@ action that runs @hyperion@ and can be</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- assigned to @main@. It performs the following actions</span><span>
+</span><span id="line-64"></span><span class="hs-comment">--</span><span>
+</span><span id="line-65"></span><span class="hs-comment">--  1. If command-line arguments start with command @master@ then</span><span>
+</span><span id="line-66"></span><span class="hs-comment">--</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--      - Uses the supplied parser to parse the remaining options into type @a@</span><span>
+</span><span id="line-68"></span><span class="hs-comment">--      - Uses the supplied function to extract 'HyperionConfig' from @a@</span><span>
+</span><span id="line-69"></span><span class="hs-comment">--      - The data in 'HyperionConfig' is then used for all following actions</span><span>
+</span><span id="line-70"></span><span class="hs-comment">--      - Depending on 'HyperionConfig', extra actions may be performed, see 'newClusterEnv'.</span><span>
+</span><span id="line-71"></span><span class="hs-comment">--      - Starts a log in 'stderr', and then redirects it to a file</span><span>
+</span><span id="line-72"></span><span class="hs-comment">--      - Starts a hold server from &quot;Hyperion.HoldServer&quot;</span><span>
+</span><span id="line-73"></span><span class="hs-comment">--      - Uses 'DB.setupKeyValTable' to setup a &quot;Hyperion.Database.KeyValMap&quot; in the program database</span><span>
+</span><span id="line-74"></span><span class="hs-comment">--      - Runs the supplied @'Cluster' ()@ action</span><span>
+</span><span id="line-75"></span><span class="hs-comment">--      - Cleans up the copy of the executable, if exists (see 'newClusterEnv').</span><span>
+</span><span id="line-76"></span><span class="hs-comment">--</span><span>
+</span><span id="line-77"></span><span class="hs-comment">--  2. If command-line arguments start with command @worker@ then</span><span>
+</span><span id="line-78"></span><span class="hs-comment">--</span><span>
+</span><span id="line-79"></span><span class="hs-comment">--      - Extracts 'Worker' from the rest of the command-line args.</span><span>
+</span><span id="line-80"></span><span class="hs-comment">--      - Logs 'ServiceId' of the worker and the system environment to worker log file.</span><span>
+</span><span id="line-81"></span><span class="hs-comment">--      - Runs @'worker' (...) :: 'Process' ()@ that connects to the master and waits for a</span><span>
+</span><span id="line-82"></span><span class="hs-comment">--        'Hyperion.Remote.ShutDown' message (see 'worker' for details).</span><span>
+</span><span id="line-83"></span><span class="hs-comment">--        While waiting, the master can run computations on the node. Low-level</span><span>
+</span><span id="line-84"></span><span class="hs-comment">--        functions for this are implemented in &quot;Hyperion.Remote&quot;, and some</span><span>
+</span><span id="line-85"></span><span class="hs-comment">--        higher-level functions in &quot;Hyperion.HasWorkers&quot;</span><span>
+</span><span id="line-86"></span><span id="local-6989586621679161583"><span class="annot"><a href="Hyperion.Main.html#hyperionMain"><span class="hs-identifier hs-type">hyperionMain</span></a></span><span>
+</span><span id="line-87"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Show</span></span><span> </span><span class="annot"><a href="#local-6989586621679161583"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-88"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Parser</span></span><span> </span><span class="annot"><a href="#local-6989586621679161583"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-89"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679161583"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Config.html#HyperionConfig"><span class="hs-identifier hs-type">HyperionConfig</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679161583"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#Cluster"><span class="hs-identifier hs-type">Cluster</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-91"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-92"></span><span id="hyperionMain"><span class="annot"><span class="annottext">hyperionMain :: Parser a -&gt; (a -&gt; HyperionConfig) -&gt; (a -&gt; Cluster ()) -&gt; IO ()
+</span><a href="Hyperion.Main.html#hyperionMain"><span class="hs-identifier hs-var hs-var">hyperionMain</span></a></span></span><span> </span><span id="local-6989586621679161581"><span class="annot"><span class="annottext">Parser a
+</span><a href="#local-6989586621679161581"><span class="hs-identifier hs-var">programOpts</span></a></span></span><span> </span><span id="local-6989586621679161580"><span class="annot"><span class="annottext">a -&gt; HyperionConfig
+</span><a href="#local-6989586621679161580"><span class="hs-identifier hs-var">mkHyperionConfig</span></a></span></span><span> </span><span id="local-6989586621679161579"><span class="annot"><span class="annottext">a -&gt; Cluster ()
+</span><a href="#local-6989586621679161579"><span class="hs-identifier hs-var">clusterProgram</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO ()
+forall (m :: * -&gt; *) a. (MonadIO m, MonadMask m) =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">withConcurrentOutput</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; IO ()) -&gt; IO () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-93"></span><span>  </span><span class="annot"><span class="annottext">ParserInfo (HyperionOpts a) -&gt; IO (HyperionOpts a)
+forall a. ParserInfo a -&gt; IO a
+</span><span class="hs-identifier hs-var">execParser</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Parser a -&gt; ParserInfo (HyperionOpts a)
+forall a. Parser a -&gt; ParserInfo (HyperionOpts a)
+</span><a href="Hyperion.Main.html#opts"><span class="hs-identifier hs-var">opts</span></a></span><span> </span><span class="annot"><span class="annottext">Parser a
+</span><a href="#local-6989586621679161581"><span class="hs-identifier hs-var">programOpts</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO (HyperionOpts a) -&gt; (HyperionOpts a -&gt; IO ()) -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-94"></span><span>  </span><span class="annot"><a href="Hyperion.Main.html#HyperionWorker"><span class="hs-identifier hs-type">HyperionWorker</span></a></span><span> </span><span class="annot"><a href="Hyperion.Command.html#Worker"><span class="hs-identifier hs-type">Worker</span></a></span><span class="hs-special">{</span><span id="local-6989586621679161574"><span id="local-6989586621679161575"><span id="local-6989586621679161576"><span class="annot"><span class="annottext">String
+Text
+ServiceId
+workerLogFile :: Worker -&gt; String
+workerService :: Worker -&gt; ServiceId
+workerMasterAddress :: Worker -&gt; Text
+workerLogFile :: String
+workerService :: ServiceId
+workerMasterAddress :: Text
+</span><a href="Hyperion.Command.html#workerLogFile"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-95"></span><span>    </span><span class="annot"><span class="annottext">String -&gt; IO ()
+</span><a href="Hyperion.Log.html#redirectToFile"><span class="hs-identifier hs-var">Log.redirectToFile</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679161574"><span class="hs-identifier hs-var">workerLogFile</span></a></span><span>
+</span><span id="line-96"></span><span>    </span><span class="annot"><span class="annottext">Text -&gt; ServiceId -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Starting service&quot;</span></span><span> </span><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161575"><span class="hs-identifier hs-var">workerService</span></a></span><span>
+</span><span id="line-97"></span><span>    </span><span class="annot"><span class="annottext">Text -&gt; [(String, String)] -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Environment&quot;</span></span><span> </span><span class="annot"><span class="annottext">([(String, String)] -&gt; IO ()) -&gt; IO [(String, String)] -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; (a -&gt; m b) -&gt; m a -&gt; m b
+</span><span class="hs-operator hs-var">=&lt;&lt;</span></span><span> </span><span class="annot"><span class="annottext">IO [(String, String)]
+</span><span class="hs-identifier hs-var">getEnvironment</span></span><span>
+</span><span id="line-98"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679161567"><span class="annot"><span class="annottext">masterNid :: NodeId
+</span><a href="#local-6989586621679161567"><span class="hs-identifier hs-var hs-var">masterNid</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; NodeId
+</span><a href="Hyperion.Remote.html#addressToNodeId"><span class="hs-identifier hs-var">addressToNodeId</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679161576"><span class="hs-identifier hs-var">workerMasterAddress</span></a></span><span>
+</span><span id="line-99"></span><span>    </span><span class="annot"><span class="annottext">RemoteTable -&gt; Process () -&gt; IO ()
+forall a. RemoteTable -&gt; Process a -&gt; IO a
+</span><a href="Hyperion.Remote.html#runProcessLocalWithRT"><span class="hs-identifier hs-var">runProcessLocalWithRT</span></a></span><span>
+</span><span id="line-100"></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe NodeId -&gt; RemoteTable
+</span><a href="Hyperion.Remote.html#initWorkerRemoteTable"><span class="hs-identifier hs-var">initWorkerRemoteTable</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NodeId -&gt; Maybe NodeId
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679161567"><span class="hs-identifier hs-var">masterNid</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-101"></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NodeId -&gt; ServiceId -&gt; Process ()
+</span><a href="Hyperion.Remote.html#worker"><span class="hs-identifier hs-var">worker</span></a></span><span> </span><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679161567"><span class="hs-identifier hs-var">masterNid</span></a></span><span> </span><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161575"><span class="hs-identifier hs-var">workerService</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-102"></span><span>  </span><span class="annot"><a href="Hyperion.Main.html#HyperionMaster"><span class="hs-identifier hs-type">HyperionMaster</span></a></span><span> </span><span id="local-6989586621679161566"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679161566"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-103"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679161565"><span class="annot"><span class="annottext">hyperionConfig :: HyperionConfig
+</span><a href="#local-6989586621679161565"><span class="hs-identifier hs-var hs-var">hyperionConfig</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; HyperionConfig
+</span><a href="#local-6989586621679161580"><span class="hs-identifier hs-var">mkHyperionConfig</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679161566"><span class="hs-identifier hs-var">args</span></a></span><span>
+</span><span id="line-104"></span><span>    </span><span id="local-6989586621679161564"><span class="annot"><span class="annottext">HoldMap
+</span><a href="#local-6989586621679161564"><span class="hs-identifier hs-var">holdMap</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO HoldMap
+</span><a href="Hyperion.HoldServer.html#newHoldMap"><span class="hs-identifier hs-var">newHoldMap</span></a></span><span>
+</span><span id="line-105"></span><span>    </span><span class="annot"><span class="annottext">HoldMap -&gt; (Int -&gt; IO ()) -&gt; IO ()
+forall a. HoldMap -&gt; (Int -&gt; IO a) -&gt; IO a
+</span><a href="Hyperion.HoldServer.html#withHoldServer"><span class="hs-identifier hs-var">withHoldServer</span></a></span><span> </span><span class="annot"><span class="annottext">HoldMap
+</span><a href="#local-6989586621679161564"><span class="hs-identifier hs-var">holdMap</span></a></span><span> </span><span class="annot"><span class="annottext">((Int -&gt; IO ()) -&gt; IO ()) -&gt; (Int -&gt; IO ()) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161563"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679161563"><span class="hs-identifier hs-var">holdPort</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-106"></span><span>      </span><span class="hs-special">(</span><span id="local-6989586621679161562"><span class="annot"><span class="annottext">clusterEnv :: ClusterEnv
+</span><a href="#local-6989586621679161562"><span class="hs-identifier hs-var">clusterEnv</span></a></span></span><span class="hs-glyph">@</span><span class="annot"><a href="Hyperion.Cluster.html#ClusterEnv"><span class="hs-identifier hs-type">ClusterEnv</span></a></span><span class="hs-special">{</span><span id="local-6989586621679161555"><span id="local-6989586621679161556"><span id="local-6989586621679161557"><span id="local-6989586621679161558"><span id="local-6989586621679161559"><span id="local-6989586621679161560"><span class="annot"><span class="annottext">Int
+LockMap
+SbatchOptions
+Pool
+ProgramInfo
+SbatchOptions -&gt; ProgramInfo -&gt; WorkerLauncher JobId
+clusterLockMap :: ClusterEnv -&gt; LockMap
+clusterDatabaseRetries :: ClusterEnv -&gt; Int
+clusterDatabasePool :: ClusterEnv -&gt; Pool
+clusterJobOptions :: ClusterEnv -&gt; SbatchOptions
+clusterProgramInfo :: ClusterEnv -&gt; ProgramInfo
+clusterWorkerLauncher :: ClusterEnv -&gt; SbatchOptions -&gt; ProgramInfo -&gt; WorkerLauncher JobId
+clusterLockMap :: LockMap
+clusterDatabaseRetries :: Int
+clusterDatabasePool :: Pool
+clusterJobOptions :: SbatchOptions
+clusterProgramInfo :: ProgramInfo
+clusterWorkerLauncher :: SbatchOptions -&gt; ProgramInfo -&gt; WorkerLauncher JobId
+</span><a href="Hyperion.Cluster.html#clusterLockMap"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span></span></span></span><span class="hs-special">}</span><span class="hs-special">,</span><span> </span><span id="local-6989586621679161548"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679161548"><span class="hs-identifier hs-var">hyperionExecutable</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">HyperionConfig -&gt; HoldMap -&gt; Int -&gt; IO (ClusterEnv, String)
+</span><a href="Hyperion.Config.html#newClusterEnv"><span class="hs-identifier hs-var">newClusterEnv</span></a></span><span> </span><span class="annot"><span class="annottext">HyperionConfig
+</span><a href="#local-6989586621679161565"><span class="hs-identifier hs-var">hyperionConfig</span></a></span><span> </span><span class="annot"><span class="annottext">HoldMap
+</span><a href="#local-6989586621679161564"><span class="hs-identifier hs-var">holdMap</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679161563"><span class="hs-identifier hs-var">holdPort</span></a></span><span>
+</span><span id="line-107"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679161547"><span class="annot"><span class="annottext">progId :: ProgramId
+</span><a href="#local-6989586621679161547"><span class="hs-identifier hs-var hs-var">progId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProgramInfo -&gt; ProgramId
+</span><a href="Hyperion.Cluster.html#programId"><span class="hs-identifier hs-var hs-var">programId</span></a></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161559"><span class="hs-identifier hs-var">clusterProgramInfo</span></a></span><span>
+</span><span id="line-108"></span><span>          </span><span id="local-6989586621679161545"><span class="annot"><span class="annottext">masterLogFile :: String
+</span><a href="#local-6989586621679161545"><span class="hs-identifier hs-var hs-var">masterLogFile</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProgramInfo -&gt; String
+</span><a href="Hyperion.Cluster.html#programLogDir"><span class="hs-identifier hs-var hs-var">programLogDir</span></a></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161559"><span class="hs-identifier hs-var">clusterProgramInfo</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><span class="hs-operator hs-var">&lt;.&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;log&quot;</span></span><span>
+</span><span id="line-109"></span><span>      </span><span id="local-6989586621679161543"><span class="annot"><span class="annottext">ProcessID
+</span><a href="#local-6989586621679161543"><span class="hs-identifier hs-var">pid</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO ProcessID
+</span><span class="hs-identifier hs-var">getProcessID</span></span><span>
+</span><span id="line-110"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679161542"><span class="annot"><span class="annottext">logMasterInfo :: IO ()
+</span><a href="#local-6989586621679161542"><span class="hs-identifier hs-var hs-var">logMasterInfo</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-111"></span><span>            </span><span class="annot"><span class="annottext">Text -&gt; ProgramId -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Program id&quot;</span></span><span> </span><span class="annot"><span class="annottext">ProgramId
+</span><a href="#local-6989586621679161547"><span class="hs-identifier hs-var">progId</span></a></span><span>
+</span><span id="line-112"></span><span>            </span><span class="annot"><span class="annottext">Text -&gt; ProcessID -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Process id&quot;</span></span><span> </span><span class="annot"><span class="annottext">ProcessID
+</span><a href="#local-6989586621679161543"><span class="hs-identifier hs-var">pid</span></a></span><span>
+</span><span id="line-113"></span><span>            </span><span class="annot"><span class="annottext">Text -&gt; a -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Program arguments&quot;</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679161566"><span class="hs-identifier hs-var">args</span></a></span><span>
+</span><span id="line-114"></span><span>            </span><span class="annot"><span class="annottext">Text -&gt; String -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Using database&quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ProgramInfo -&gt; String
+</span><a href="Hyperion.Cluster.html#programDatabase"><span class="hs-identifier hs-var hs-var">programDatabase</span></a></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161559"><span class="hs-identifier hs-var">clusterProgramInfo</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-115"></span><span>            </span><span class="annot"><span class="annottext">Text -&gt; Int -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Running hold server on port&quot;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679161563"><span class="hs-identifier hs-var">holdPort</span></a></span><span>
+</span><span id="line-116"></span><span>      </span><span class="annot"><span class="annottext">Text -&gt; IO ()
+forall (m :: * -&gt; *). MonadIO m =&gt; Text -&gt; m ()
+</span><a href="Hyperion.Log.html#rawText"><span class="hs-identifier hs-var">Log.rawText</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;--------------------------------------------------------------------------------\n&quot;</span></span><span>
+</span><span id="line-117"></span><span>      </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679161542"><span class="hs-identifier hs-var">logMasterInfo</span></a></span><span>
+</span><span id="line-118"></span><span>      </span><span class="annot"><span class="annottext">Text -&gt; String -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Logging to&quot;</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679161545"><span class="hs-identifier hs-var">masterLogFile</span></a></span><span>
+</span><span id="line-119"></span><span>      </span><span class="annot"><span class="annottext">IO ()
+</span><a href="Hyperion.Log.html#flush"><span class="hs-identifier hs-var">Log.flush</span></a></span><span>
+</span><span id="line-120"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; IO ()
+</span><a href="Hyperion.Log.html#redirectToFile"><span class="hs-identifier hs-var">Log.redirectToFile</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679161545"><span class="hs-identifier hs-var">masterLogFile</span></a></span><span>
+</span><span id="line-121"></span><span>      </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621679161542"><span class="hs-identifier hs-var">logMasterInfo</span></a></span><span>
+</span><span id="line-122"></span><span>      </span><span class="annot"><span class="annottext">ProgramInfo -&gt; ReaderT DatabaseConfig IO () -&gt; IO ()
+forall a. ProgramInfo -&gt; ReaderT DatabaseConfig IO a -&gt; IO a
+</span><a href="Hyperion.Cluster.html#runDBWithProgramInfo"><span class="hs-identifier hs-var">runDBWithProgramInfo</span></a></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161559"><span class="hs-identifier hs-var">clusterProgramInfo</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT DatabaseConfig IO ()
+forall (m :: * -&gt; *) env.
+(MonadIO m, MonadReader env m, HasDB env, MonadCatch m) =&gt;
+m ()
+</span><a href="Hyperion.Database.KeyValMap.html#setupKeyValTable"><span class="hs-identifier hs-var">DB.setupKeyValTable</span></a></span><span>
+</span><span id="line-123"></span><span>      </span><span class="annot"><span class="annottext">ClusterEnv -&gt; Cluster () -&gt; IO ()
+forall a. ClusterEnv -&gt; Cluster a -&gt; IO a
+</span><a href="Hyperion.Cluster.html#runCluster"><span class="hs-identifier hs-var">runCluster</span></a></span><span> </span><span class="annot"><span class="annottext">ClusterEnv
+</span><a href="#local-6989586621679161562"><span class="hs-identifier hs-var">clusterEnv</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Cluster ()
+</span><a href="#local-6989586621679161579"><span class="hs-identifier hs-var">clusterProgram</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679161566"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-124"></span><span>      </span><span class="annot"><span class="annottext">Bool -&gt; IO () -&gt; IO ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><span class="hs-identifier hs-var">unless</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe String -&gt; Bool
+forall a. Maybe a -&gt; Bool
+</span><span class="hs-identifier hs-var">isJust</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HyperionConfig -&gt; Maybe String
+</span><a href="Hyperion.Config.html#hyperionCommand"><span class="hs-identifier hs-var hs-var">hyperionCommand</span></a></span><span> </span><span class="annot"><span class="annottext">HyperionConfig
+</span><a href="#local-6989586621679161565"><span class="hs-identifier hs-var">hyperionConfig</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; IO ()) -&gt; IO () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-125"></span><span>        </span><span class="annot"><span class="annottext">String -&gt; IO ()
+</span><span class="hs-identifier hs-var">removeFile</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679161548"><span class="hs-identifier hs-var">hyperionExecutable</span></a></span><span>
+</span><span id="line-126"></span><span>      </span><span class="annot"><span class="annottext">Text -&gt; ProgramId -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Finished&quot;</span></span><span> </span><span class="annot"><span class="annottext">ProgramId
+</span><a href="#local-6989586621679161547"><span class="hs-identifier hs-var">progId</span></a></span><span>
+</span><span id="line-127"></span><span>
+</span><span id="line-128"></span></pre></body></html>

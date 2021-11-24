@@ -1,0 +1,678 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE FlexibleContexts  #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE FlexibleInstances #-}</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-comment">{-| This module contains copies of several utilities from
+&quot;Control.Concurrent.Async&quot; from the @async@ package, with 'IO'
+replaced by 'Process'.
+-}</span><span>
+</span><span id="line-8"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.Concurrent</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-9"></span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Applicative</span></span><span>         </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Alternative</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">liftA2</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Concurrent</span></span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Process</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Process</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">kill</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">liftIO</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">spawnLocal</span></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Exception</span></span><span>           </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">SomeException</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">throwIO</span></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad</span></span><span>               </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">forever</span></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Catch</span></span><span>         </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">catch</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">mask</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">onException</span></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Reader</span></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">ReaderT</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Foldable</span></span><span>               </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">sequenceA_</span></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- | Runs the two 'Process'es concurrently and returns the first available result,</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- 'kill'ing the unfinished process. If any of the processes throw an exception, </span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- the processes are 'kill'ed and the exception is propagated out of 'race'.</span><span>
+</span><span id="line-23"></span><span id="local-6989586621679158033"><span id="local-6989586621679158034"><span class="annot"><a href="Hyperion.Concurrent.html#race"><span class="hs-identifier hs-type">race</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679158034"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679158033"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Either</span></span><span> </span><span class="annot"><a href="#local-6989586621679158034"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158033"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-24"></span><span id="race"><span class="annot"><span class="annottext">race :: Process a -&gt; Process b -&gt; Process (Either a b)
+</span><a href="Hyperion.Concurrent.html#race"><span class="hs-identifier hs-var hs-var">race</span></a></span></span><span> </span><span id="local-6989586621679157952"><span class="annot"><span class="annottext">Process a
+</span><a href="#local-6989586621679157952"><span class="hs-identifier hs-var">left</span></a></span></span><span> </span><span id="local-6989586621679157951"><span class="annot"><span class="annottext">Process b
+</span><a href="#local-6989586621679157951"><span class="hs-identifier hs-var">right</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Process a
+-&gt; Process b
+-&gt; (MVar (Either SomeException (Either a b))
+    -&gt; Process (Either a b))
+-&gt; Process (Either a b)
+forall a b r.
+Process a
+-&gt; Process b
+-&gt; (MVar (Either SomeException (Either a b)) -&gt; Process r)
+-&gt; Process r
+</span><a href="Hyperion.Concurrent.html#concurrently%27"><span class="hs-identifier hs-var">concurrently'</span></a></span><span> </span><span class="annot"><span class="annottext">Process a
+</span><a href="#local-6989586621679157952"><span class="hs-identifier hs-var">left</span></a></span><span> </span><span class="annot"><span class="annottext">Process b
+</span><a href="#local-6989586621679157951"><span class="hs-identifier hs-var">right</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b)) -&gt; Process (Either a b)
+forall (m :: * -&gt; *) e b.
+(MonadIO m, Exception e) =&gt;
+MVar (Either e b) -&gt; m b
+</span><a href="#local-6989586621679157949"><span class="hs-identifier hs-var">collect</span></a></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-26"></span><span>      </span><span id="local-6989586621679157949"><span class="annot"><span class="annottext">collect :: MVar (Either e b) -&gt; m b
+</span><a href="#local-6989586621679157949"><span class="hs-identifier hs-var hs-var">collect</span></a></span></span><span> </span><span id="local-6989586621679157948"><span class="annot"><span class="annottext">MVar (Either e b)
+</span><a href="#local-6989586621679157948"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-27"></span><span>        </span><span id="local-6989586621679157947"><span class="annot"><span class="annottext">Either e b
+</span><a href="#local-6989586621679157947"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (Either e b) -&gt; m (Either e b)
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO (Either e b) -&gt; m (Either e b))
+-&gt; IO (Either e b) -&gt; m (Either e b)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either e b) -&gt; IO (Either e b)
+forall a. MVar a -&gt; IO a
+</span><span class="hs-identifier hs-var">takeMVar</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either e b)
+</span><a href="#local-6989586621679157948"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-28"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either e b
+</span><a href="#local-6989586621679157947"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-29"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span id="local-6989586621679157945"><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679157945"><span class="hs-identifier hs-var">ex</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO b -&gt; m b
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO b -&gt; m b) -&gt; IO b -&gt; m b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">e -&gt; IO b
+forall e a. Exception e =&gt; e -&gt; IO a
+</span><span class="hs-identifier hs-var">throwIO</span></span><span> </span><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679157945"><span class="hs-identifier hs-var">ex</span></a></span><span>
+</span><span id="line-30"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621679157944"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679157944"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">b -&gt; m b
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679157944"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-31"></span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- | Runs the two 'Process'es concurrently and returns both results. If any of the </span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- processes throw an exception, the processes are 'kill'ed and the </span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- exception is propagated out of 'concurrently'.</span><span>
+</span><span id="line-35"></span><span id="local-6989586621679158053"><span id="local-6989586621679158054"><span class="annot"><a href="Hyperion.Concurrent.html#concurrently"><span class="hs-identifier hs-type">concurrently</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679158054"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679158053"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679158054"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span class="annot"><a href="#local-6989586621679158053"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-36"></span><span id="concurrently"><span class="annot"><span class="annottext">concurrently :: Process a -&gt; Process b -&gt; Process (a, b)
+</span><a href="Hyperion.Concurrent.html#concurrently"><span class="hs-identifier hs-var hs-var">concurrently</span></a></span></span><span> </span><span id="local-6989586621679157942"><span class="annot"><span class="annottext">Process a
+</span><a href="#local-6989586621679157942"><span class="hs-identifier hs-var">left</span></a></span></span><span> </span><span id="local-6989586621679157941"><span class="annot"><span class="annottext">Process b
+</span><a href="#local-6989586621679157941"><span class="hs-identifier hs-var">right</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Process a
+-&gt; Process b
+-&gt; (MVar (Either SomeException (Either a b)) -&gt; Process (a, b))
+-&gt; Process (a, b)
+forall a b r.
+Process a
+-&gt; Process b
+-&gt; (MVar (Either SomeException (Either a b)) -&gt; Process r)
+-&gt; Process r
+</span><a href="Hyperion.Concurrent.html#concurrently%27"><span class="hs-identifier hs-var">concurrently'</span></a></span><span> </span><span class="annot"><span class="annottext">Process a
+</span><a href="#local-6989586621679157942"><span class="hs-identifier hs-var">left</span></a></span><span> </span><span class="annot"><span class="annottext">Process b
+</span><a href="#local-6989586621679157941"><span class="hs-identifier hs-var">right</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Either a b]
+-&gt; MVar (Either SomeException (Either a b)) -&gt; Process (a, b)
+forall (m :: * -&gt; *) e a b.
+(MonadIO m, Exception e) =&gt;
+[Either a b] -&gt; MVar (Either e (Either a b)) -&gt; m (a, b)
+</span><a href="#local-6989586621679157940"><span class="hs-identifier hs-var">collect</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679157940"><span class="annot"><span class="annottext">collect :: [Either a b] -&gt; MVar (Either e (Either a b)) -&gt; m (a, b)
+</span><a href="#local-6989586621679157940"><span class="hs-identifier hs-var hs-var">collect</span></a></span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span id="local-6989586621679157939"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679157939"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621679157938"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679157938"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Either a b))
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a, b) -&gt; m (a, b)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679157939"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679157938"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span>          </span><span class="annot"><a href="#local-6989586621679157940"><span class="hs-identifier hs-var">collect</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621679157937"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679157937"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span id="local-6989586621679157936"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679157936"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Either a b))
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a, b) -&gt; m (a, b)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679157936"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679157937"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span>          </span><span class="annot"><a href="#local-6989586621679157940"><span class="hs-identifier hs-var">collect</span></a></span><span> </span><span id="local-6989586621679157935"><span class="annot"><span class="annottext">[Either a b]
+</span><a href="#local-6989586621679157935"><span class="hs-identifier hs-var">xs</span></a></span></span><span> </span><span id="local-6989586621679157934"><span class="annot"><span class="annottext">MVar (Either e (Either a b))
+</span><a href="#local-6989586621679157934"><span class="hs-identifier hs-var">m</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-40"></span><span>            </span><span id="local-6989586621679157933"><span class="annot"><span class="annottext">Either e (Either a b)
+</span><a href="#local-6989586621679157933"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (Either e (Either a b)) -&gt; m (Either e (Either a b))
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO (Either e (Either a b)) -&gt; m (Either e (Either a b)))
+-&gt; IO (Either e (Either a b)) -&gt; m (Either e (Either a b))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Either a b)) -&gt; IO (Either e (Either a b))
+forall a. MVar a -&gt; IO a
+</span><span class="hs-identifier hs-var">takeMVar</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Either a b))
+</span><a href="#local-6989586621679157934"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-41"></span><span>            </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either e (Either a b)
+</span><a href="#local-6989586621679157933"><span class="hs-identifier hs-var">e</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-42"></span><span>              </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span id="local-6989586621679157932"><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679157932"><span class="hs-identifier hs-var">ex</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO (a, b) -&gt; m (a, b)
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO (a, b) -&gt; m (a, b)) -&gt; IO (a, b) -&gt; m (a, b)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">e -&gt; IO (a, b)
+forall e a. Exception e =&gt; e -&gt; IO a
+</span><span class="hs-identifier hs-var">throwIO</span></span><span> </span><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679157932"><span class="hs-identifier hs-var">ex</span></a></span><span>
+</span><span id="line-43"></span><span>              </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621679157931"><span class="annot"><span class="annottext">Either a b
+</span><a href="#local-6989586621679157931"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[Either a b] -&gt; MVar (Either e (Either a b)) -&gt; m (a, b)
+</span><a href="#local-6989586621679157940"><span class="hs-identifier hs-var">collect</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Either a b
+</span><a href="#local-6989586621679157931"><span class="hs-identifier hs-var">r</span></a></span><span class="annot"><span class="annottext">Either a b -&gt; [Either a b] -&gt; [Either a b]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span class="annot"><span class="annottext">[Either a b]
+</span><a href="#local-6989586621679157935"><span class="hs-identifier hs-var">xs</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">MVar (Either e (Either a b))
+</span><a href="#local-6989586621679157934"><span class="hs-identifier hs-var">m</span></a></span><span>
+</span><span id="line-44"></span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- | Runs two 'Process'es concurrently in two new threads. Each process will </span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- compute the result  and 'putMVar' it into an 'MVar'. The user-supplied </span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- continuation is applied to this 'MVar' concurrently with the two threads. </span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- When the continuation returns a result, the new threads are 'kill'ed and the</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- result is returned from 'concurrently''. If a thread fails, the 'MVar' is </span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- filled with 'Left' 'SomeException'. </span><span>
+</span><span id="line-51"></span><span class="hs-comment">--</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- Note that the continutation can inspect the results of both threads by emptying</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- the 'MVar' when appropriate.</span><span>
+</span><span id="line-54"></span><span class="hs-comment">--</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- TODO: This code was originally copied from the</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- &quot;Control.Concurrent.Async&quot; module, with 'forkIO' replaced by</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- 'spawnLocal'. As of @async-2.1@, the code for this function has</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- changed. Have a look and figure out why, and whether the changes</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- should be ported here?</span><span>
+</span><span id="line-60"></span><span id="local-6989586621679158155"><span id="local-6989586621679158156"><span id="local-6989586621679158157"><span class="annot"><a href="Hyperion.Concurrent.html#concurrently%27"><span class="hs-identifier hs-type">concurrently'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679158157"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679158156"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-61"></span><span>              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MVar</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Either</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">SomeException</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Either</span></span><span> </span><span class="annot"><a href="#local-6989586621679158157"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158156"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679158155"><span class="hs-identifier hs-type">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-62"></span><span>              </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679158155"><span class="hs-identifier hs-type">r</span></a></span></span></span></span><span>
+</span><span id="line-63"></span><span id="concurrently%27"><span class="annot"><span class="annottext">concurrently' :: Process a
+-&gt; Process b
+-&gt; (MVar (Either SomeException (Either a b)) -&gt; Process r)
+-&gt; Process r
+</span><a href="Hyperion.Concurrent.html#concurrently%27"><span class="hs-identifier hs-var hs-var">concurrently'</span></a></span></span><span> </span><span id="local-6989586621679157930"><span class="annot"><span class="annottext">Process a
+</span><a href="#local-6989586621679157930"><span class="hs-identifier hs-var">left</span></a></span></span><span> </span><span id="local-6989586621679157929"><span class="annot"><span class="annottext">Process b
+</span><a href="#local-6989586621679157929"><span class="hs-identifier hs-var">right</span></a></span></span><span> </span><span id="local-6989586621679157928"><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b)) -&gt; Process r
+</span><a href="#local-6989586621679157928"><span class="hs-identifier hs-var">collect</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-64"></span><span>  </span><span id="local-6989586621679157927"><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+</span><a href="#local-6989586621679157927"><span class="hs-identifier hs-var">done</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (MVar (Either SomeException (Either a b)))
+-&gt; Process (MVar (Either SomeException (Either a b)))
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">IO (MVar (Either SomeException (Either a b)))
+forall a. IO (MVar a)
+</span><span class="hs-identifier hs-var">newEmptyMVar</span></span><span>
+</span><span id="line-65"></span><span>  </span><span class="annot"><span class="annottext">((forall a. Process a -&gt; Process a) -&gt; Process r) -&gt; Process r
+forall (m :: * -&gt; *) b.
+MonadMask m =&gt;
+((forall a. m a -&gt; m a) -&gt; m b) -&gt; m b
+</span><span class="hs-identifier hs-var">mask</span></span><span> </span><span class="annot"><span class="annottext">(((forall a. Process a -&gt; Process a) -&gt; Process r) -&gt; Process r)
+-&gt; ((forall a. Process a -&gt; Process a) -&gt; Process r) -&gt; Process r
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679157925"><span class="annot"><span class="annottext">forall a. Process a -&gt; Process a
+</span><a href="#local-6989586621679157925"><span class="hs-identifier hs-var">restore</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-66"></span><span>    </span><span id="local-6989586621679157924"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157924"><span class="hs-identifier hs-var">lid</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process () -&gt; Process ProcessId
+</span><span class="hs-identifier hs-var">spawnLocal</span></span><span> </span><span class="annot"><span class="annottext">(Process () -&gt; Process ProcessId)
+-&gt; Process () -&gt; Process ProcessId
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Process () -&gt; Process ()
+forall a. Process a -&gt; Process a
+</span><a href="#local-6989586621679157925"><span class="hs-identifier hs-var">restore</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Process a
+</span><a href="#local-6989586621679157930"><span class="hs-identifier hs-var">left</span></a></span><span> </span><span class="annot"><span class="annottext">Process a -&gt; (a -&gt; Process ()) -&gt; Process ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ()) -&gt; (a -&gt; IO ()) -&gt; a -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+-&gt; Either SomeException (Either a b) -&gt; IO ()
+forall a. MVar a -&gt; a -&gt; IO ()
+</span><span class="hs-identifier hs-var">putMVar</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+</span><a href="#local-6989586621679157927"><span class="hs-identifier hs-var">done</span></a></span><span> </span><span class="annot"><span class="annottext">(Either SomeException (Either a b) -&gt; IO ())
+-&gt; (a -&gt; Either SomeException (Either a b)) -&gt; a -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Either a b -&gt; Either SomeException (Either a b)
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="annot"><span class="annottext">(Either a b -&gt; Either SomeException (Either a b))
+-&gt; (a -&gt; Either a b) -&gt; a -&gt; Either SomeException (Either a b)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; Either a b
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span class="hs-special">)</span><span>
+</span><span id="line-67"></span><span>                                   </span><span class="annot"><span class="annottext">Process () -&gt; (SomeException -&gt; Process ()) -&gt; Process ()
+forall (m :: * -&gt; *) e a.
+(MonadCatch m, Exception e) =&gt;
+m a -&gt; (e -&gt; m a) -&gt; m a
+</span><span class="hs-operator hs-var">`catch`</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ())
+-&gt; (SomeException -&gt; IO ()) -&gt; SomeException -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+-&gt; Either SomeException (Either a b) -&gt; IO ()
+forall a. MVar a -&gt; a -&gt; IO ()
+</span><span class="hs-identifier hs-var">putMVar</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+</span><a href="#local-6989586621679157927"><span class="hs-identifier hs-var">done</span></a></span><span> </span><span class="annot"><span class="annottext">(Either SomeException (Either a b) -&gt; IO ())
+-&gt; (SomeException -&gt; Either SomeException (Either a b))
+-&gt; SomeException
+-&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SomeException -&gt; Either SomeException (Either a b)
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span class="hs-special">)</span><span>
+</span><span id="line-68"></span><span>    </span><span id="local-6989586621679157921"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157921"><span class="hs-identifier hs-var">rid</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process () -&gt; Process ProcessId
+</span><span class="hs-identifier hs-var">spawnLocal</span></span><span> </span><span class="annot"><span class="annottext">(Process () -&gt; Process ProcessId)
+-&gt; Process () -&gt; Process ProcessId
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Process () -&gt; Process ()
+forall a. Process a -&gt; Process a
+</span><a href="#local-6989586621679157925"><span class="hs-identifier hs-var">restore</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Process b
+</span><a href="#local-6989586621679157929"><span class="hs-identifier hs-var">right</span></a></span><span> </span><span class="annot"><span class="annottext">Process b -&gt; (b -&gt; Process ()) -&gt; Process ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ()) -&gt; (b -&gt; IO ()) -&gt; b -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+-&gt; Either SomeException (Either a b) -&gt; IO ()
+forall a. MVar a -&gt; a -&gt; IO ()
+</span><span class="hs-identifier hs-var">putMVar</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+</span><a href="#local-6989586621679157927"><span class="hs-identifier hs-var">done</span></a></span><span> </span><span class="annot"><span class="annottext">(Either SomeException (Either a b) -&gt; IO ())
+-&gt; (b -&gt; Either SomeException (Either a b)) -&gt; b -&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Either a b -&gt; Either SomeException (Either a b)
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="annot"><span class="annottext">(Either a b -&gt; Either SomeException (Either a b))
+-&gt; (b -&gt; Either a b) -&gt; b -&gt; Either SomeException (Either a b)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">b -&gt; Either a b
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>                                   </span><span class="annot"><span class="annottext">Process () -&gt; (SomeException -&gt; Process ()) -&gt; Process ()
+forall (m :: * -&gt; *) e a.
+(MonadCatch m, Exception e) =&gt;
+m a -&gt; (e -&gt; m a) -&gt; m a
+</span><span class="hs-operator hs-var">`catch`</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ())
+-&gt; (SomeException -&gt; IO ()) -&gt; SomeException -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+-&gt; Either SomeException (Either a b) -&gt; IO ()
+forall a. MVar a -&gt; a -&gt; IO ()
+</span><span class="hs-identifier hs-var">putMVar</span></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+</span><a href="#local-6989586621679157927"><span class="hs-identifier hs-var">done</span></a></span><span> </span><span class="annot"><span class="annottext">(Either SomeException (Either a b) -&gt; IO ())
+-&gt; (SomeException -&gt; Either SomeException (Either a b))
+-&gt; SomeException
+-&gt; IO ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SomeException -&gt; Either SomeException (Either a b)
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span class="hs-special">)</span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679157920"><span class="annot"><span class="annottext">stop :: Process ()
+</span><a href="#local-6989586621679157920"><span class="hs-identifier hs-var hs-var">stop</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProcessId -&gt; String -&gt; Process ()
+</span><span class="hs-identifier hs-var">kill</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157924"><span class="hs-identifier hs-var">lid</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;process died&quot;</span></span><span> </span><span class="annot"><span class="annottext">Process () -&gt; Process () -&gt; Process ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">ProcessId -&gt; String -&gt; Process ()
+</span><span class="hs-identifier hs-var">kill</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157921"><span class="hs-identifier hs-var">rid</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;process died&quot;</span></span><span>
+</span><span id="line-71"></span><span>    </span><span id="local-6989586621679157919"><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679157919"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process r -&gt; Process r
+forall a. Process a -&gt; Process a
+</span><a href="#local-6989586621679157925"><span class="hs-identifier hs-var">restore</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b)) -&gt; Process r
+</span><a href="#local-6989586621679157928"><span class="hs-identifier hs-var">collect</span></a></span><span> </span><span class="annot"><span class="annottext">MVar (Either SomeException (Either a b))
+</span><a href="#local-6989586621679157927"><span class="hs-identifier hs-var">done</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Process r -&gt; Process () -&gt; Process r
+forall (m :: * -&gt; *) a b. MonadCatch m =&gt; m a -&gt; m b -&gt; m a
+</span><span class="hs-operator hs-var">`onException`</span></span><span> </span><span class="annot"><span class="annottext">Process ()
+</span><a href="#local-6989586621679157920"><span class="hs-identifier hs-var">stop</span></a></span><span>
+</span><span id="line-72"></span><span>    </span><span class="annot"><span class="annottext">Process ()
+</span><a href="#local-6989586621679157920"><span class="hs-identifier hs-var">stop</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="annot"><span class="annottext">r -&gt; Process r
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679157919"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-74"></span><span>
+</span><span id="line-75"></span><span class="hs-comment">-- * 'Concurrently' type</span><span>
+</span><span id="line-76"></span><span class="hs-comment">-- $ </span><span>
+</span><span id="line-77"></span><span class="hs-comment">-- @'Concurrently' m a@ represents a computation of type @m a@ that</span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- can be run concurrently with other 'Concurrently'-type</span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- computations. It is essentially a copy of the 'Concurrently'</span><span>
+</span><span id="line-80"></span><span class="hs-comment">-- applicative from &quot;Control.Concurrent.Async&quot;, with 'IO' replaced by</span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- 'Process'.</span><span>
+</span><span id="line-82"></span><span class="hs-comment">--</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- 'Concurrently' is an instance of several type classes (see below), but</span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- most notable are the instances of 'Applicative' and 'Alternative'. </span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- The instances we define are for @'Concurrently' ('ReaderT' r 'Process')@, </span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- which in practice means @'Concurrently' 'Hyperion.Cluster.Cluster'@ and </span><span>
+</span><span id="line-87"></span><span class="hs-comment">-- @'Concurrently' 'Hyperion.Job.Job'@.</span><span>
+</span><span id="line-88"></span><span class="hs-comment">--</span><span>
+</span><span id="line-89"></span><span class="hs-comment">-- = 'Applicative' instance</span><span>
+</span><span id="line-90"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-91"></span><span class="hs-comment">-- The 'Applicative' instance defines for @f :: 'Concurrently' m (a-&gt;b)@ and</span><span>
+</span><span id="line-92"></span><span class="hs-comment">-- @x :: 'Concurrently' m a@ computations</span><span>
+</span><span id="line-93"></span><span class="hs-comment">--</span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- &gt; f &lt;*&gt; x</span><span>
+</span><span id="line-95"></span><span class="hs-comment">--</span><span>
+</span><span id="line-96"></span><span class="hs-comment">-- to be the 'Concurrently m b' computation which is peformed as follows:</span><span>
+</span><span id="line-97"></span><span class="hs-comment">-- first, @f@ and @x@ are computed concurrently using 'concurrently', yielding values of the types</span><span>
+</span><span id="line-98"></span><span class="hs-comment">-- @a-&gt;b@ and @a@. Then these values are combined in the obvious way into a value</span><span>
+</span><span id="line-99"></span><span class="hs-comment">-- of type @b@. The implementation of @'pure' x@ is simply the computation which</span><span>
+</span><span id="line-100"></span><span class="hs-comment">-- returns @x@.</span><span>
+</span><span id="line-101"></span><span class="hs-comment">--</span><span>
+</span><span id="line-102"></span><span class="hs-comment">-- In this way, we can define, for example,</span><span>
+</span><span id="line-103"></span><span class="hs-comment">--</span><span>
+</span><span id="line-104"></span><span class="hs-comment">-- &gt; doConcurrently' :: [ Concurrently m a ] -&gt; Concurrently m [a]</span><span>
+</span><span id="line-105"></span><span class="hs-comment">-- &gt; doConcurrenlty' [] = pure []</span><span>
+</span><span id="line-106"></span><span class="hs-comment">-- &gt; doConcurrenlty' (x:xs) = pure (:) &lt;*&gt; x &lt;*&gt; doConcurrently' xs</span><span>
+</span><span id="line-107"></span><span class="hs-comment">--</span><span>
+</span><span id="line-108"></span><span class="hs-comment">-- which takes a list of computations and returns a computation that performs </span><span>
+</span><span id="line-109"></span><span class="hs-comment">-- these computations concurrently and combines their results into a list. </span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-111"></span><span class="hs-comment">-- This definition of 'doConcurrently'' works in the following way. The first line</span><span>
+</span><span id="line-112"></span><span class="hs-comment">-- is the base for our recursive definition -- an empty list is a trivial computation.</span><span>
+</span><span id="line-113"></span><span class="hs-comment">-- The second line will first compute @'pure' (:)@ -- this is a rather trivial</span><span>
+</span><span id="line-114"></span><span class="hs-comment">-- concurrent computation that returns the function @'(:)'@. We combine this </span><span>
+</span><span id="line-115"></span><span class="hs-comment">-- calcuation with @x@ using '&lt;*&gt;', which makes it into a calculation that computes</span><span>
+</span><span id="line-116"></span><span class="hs-comment">-- the function @(:) x'@, i.e. the function that prepends @x'@ to a list. Here </span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- @x'@ is the result of the calculation @x@. Then we combine this calculation</span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- with @doConcurrently' xs@, which means that we compute @(:) x'@ concurrently</span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- with @doConcurrently' xs@, and then combine the results. The result of </span><span>
+</span><span id="line-120"></span><span class="hs-comment">-- @doConcurrently' xs@ will be a list of values, and we prepend @x'@ to it.</span><span>
+</span><span id="line-121"></span><span class="hs-comment">-- Recursing into @doConcurrently' xs@ we see that @doConcurrently'@ indeed works</span><span>
+</span><span id="line-122"></span><span class="hs-comment">-- by taking a list of computations, performing the calcuations concurrently, and</span><span>
+</span><span id="line-123"></span><span class="hs-comment">-- returning the list of results. </span><span>
+</span><span id="line-124"></span><span class="hs-comment">--</span><span>
+</span><span id="line-125"></span><span class="hs-comment">-- We can also define a more convenient function 'doConcurrently' as follows</span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- &gt; doConcurrently :: [ m a ] -&gt; m [a]</span><span>
+</span><span id="line-128"></span><span class="hs-comment">-- &gt; doConcurrently xs = runConcurrently $ doConcurrently' $ map Concurrently xs</span><span>
+</span><span id="line-129"></span><span class="hs-comment">--</span><span>
+</span><span id="line-130"></span><span class="hs-comment">-- which works by dressing @m a@ in the list in 'Concurrently', performing </span><span>
+</span><span id="line-131"></span><span class="hs-comment">-- @doConcurrently'@ and then finally removing the 'Concurrently' constructor using</span><span>
+</span><span id="line-132"></span><span class="hs-comment">-- 'runConcurrently'. The actual definition of 'doConcurrently' is more general,</span><span>
+</span><span id="line-133"></span><span class="hs-comment">-- so that it works on any 'Traversable' instance, not just on lists.</span><span>
+</span><span id="line-134"></span><span class="hs-comment">--</span><span>
+</span><span id="line-135"></span><span class="hs-comment">-- = 'Alternative' instance</span><span>
+</span><span id="line-136"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-137"></span><span class="hs-comment">-- The 'Alternative' instance of 'Concurrenlty' is similar, except it uses </span><span>
+</span><span id="line-138"></span><span class="hs-comment">-- 'race' instead of 'concurrenlty'. Specifically,</span><span>
+</span><span id="line-139"></span><span class="hs-comment">--</span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- &gt; a &lt;|&gt; b</span><span>
+</span><span id="line-141"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-142"></span><span class="hs-comment">-- performs the computations @a@ and @b@ concurrently and returns the result of</span><span>
+</span><span id="line-143"></span><span class="hs-comment">-- whichever finishes earlier, using 'race'. The 'empty' implementation is a </span><span>
+</span><span id="line-144"></span><span class="hs-comment">-- computation which never returns. In particular, </span><span>
+</span><span id="line-145"></span><span class="hs-comment">--</span><span>
+</span><span id="line-146"></span><span class="hs-comment">-- &gt; empty &lt;|&gt; empty</span><span>
+</span><span id="line-147"></span><span class="hs-comment">--</span><span>
+</span><span id="line-148"></span><span class="hs-comment">-- never returns (so is the same as 'empty', to some extent). We can do, for example</span><span>
+</span><span id="line-149"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-150"></span><span class="hs-comment">-- &gt; asum [ x, y, z ]</span><span>
+</span><span id="line-151"></span><span class="hs-comment">--</span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- which will run @x@, @y@, and @z@ concurrently and return the first returned </span><span>
+</span><span id="line-153"></span><span class="hs-comment">-- result, 'kill'ing the unfinished computations.</span><span>
+</span><span id="line-154"></span><span>
+</span><span id="line-155"></span><span class="hs-keyword">newtype</span><span> </span><span id="Concurrently"><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span></span><span> </span><span id="local-6989586621679158092"><span class="annot"><a href="#local-6989586621679158092"><span class="hs-identifier hs-type">m</span></a></span></span><span> </span><span id="local-6989586621679158091"><span class="annot"><a href="#local-6989586621679158091"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Concurrently"><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="runConcurrently"><span class="annot"><span class="annottext">Concurrently m a -&gt; m a
+</span><a href="Hyperion.Concurrent.html#runConcurrently"><span class="hs-identifier hs-var hs-var">runConcurrently</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679158092"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158091"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-156"></span><span>
+</span><span id="line-157"></span><span id="local-6989586621679157916"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679157913"><span class="annot"><span class="hs-identifier hs-type">Functor</span></span><span> </span><span class="annot"><a href="#local-6989586621679157916"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Functor</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157916"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-158"></span><span>  </span><span id="local-6989586621679157911"><span class="annot"><span class="annottext">fmap :: (a -&gt; b) -&gt; Concurrently m a -&gt; Concurrently m b
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">fmap</span></span></span><span> </span><span id="local-6989586621679157910"><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679157910"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span id="local-6989586621679157909"><span class="annot"><span class="annottext">m a
+</span><a href="#local-6989586621679157909"><span class="hs-identifier hs-var">m</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">m b -&gt; Concurrently m b
+forall (m :: * -&gt; *) a. m a -&gt; Concurrently m a
+</span><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(a -&gt; b) -&gt; m a -&gt; m b
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; b
+</span><a href="#local-6989586621679157910"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">m a
+</span><a href="#local-6989586621679157909"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-159"></span><span>
+</span><span id="line-160"></span><span id="local-6989586621679157908"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679157899"><span id="local-6989586621679157901"><span id="local-6989586621679157903"><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ReaderT</span></span><span> </span><span class="annot"><a href="#local-6989586621679157908"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span class="hs-special">)</span><span class="hs-special">)</span></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-161"></span><span>  </span><span id="local-6989586621679157897"><span class="annot"><span class="annottext">pure :: a -&gt; Concurrently (ReaderT r Process) a
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">pure</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ReaderT r Process a -&gt; Concurrently (ReaderT r Process) a
+forall (m :: * -&gt; *) a. m a -&gt; Concurrently m a
+</span><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span><span> </span><span class="annot"><span class="annottext">(ReaderT r Process a -&gt; Concurrently (ReaderT r Process) a)
+-&gt; (a -&gt; ReaderT r Process a)
+-&gt; a
+-&gt; Concurrently (ReaderT r Process) a
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; ReaderT r Process a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span>
+</span><span id="line-162"></span><span>  </span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span id="local-6989586621679157896"><span class="annot"><span class="annottext">ReaderT r Process (a -&gt; b)
+</span><a href="#local-6989586621679157896"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679157895"><span class="annot"><span class="annottext">&lt;*&gt; :: Concurrently (ReaderT r Process) (a -&gt; b)
+-&gt; Concurrently (ReaderT r Process) a
+-&gt; Concurrently (ReaderT r Process) b
+</span><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;*&gt;</span></span></span><span> </span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span id="local-6989586621679157894"><span class="annot"><span class="annottext">ReaderT r Process a
+</span><a href="#local-6989586621679157894"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-163"></span><span>    </span><span class="annot"><span class="annottext">ReaderT r Process b -&gt; Concurrently (ReaderT r Process) b
+forall (m :: * -&gt; *) a. m a -&gt; Concurrently m a
+</span><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span><span> </span><span class="annot"><span class="annottext">(ReaderT r Process b -&gt; Concurrently (ReaderT r Process) b)
+-&gt; ReaderT r Process b -&gt; Concurrently (ReaderT r Process) b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">((a -&gt; b) -&gt; a -&gt; b) -&gt; (a -&gt; b, a) -&gt; b
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><span class="hs-identifier hs-var">uncurry</span></span><span> </span><span class="annot"><span class="annottext">(a -&gt; b) -&gt; a -&gt; b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">($)</span></span><span> </span><span class="annot"><span class="annottext">((a -&gt; b, a) -&gt; b)
+-&gt; ReaderT r Process (a -&gt; b, a) -&gt; ReaderT r Process b
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">(Process (a -&gt; b) -&gt; Process a -&gt; Process (a -&gt; b, a))
+-&gt; ReaderT r Process (a -&gt; b)
+-&gt; ReaderT r Process a
+-&gt; ReaderT r Process (a -&gt; b, a)
+forall (m :: * -&gt; *) a (n :: * -&gt; *) b (o :: * -&gt; *) c r.
+(m a -&gt; n b -&gt; o c)
+-&gt; ReaderT r m a -&gt; ReaderT r n b -&gt; ReaderT r o c
+</span><a href="Hyperion.Concurrent.html#mapReaderT2"><span class="hs-identifier hs-var">mapReaderT2</span></a></span><span> </span><span class="annot"><span class="annottext">Process (a -&gt; b) -&gt; Process a -&gt; Process (a -&gt; b, a)
+forall a b. Process a -&gt; Process b -&gt; Process (a, b)
+</span><a href="Hyperion.Concurrent.html#concurrently"><span class="hs-identifier hs-var">concurrently</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT r Process (a -&gt; b)
+</span><a href="#local-6989586621679157896"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT r Process a
+</span><a href="#local-6989586621679157894"><span class="hs-identifier hs-var">a</span></a></span></span><span>
+</span><span id="line-164"></span><span>
+</span><span id="line-165"></span><span id="local-6989586621679157890"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679157883"><span id="local-6989586621679157885"><span class="annot"><span class="hs-identifier hs-type">Alternative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ReaderT</span></span><span> </span><span class="annot"><a href="#local-6989586621679157890"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span class="hs-special">)</span><span class="hs-special">)</span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-166"></span><span>  </span><span id="local-6989586621679157881"><span class="annot"><span class="annottext">empty :: Concurrently (ReaderT r Process) a
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">empty</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ReaderT r Process a -&gt; Concurrently (ReaderT r Process) a
+forall (m :: * -&gt; *) a. m a -&gt; Concurrently m a
+</span><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span><span> </span><span class="annot"><span class="annottext">(ReaderT r Process a -&gt; Concurrently (ReaderT r Process) a)
+-&gt; ReaderT r Process a -&gt; Concurrently (ReaderT r Process) a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">IO a -&gt; ReaderT r Process a
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO a -&gt; ReaderT r Process a) -&gt; IO a -&gt; ReaderT r Process a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO a
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">forever</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; IO ()
+</span><span class="hs-identifier hs-var">threadDelay</span></span><span> </span><span class="annot"><span class="annottext">Int
+forall a. Bounded a =&gt; a
+</span><span class="hs-identifier hs-var">maxBound</span></span><span class="hs-special">)</span><span>
+</span><span id="line-167"></span><span>  </span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span id="local-6989586621679157877"><span class="annot"><span class="annottext">ReaderT r Process a
+</span><a href="#local-6989586621679157877"><span class="hs-keyword hs-var">as</span></a></span></span><span> </span><span id="local-6989586621679157876"><span class="annot"><span class="annottext">&lt;|&gt; :: Concurrently (ReaderT r Process) a
+-&gt; Concurrently (ReaderT r Process) a
+-&gt; Concurrently (ReaderT r Process) a
+</span><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;|&gt;</span></span></span><span> </span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span id="local-6989586621679157874"><span class="annot"><span class="annottext">ReaderT r Process a
+</span><a href="#local-6989586621679157874"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-168"></span><span>    </span><span class="annot"><span class="annottext">ReaderT r Process a -&gt; Concurrently (ReaderT r Process) a
+forall (m :: * -&gt; *) a. m a -&gt; Concurrently m a
+</span><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span><span> </span><span class="annot"><span class="annottext">(ReaderT r Process a -&gt; Concurrently (ReaderT r Process) a)
+-&gt; ReaderT r Process a -&gt; Concurrently (ReaderT r Process) a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(a -&gt; a) -&gt; (a -&gt; a) -&gt; Either a a -&gt; a
+forall a c b. (a -&gt; c) -&gt; (b -&gt; c) -&gt; Either a b -&gt; c
+</span><span class="hs-identifier hs-var">either</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; a
+forall a. a -&gt; a
+</span><span class="hs-identifier hs-var">id</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; a
+forall a. a -&gt; a
+</span><span class="hs-identifier hs-var">id</span></span><span> </span><span class="annot"><span class="annottext">(Either a a -&gt; a)
+-&gt; ReaderT r Process (Either a a) -&gt; ReaderT r Process a
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">(Process a -&gt; Process a -&gt; Process (Either a a))
+-&gt; ReaderT r Process a
+-&gt; ReaderT r Process a
+-&gt; ReaderT r Process (Either a a)
+forall (m :: * -&gt; *) a (n :: * -&gt; *) b (o :: * -&gt; *) c r.
+(m a -&gt; n b -&gt; o c)
+-&gt; ReaderT r m a -&gt; ReaderT r n b -&gt; ReaderT r o c
+</span><a href="Hyperion.Concurrent.html#mapReaderT2"><span class="hs-identifier hs-var">mapReaderT2</span></a></span><span> </span><span class="annot"><span class="annottext">Process a -&gt; Process a -&gt; Process (Either a a)
+forall a b. Process a -&gt; Process b -&gt; Process (Either a b)
+</span><a href="Hyperion.Concurrent.html#race"><span class="hs-identifier hs-var">race</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT r Process a
+</span><a href="#local-6989586621679157877"><span class="hs-keyword hs-var">as</span></a></span><span> </span><span class="annot"><span class="annottext">ReaderT r Process a
+</span><a href="#local-6989586621679157874"><span class="hs-identifier hs-var">bs</span></a></span></span><span>
+</span><span id="line-169"></span><span>
+</span><span id="line-170"></span><span class="hs-comment">-- | Utility function for lifting functions of two variables through ReaderT.</span><span>
+</span><span id="line-171"></span><span id="local-6989586621679158055"><span id="local-6989586621679158056"><span id="local-6989586621679158057"><span id="local-6989586621679158058"><span id="local-6989586621679158059"><span id="local-6989586621679158060"><span id="local-6989586621679158061"><span class="annot"><a href="Hyperion.Concurrent.html#mapReaderT2"><span class="hs-identifier hs-type">mapReaderT2</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679158061"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158060"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679158059"><span class="hs-identifier hs-type">n</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158058"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679158057"><span class="hs-identifier hs-type">o</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158056"><span class="hs-identifier hs-type">c</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ReaderT</span></span><span> </span><span class="annot"><a href="#local-6989586621679158055"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158061"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158060"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ReaderT</span></span><span> </span><span class="annot"><a href="#local-6989586621679158055"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158059"><span class="hs-identifier hs-type">n</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158058"><span class="hs-identifier hs-type">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ReaderT</span></span><span> </span><span class="annot"><a href="#local-6989586621679158055"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158057"><span class="hs-identifier hs-type">o</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679158056"><span class="hs-identifier hs-type">c</span></a></span></span></span></span></span></span></span></span><span>
+</span><span id="line-172"></span><span id="mapReaderT2"><span class="annot"><span class="annottext">mapReaderT2 :: (m a -&gt; n b -&gt; o c)
+-&gt; ReaderT r m a -&gt; ReaderT r n b -&gt; ReaderT r o c
+</span><a href="Hyperion.Concurrent.html#mapReaderT2"><span class="hs-identifier hs-var hs-var">mapReaderT2</span></a></span></span><span> </span><span id="local-6989586621679157871"><span class="annot"><span class="annottext">m a -&gt; n b -&gt; o c
+</span><a href="#local-6989586621679157871"><span class="hs-identifier hs-var">mf</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ReaderT</span></span><span> </span><span id="local-6989586621679157869"><span class="annot"><span class="annottext">r -&gt; m a
+</span><a href="#local-6989586621679157869"><span class="hs-identifier hs-var">ma</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ReaderT</span></span><span> </span><span id="local-6989586621679157868"><span class="annot"><span class="annottext">r -&gt; n b
+</span><a href="#local-6989586621679157868"><span class="hs-identifier hs-var">mb</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-173"></span><span>  </span><span class="annot"><span class="annottext">(r -&gt; o c) -&gt; ReaderT r o c
+forall r (m :: * -&gt; *) a. (r -&gt; m a) -&gt; ReaderT r m a
+</span><span class="hs-identifier hs-var">ReaderT</span></span><span> </span><span class="annot"><span class="annottext">((r -&gt; o c) -&gt; ReaderT r o c) -&gt; (r -&gt; o c) -&gt; ReaderT r o c
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679157867"><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679157867"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">m a -&gt; n b -&gt; o c
+</span><a href="#local-6989586621679157871"><span class="hs-identifier hs-var">mf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">r -&gt; m a
+</span><a href="#local-6989586621679157869"><span class="hs-identifier hs-var">ma</span></a></span><span> </span><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679157867"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">r -&gt; n b
+</span><a href="#local-6989586621679157868"><span class="hs-identifier hs-var">mb</span></a></span><span> </span><span class="annot"><span class="annottext">r
+</span><a href="#local-6989586621679157867"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-174"></span><span>
+</span><span id="line-175"></span><span id="local-6989586621679157865"><span id="local-6989586621679157866"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679157860"><span id="local-6989586621679157862"><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157866"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Semigroup</span></span><span> </span><span class="annot"><a href="#local-6989586621679157865"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Semigroup</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157866"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157865"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-176"></span><span>  </span><span id="local-6989586621679157858"><span class="annot"><span class="annottext">&lt;&gt; :: Concurrently m a -&gt; Concurrently m a -&gt; Concurrently m a
+</span><span class="hs-operator hs-var hs-var hs-var hs-var">(&lt;&gt;)</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a -&gt; a -&gt; a)
+-&gt; Concurrently m a -&gt; Concurrently m a -&gt; Concurrently m a
+forall (f :: * -&gt; *) a b c.
+Applicative f =&gt;
+(a -&gt; b -&gt; c) -&gt; f a -&gt; f b -&gt; f c
+</span><span class="hs-identifier hs-var">liftA2</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">(&lt;&gt;)</span></span></span></span><span>
+</span><span id="line-177"></span><span>
+</span><span id="line-178"></span><span id="local-6989586621679157856"><span id="local-6989586621679157857"><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679157851"><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157857"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Semigroup</span></span><span> </span><span class="annot"><a href="#local-6989586621679157856"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Monoid</span></span><span> </span><span class="annot"><a href="#local-6989586621679157856"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Monoid</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157857"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157856"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-179"></span><span>  </span><span id="local-6989586621679157849"><span class="annot"><span class="annottext">mempty :: Concurrently m a
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">mempty</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; Concurrently m a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">a
+forall a. Monoid a =&gt; a
+</span><span class="hs-identifier hs-var">mempty</span></span><span>
+</span><span id="line-180"></span><span>  </span><span id="local-6989586621679157848"><span class="annot"><span class="annottext">mappend :: Concurrently m a -&gt; Concurrently m a -&gt; Concurrently m a
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">mappend</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Concurrently m a -&gt; Concurrently m a -&gt; Concurrently m a
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">(&lt;&gt;)</span></span></span></span><span>
+</span><span id="line-181"></span><span>
+</span><span id="line-182"></span><span class="hs-comment">-- * Utility functions using 'Applicative' instance of 'Concurrently'</span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-184"></span><span>
+</span><span id="line-185"></span><span class="hs-comment">-- | Run several computations in a traversable structure concurrently and collect the results.</span><span>
+</span><span id="line-186"></span><span id="local-6989586621679157995"><span id="local-6989586621679157996"><span id="local-6989586621679157997"><span class="annot"><a href="Hyperion.Concurrent.html#doConcurrently"><span class="hs-identifier hs-type">doConcurrently</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157997"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Traversable</span></span><span> </span><span class="annot"><a href="#local-6989586621679157996"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157996"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157997"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157995"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157997"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157996"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157995"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-187"></span><span id="doConcurrently"><span class="annot"><span class="annottext">doConcurrently :: t (m a) -&gt; m (t a)
+</span><a href="Hyperion.Concurrent.html#doConcurrently"><span class="hs-identifier hs-var hs-var">doConcurrently</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Concurrently m (t a) -&gt; m (t a)
+forall (m :: * -&gt; *) a. Concurrently m a -&gt; m a
+</span><a href="Hyperion.Concurrent.html#runConcurrently"><span class="hs-identifier hs-var hs-var">runConcurrently</span></a></span><span> </span><span class="annot"><span class="annottext">(Concurrently m (t a) -&gt; m (t a))
+-&gt; (t (m a) -&gt; Concurrently m (t a)) -&gt; t (m a) -&gt; m (t a)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">t (Concurrently m a) -&gt; Concurrently m (t a)
+forall (t :: * -&gt; *) (f :: * -&gt; *) a.
+(Traversable t, Applicative f) =&gt;
+t (f a) -&gt; f (t a)
+</span><span class="hs-identifier hs-var">sequenceA</span></span><span> </span><span class="annot"><span class="annottext">(t (Concurrently m a) -&gt; Concurrently m (t a))
+-&gt; (t (m a) -&gt; t (Concurrently m a))
+-&gt; t (m a)
+-&gt; Concurrently m (t a)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">(m a -&gt; Concurrently m a) -&gt; t (m a) -&gt; t (Concurrently m a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">m a -&gt; Concurrently m a
+forall (m :: * -&gt; *) a. m a -&gt; Concurrently m a
+</span><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span><span>
+</span><span id="line-188"></span><span>
+</span><span id="line-189"></span><span class="hs-comment">-- | Run several computations in a traversable structure concurrently and forget the results.</span><span>
+</span><span id="line-190"></span><span id="local-6989586621679157988"><span id="local-6989586621679157989"><span id="local-6989586621679157990"><span class="annot"><a href="Hyperion.Concurrent.html#doConcurrently_"><span class="hs-identifier hs-type">doConcurrently_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157990"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Foldable</span></span><span> </span><span class="annot"><a href="#local-6989586621679157989"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Functor</span></span><span> </span><span class="annot"><a href="#local-6989586621679157989"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157989"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157990"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157988"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157990"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-191"></span><span id="doConcurrently_"><span class="annot"><span class="annottext">doConcurrently_ :: t (m a) -&gt; m ()
+</span><a href="Hyperion.Concurrent.html#doConcurrently_"><span class="hs-identifier hs-var hs-var">doConcurrently_</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Concurrently m () -&gt; m ()
+forall (m :: * -&gt; *) a. Concurrently m a -&gt; m a
+</span><a href="Hyperion.Concurrent.html#runConcurrently"><span class="hs-identifier hs-var hs-var">runConcurrently</span></a></span><span> </span><span class="annot"><span class="annottext">(Concurrently m () -&gt; m ())
+-&gt; (t (m a) -&gt; Concurrently m ()) -&gt; t (m a) -&gt; m ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">t (Concurrently m a) -&gt; Concurrently m ()
+forall (t :: * -&gt; *) (f :: * -&gt; *) a.
+(Foldable t, Applicative f) =&gt;
+t (f a) -&gt; f ()
+</span><span class="hs-identifier hs-var">sequenceA_</span></span><span> </span><span class="annot"><span class="annottext">(t (Concurrently m a) -&gt; Concurrently m ())
+-&gt; (t (m a) -&gt; t (Concurrently m a))
+-&gt; t (m a)
+-&gt; Concurrently m ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">(m a -&gt; Concurrently m a) -&gt; t (m a) -&gt; t (Concurrently m a)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">m a -&gt; Concurrently m a
+forall (m :: * -&gt; *) a. m a -&gt; Concurrently m a
+</span><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-var">Concurrently</span></a></span><span>
+</span><span id="line-192"></span><span>
+</span><span id="line-193"></span><span class="hs-comment">-- | Concurrently map a function over a traversable structure.</span><span>
+</span><span id="line-194"></span><span id="local-6989586621679157977"><span id="local-6989586621679157978"><span id="local-6989586621679157979"><span id="local-6989586621679157980"><span class="annot"><a href="Hyperion.Concurrent.html#mapConcurrently"><span class="hs-identifier hs-type">mapConcurrently</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157980"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Traversable</span></span><span> </span><span class="annot"><a href="#local-6989586621679157979"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157978"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157980"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157977"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157979"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157978"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157980"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157979"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157977"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-195"></span><span id="mapConcurrently"><span class="annot"><span class="annottext">mapConcurrently :: (a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><a href="Hyperion.Concurrent.html#mapConcurrently"><span class="hs-identifier hs-var hs-var">mapConcurrently</span></a></span></span><span> </span><span id="local-6989586621679157843"><span class="annot"><span class="annottext">a -&gt; m b
+</span><a href="#local-6989586621679157843"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">t (m b) -&gt; m (t b)
+forall (m :: * -&gt; *) (t :: * -&gt; *) a.
+(Applicative (Concurrently m), Traversable t) =&gt;
+t (m a) -&gt; m (t a)
+</span><a href="Hyperion.Concurrent.html#doConcurrently"><span class="hs-identifier hs-var">doConcurrently</span></a></span><span> </span><span class="annot"><span class="annottext">(t (m b) -&gt; m (t b)) -&gt; (t a -&gt; t (m b)) -&gt; t a -&gt; m (t b)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">(a -&gt; m b) -&gt; t a -&gt; t (m b)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; m b
+</span><a href="#local-6989586621679157843"><span class="hs-identifier hs-var">f</span></a></span><span>
+</span><span id="line-196"></span><span>
+</span><span id="line-197"></span><span class="hs-comment">-- | Concurrently map a function over a traversable structure and forget the results.</span><span>
+</span><span id="line-198"></span><span id="local-6989586621679157969"><span id="local-6989586621679157970"><span id="local-6989586621679157971"><span id="local-6989586621679157972"><span class="annot"><a href="Hyperion.Concurrent.html#mapConcurrently_"><span class="hs-identifier hs-type">mapConcurrently_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157972"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Foldable</span></span><span> </span><span class="annot"><a href="#local-6989586621679157971"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Functor</span></span><span> </span><span class="annot"><a href="#local-6989586621679157971"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157970"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157972"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157969"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157971"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157970"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157972"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-199"></span><span id="mapConcurrently_"><span class="annot"><span class="annottext">mapConcurrently_ :: (a -&gt; m b) -&gt; t a -&gt; m ()
+</span><a href="Hyperion.Concurrent.html#mapConcurrently_"><span class="hs-identifier hs-var hs-var">mapConcurrently_</span></a></span></span><span> </span><span id="local-6989586621679157841"><span class="annot"><span class="annottext">a -&gt; m b
+</span><a href="#local-6989586621679157841"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">t (m b) -&gt; m ()
+forall (m :: * -&gt; *) (t :: * -&gt; *) a.
+(Applicative (Concurrently m), Foldable t, Functor t) =&gt;
+t (m a) -&gt; m ()
+</span><a href="Hyperion.Concurrent.html#doConcurrently_"><span class="hs-identifier hs-var">doConcurrently_</span></a></span><span> </span><span class="annot"><span class="annottext">(t (m b) -&gt; m ()) -&gt; (t a -&gt; t (m b)) -&gt; t a -&gt; m ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">(a -&gt; m b) -&gt; t a -&gt; t (m b)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; m b
+</span><a href="#local-6989586621679157841"><span class="hs-identifier hs-var">f</span></a></span><span>
+</span><span id="line-200"></span><span>
+</span><span id="line-201"></span><span class="hs-comment">-- | Flipped version of 'mapConcurrently'.</span><span>
+</span><span id="line-202"></span><span id="local-6989586621679157837"><span id="local-6989586621679157838"><span id="local-6989586621679157839"><span id="local-6989586621679157840"><span class="annot"><a href="Hyperion.Concurrent.html#forConcurrently"><span class="hs-identifier hs-type">forConcurrently</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157840"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Traversable</span></span><span> </span><span class="annot"><a href="#local-6989586621679157839"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157839"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157838"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157838"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157840"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157837"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157840"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157839"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157837"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-203"></span><span id="forConcurrently"><span class="annot"><span class="annottext">forConcurrently :: t a -&gt; (a -&gt; m b) -&gt; m (t b)
+</span><a href="Hyperion.Concurrent.html#forConcurrently"><span class="hs-identifier hs-var hs-var">forConcurrently</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((a -&gt; m b) -&gt; t a -&gt; m (t b)) -&gt; t a -&gt; (a -&gt; m b) -&gt; m (t b)
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><span class="hs-identifier hs-var">flip</span></span><span> </span><span class="annot"><span class="annottext">(a -&gt; m b) -&gt; t a -&gt; m (t b)
+forall (m :: * -&gt; *) (t :: * -&gt; *) a b.
+(Applicative (Concurrently m), Traversable t) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><a href="Hyperion.Concurrent.html#mapConcurrently"><span class="hs-identifier hs-var">mapConcurrently</span></a></span><span>
+</span><span id="line-204"></span><span>
+</span><span id="line-205"></span><span class="hs-comment">-- | Flipped version of 'mapConcurrently_'.</span><span>
+</span><span id="line-206"></span><span id="local-6989586621679157831"><span id="local-6989586621679157832"><span id="local-6989586621679157833"><span id="local-6989586621679157834"><span class="annot"><a href="Hyperion.Concurrent.html#forConcurrently_"><span class="hs-identifier hs-type">forConcurrently_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157834"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Foldable</span></span><span> </span><span class="annot"><a href="#local-6989586621679157833"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Functor</span></span><span> </span><span class="annot"><a href="#local-6989586621679157833"><span class="hs-identifier hs-type">t</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157833"><span class="hs-identifier hs-type">t</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157832"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157832"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157834"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157831"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157834"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-207"></span><span id="forConcurrently_"><span class="annot"><span class="annottext">forConcurrently_ :: t a -&gt; (a -&gt; m b) -&gt; m ()
+</span><a href="Hyperion.Concurrent.html#forConcurrently_"><span class="hs-identifier hs-var hs-var">forConcurrently_</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((a -&gt; m b) -&gt; t a -&gt; m ()) -&gt; t a -&gt; (a -&gt; m b) -&gt; m ()
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><span class="hs-identifier hs-var">flip</span></span><span> </span><span class="annot"><span class="annottext">(a -&gt; m b) -&gt; t a -&gt; m ()
+forall (m :: * -&gt; *) (t :: * -&gt; *) a b.
+(Applicative (Concurrently m), Foldable t, Functor t) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m ()
+</span><a href="Hyperion.Concurrent.html#mapConcurrently_"><span class="hs-identifier hs-var">mapConcurrently_</span></a></span><span>
+</span><span id="line-208"></span><span>
+</span><span id="line-209"></span><span class="hs-comment">-- | Concurrently run @n@ copies of a computation and collect the results in a list.</span><span>
+</span><span id="line-210"></span><span id="local-6989586621679157828"><span id="local-6989586621679157829"><span class="annot"><a href="Hyperion.Concurrent.html#replicateConcurrently"><span class="hs-identifier hs-type">replicateConcurrently</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157829"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157829"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157828"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157829"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679157828"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span></span></span><span>
+</span><span id="line-211"></span><span id="replicateConcurrently"><span class="annot"><span class="annottext">replicateConcurrently :: Int -&gt; m a -&gt; m [a]
+</span><a href="Hyperion.Concurrent.html#replicateConcurrently"><span class="hs-identifier hs-var hs-var">replicateConcurrently</span></a></span></span><span> </span><span id="local-6989586621679157826"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679157826"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[m a] -&gt; m [a]
+forall (m :: * -&gt; *) (t :: * -&gt; *) a.
+(Applicative (Concurrently m), Traversable t) =&gt;
+t (m a) -&gt; m (t a)
+</span><a href="Hyperion.Concurrent.html#doConcurrently"><span class="hs-identifier hs-var">doConcurrently</span></a></span><span> </span><span class="annot"><span class="annottext">([m a] -&gt; m [a]) -&gt; (m a -&gt; [m a]) -&gt; m a -&gt; m [a]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Int -&gt; m a -&gt; [m a]
+forall a. Int -&gt; a -&gt; [a]
+</span><span class="hs-identifier hs-var">replicate</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679157826"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-212"></span><span>
+</span><span id="line-213"></span><span class="hs-comment">-- | Concurrently run @n@ copies of a computation and forget the results.</span><span>
+</span><span id="line-214"></span><span id="local-6989586621679157823"><span id="local-6989586621679157824"><span class="annot"><a href="Hyperion.Concurrent.html#replicateConcurrently_"><span class="hs-identifier hs-type">replicateConcurrently_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Applicative</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Concurrent.html#Concurrently"><span class="hs-identifier hs-type">Concurrently</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157824"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157824"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679157823"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157824"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span></span><span>
+</span><span id="line-215"></span><span id="replicateConcurrently_"><span class="annot"><span class="annottext">replicateConcurrently_ :: Int -&gt; m a -&gt; m ()
+</span><a href="Hyperion.Concurrent.html#replicateConcurrently_"><span class="hs-identifier hs-var hs-var">replicateConcurrently_</span></a></span></span><span> </span><span id="local-6989586621679157821"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679157821"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[m a] -&gt; m ()
+forall (m :: * -&gt; *) (t :: * -&gt; *) a.
+(Applicative (Concurrently m), Foldable t, Functor t) =&gt;
+t (m a) -&gt; m ()
+</span><a href="Hyperion.Concurrent.html#doConcurrently_"><span class="hs-identifier hs-var">doConcurrently_</span></a></span><span> </span><span class="annot"><span class="annottext">([m a] -&gt; m ()) -&gt; (m a -&gt; [m a]) -&gt; m a -&gt; m ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Int -&gt; m a -&gt; [m a]
+forall a. Int -&gt; a -&gt; [a]
+</span><span class="hs-identifier hs-var">replicate</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679157821"><span class="hs-identifier hs-var">n</span></a></span><span>
+</span><span id="line-216"></span></pre></body></html>

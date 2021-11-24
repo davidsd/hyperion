@@ -1,0 +1,231 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE RankNTypes #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.CallClosure</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Process</span></span><span>
+</span><span id="line-6"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Process.Closure</span></span><span>                  </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">SerializableDict</span></span><span class="hs-special">,</span><span>
+</span><span id="line-7"></span><span>                                                                       </span><span class="annot"><span class="hs-identifier">bindCP</span></span><span class="hs-special">,</span><span>
+</span><span id="line-8"></span><span>                                                                       </span><span class="annot"><span class="hs-identifier">returnCP</span></span><span class="hs-special">,</span><span>
+</span><span id="line-9"></span><span>                                                                       </span><span class="annot"><span class="hs-identifier">sdictUnit</span></span><span class="hs-special">,</span><span>
+</span><span id="line-10"></span><span>                                                                       </span><span class="annot"><span class="hs-identifier">seqCP</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Process.Internal.Closure.BuiltIn</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">cpDelayed</span></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Static</span></span><span>                           </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">closureApply</span></span><span class="hs-special">,</span><span>
+</span><span id="line-13"></span><span>                                                                       </span><span class="annot"><span class="hs-identifier">staticClosure</span></span><span class="hs-special">,</span><span>
+</span><span id="line-14"></span><span>                                                                       </span><span class="annot"><span class="hs-identifier">staticLabel</span></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Binary</span></span><span>                                          </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Binary</span></span><span class="hs-special">,</span><span>
+</span><span id="line-16"></span><span>                                                                       </span><span class="annot"><span class="hs-identifier">encode</span></span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.ByteString.Lazy</span></span><span>                                 </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">ByteString</span></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Typeable</span></span><span>                                        </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Typeable</span></span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- | The purpose of this module is to generalize 'call' from</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- 'Control.Distributed.Process' so that it takes a 'Closure</span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- (SerializableDict a)' instead of a 'Static (SerializableDict</span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- a)'. Note that this is a strict generalization because any 'Static</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- a' can be turned into 'Closure a' via 'staticClosure', while a</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- 'Closure a' cannot be turned into a 'Static a' in general.</span><span>
+</span><span id="line-26"></span><span class="hs-comment">--</span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- Note: The extra flexibility afforded by call' is needed in</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- conjunction with the 'Hyperion.Static (KnownNat j)'</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- instance. In that case, we cannot construct a</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- 'Control.Distributed.Static.Static (Dict (KnownNat j))', but we can</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- construct a 'Closure (Dict (KnownNat j))'. NB: The name 'Static' is</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- used in two places: 'Control.Distributed.Static.Static' and</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- 'Hyperion.Static'. The former is a datatype and the latter</span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- is a typeclass.</span><span>
+</span><span id="line-35"></span><span class="hs-comment">--</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- Most of the code here has been copied from</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- 'Control.Distributed.Process' and</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- 'Control.Distributed.Process.Closure', with small modifications.</span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- | 'CP' version of 'send' that uses a 'Closure (SerializableDict a)'</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- instead of 'Static (SerializableDict a)'</span><span>
+</span><span id="line-42"></span><span class="annot"><a href="Hyperion.CallClosure.html#cpSend%27"><span class="hs-identifier hs-type">cpSend'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679157797"><span class="annot"><a href="#local-6989586621679157797"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-operator">.</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Closure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">SerializableDict</span></span><span> </span><span class="annot"><a href="#local-6989586621679157797"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ProcessId</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Closure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679157797"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-43"></span><span id="cpSend%27"><span class="annot"><span class="annottext">cpSend' :: Closure (SerializableDict a)
+-&gt; ProcessId -&gt; Closure (a -&gt; Process ())
+</span><a href="Hyperion.CallClosure.html#cpSend%27"><span class="hs-identifier hs-var hs-var">cpSend'</span></a></span></span><span> </span><span id="local-6989586621679157759"><span class="annot"><span class="annottext">Closure (SerializableDict a)
+</span><a href="#local-6989586621679157759"><span class="hs-identifier hs-var">dict</span></a></span></span><span> </span><span id="local-6989586621679157758"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157758"><span class="hs-identifier hs-var">pid</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-44"></span><span>  </span><span class="annot"><span class="annottext">Static (SerializableDict a -&gt; ProcessId -&gt; a -&gt; Process ())
+-&gt; Closure (SerializableDict a -&gt; ProcessId -&gt; a -&gt; Process ())
+forall a. Static a -&gt; Closure a
+</span><span class="hs-identifier hs-var">staticClosure</span></span><span> </span><span class="annot"><span class="annottext">Static (SerializableDict a -&gt; ProcessId -&gt; a -&gt; Process ())
+forall a.
+Static (SerializableDict a -&gt; ProcessId -&gt; a -&gt; Process ())
+</span><a href="#local-6989586621679157757"><span class="hs-identifier hs-var">sendDictStatic</span></a></span><span> </span><span class="annot"><span class="annottext">Closure (SerializableDict a -&gt; ProcessId -&gt; a -&gt; Process ())
+-&gt; Closure (SerializableDict a)
+-&gt; Closure (ProcessId -&gt; a -&gt; Process ())
+forall a b. Closure (a -&gt; b) -&gt; Closure a -&gt; Closure b
+</span><span class="hs-operator hs-var">`closureApply`</span></span><span>
+</span><span id="line-45"></span><span>  </span><span class="annot"><span class="annottext">Closure (SerializableDict a)
+</span><a href="#local-6989586621679157759"><span class="hs-identifier hs-var">dict</span></a></span><span> </span><span class="annot"><span class="annottext">Closure (ProcessId -&gt; a -&gt; Process ())
+-&gt; Closure ProcessId -&gt; Closure (a -&gt; Process ())
+forall a b. Closure (a -&gt; b) -&gt; Closure a -&gt; Closure b
+</span><span class="hs-operator hs-var">`closureApply`</span></span><span>
+</span><span id="line-46"></span><span>  </span><span class="annot"><span class="annottext">Static (ByteString -&gt; ProcessId) -&gt; ByteString -&gt; Closure ProcessId
+forall a. Static (ByteString -&gt; a) -&gt; ByteString -&gt; Closure a
+</span><span class="hs-identifier hs-var">closure</span></span><span> </span><span class="annot"><span class="annottext">Static (ByteString -&gt; ProcessId)
+</span><a href="#local-6989586621679157755"><span class="hs-identifier hs-var">decodeProcessIdStatic</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ProcessId -&gt; ByteString
+forall a. Binary a =&gt; a -&gt; ByteString
+</span><span class="hs-identifier hs-var">encode</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157758"><span class="hs-identifier hs-var">pid</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-48"></span><span>    </span><span id="local-6989586621679157813"><span class="annot"><a href="#local-6989586621679157757"><span class="hs-identifier hs-type">sendDictStatic</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Static</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">SerializableDict</span></span><span> </span><span class="annot"><a href="#local-6989586621679157813"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ProcessId</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679157813"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span></span><span>
+</span><span id="line-49"></span><span>    </span><span id="local-6989586621679157757"><span class="annot"><span class="annottext">sendDictStatic :: Static (SerializableDict a -&gt; ProcessId -&gt; a -&gt; Process ())
+</span><a href="#local-6989586621679157757"><span class="hs-identifier hs-var hs-var">sendDictStatic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+-&gt; Static (SerializableDict a -&gt; ProcessId -&gt; a -&gt; Process ())
+forall a. String -&gt; Static a
+</span><span class="hs-identifier hs-var">staticLabel</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;$sendDict&quot;</span></span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span>    </span><span class="annot"><a href="#local-6989586621679157755"><span class="hs-identifier hs-type">decodeProcessIdStatic</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Static</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ProcessId</span></span><span class="hs-special">)</span><span>
+</span><span id="line-52"></span><span>    </span><span id="local-6989586621679157755"><span class="annot"><span class="annottext">decodeProcessIdStatic :: Static (ByteString -&gt; ProcessId)
+</span><a href="#local-6989586621679157755"><span class="hs-identifier hs-var hs-var">decodeProcessIdStatic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Static (ByteString -&gt; ProcessId)
+forall a. String -&gt; Static a
+</span><span class="hs-identifier hs-var">staticLabel</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;$decodeProcessId&quot;</span></span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- | 'call' that uses a 'Closure (SerializableDict a)' instead of a 'Static (SerializableDict a)'.</span><span>
+</span><span id="line-55"></span><span id="local-6989586621679157754"><span class="annot"><a href="Hyperion.CallClosure.html#call%27"><span class="hs-identifier hs-type">call'</span></a></span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679157754"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679157754"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-57"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Closure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">SerializableDict</span></span><span> </span><span class="annot"><a href="#local-6989586621679157754"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-58"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">NodeId</span></span><span>
+</span><span id="line-59"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Closure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679157754"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679157754"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-61"></span><span id="call%27"><span class="annot"><span class="annottext">call' :: Closure (SerializableDict a)
+-&gt; NodeId -&gt; Closure (Process a) -&gt; Process a
+</span><a href="Hyperion.CallClosure.html#call%27"><span class="hs-identifier hs-var hs-var">call'</span></a></span></span><span> </span><span id="local-6989586621679157752"><span class="annot"><span class="annottext">Closure (SerializableDict a)
+</span><a href="#local-6989586621679157752"><span class="hs-identifier hs-var">dict</span></a></span></span><span> </span><span id="local-6989586621679157751"><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679157751"><span class="hs-identifier hs-var">nid</span></a></span></span><span> </span><span id="local-6989586621679157750"><span class="annot"><span class="annottext">Closure (Process a)
+</span><a href="#local-6989586621679157750"><span class="hs-identifier hs-var">proc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-62"></span><span>  </span><span id="local-6989586621679157749"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157749"><span class="hs-identifier hs-var">us</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process ProcessId
+</span><span class="hs-identifier hs-var">getSelfPid</span></span><span>
+</span><span id="line-63"></span><span>  </span><span class="hs-special">(</span><span id="local-6989586621679157747"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157747"><span class="hs-identifier hs-var">pid</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679157746"><span class="annot"><span class="annottext">MonitorRef
+</span><a href="#local-6989586621679157746"><span class="hs-identifier hs-var">mRef</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">NodeId -&gt; Closure (Process ()) -&gt; Process (ProcessId, MonitorRef)
+</span><span class="hs-identifier hs-var">spawnMonitor</span></span><span> </span><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679157751"><span class="hs-identifier hs-var">nid</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Closure (Process a)
+</span><a href="#local-6989586621679157750"><span class="hs-identifier hs-var">proc</span></a></span><span> </span><span class="annot"><span class="annottext">Closure (Process a) -&gt; CP a () -&gt; Closure (Process ())
+forall a b.
+(Typeable a, Typeable b) =&gt;
+Closure (Process a) -&gt; CP a b -&gt; Closure (Process b)
+</span><span class="hs-operator hs-var">`bindCP`</span></span><span>
+</span><span id="line-64"></span><span>                                   </span><span class="annot"><span class="annottext">Closure (SerializableDict a) -&gt; ProcessId -&gt; CP a ()
+forall a.
+Closure (SerializableDict a)
+-&gt; ProcessId -&gt; Closure (a -&gt; Process ())
+</span><a href="Hyperion.CallClosure.html#cpSend%27"><span class="hs-identifier hs-var">cpSend'</span></a></span><span> </span><span class="annot"><span class="annottext">Closure (SerializableDict a)
+</span><a href="#local-6989586621679157752"><span class="hs-identifier hs-var">dict</span></a></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157749"><span class="hs-identifier hs-var">us</span></a></span><span> </span><span class="annot"><span class="annottext">Closure (Process ())
+-&gt; Closure (Process ()) -&gt; Closure (Process ())
+forall a b.
+(Typeable a, Typeable b) =&gt;
+Closure (Process a) -&gt; Closure (Process b) -&gt; Closure (Process b)
+</span><span class="hs-operator hs-var">`seqCP`</span></span><span>
+</span><span id="line-65"></span><span>                                   </span><span class="hs-comment">-- Delay so the process does not terminate</span><span>
+</span><span id="line-66"></span><span>                                   </span><span class="hs-comment">-- before the response arrives.</span><span>
+</span><span id="line-67"></span><span>                                   </span><span class="annot"><span class="annottext">ProcessId -&gt; Closure (Process ()) -&gt; Closure (Process ())
+</span><span class="hs-identifier hs-var">cpDelayed</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157749"><span class="hs-identifier hs-var">us</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Static (SerializableDict ()) -&gt; () -&gt; Closure (Process ())
+forall a.
+Serializable a =&gt;
+Static (SerializableDict a) -&gt; a -&gt; Closure (Process a)
+</span><span class="hs-identifier hs-var">returnCP</span></span><span> </span><span class="annot"><span class="annottext">Static (SerializableDict ())
+</span><span class="hs-identifier hs-var">sdictUnit</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-68"></span><span>                                  </span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>  </span><span id="local-6989586621679157744"><span class="annot"><span class="annottext">Either DiedReason a
+</span><a href="#local-6989586621679157744"><span class="hs-identifier hs-var">mResult</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[Match (Either DiedReason a)] -&gt; Process (Either DiedReason a)
+forall b. [Match b] -&gt; Process b
+</span><span class="hs-identifier hs-var">receiveWait</span></span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">(a -&gt; Process (Either DiedReason a)) -&gt; Match (Either DiedReason a)
+forall a b. Serializable a =&gt; (a -&gt; Process b) -&gt; Match b
+</span><span class="hs-identifier hs-var">match</span></span><span> </span><span class="annot"><span class="annottext">((a -&gt; Process (Either DiedReason a))
+ -&gt; Match (Either DiedReason a))
+-&gt; (a -&gt; Process (Either DiedReason a))
+-&gt; Match (Either DiedReason a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679157741"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679157741"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ProcessId -&gt; () -&gt; Process ()
+forall a. Serializable a =&gt; ProcessId -&gt; a -&gt; Process ()
+</span><span class="hs-identifier hs-var">usend</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157747"><span class="hs-identifier hs-var">pid</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Process ()
+-&gt; Process (Either DiedReason a) -&gt; Process (Either DiedReason a)
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Either DiedReason a -&gt; Process (Either DiedReason a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; Either DiedReason a
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679157741"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-71"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(ProcessMonitorNotification -&gt; Bool)
+-&gt; (ProcessMonitorNotification -&gt; Process (Either DiedReason a))
+-&gt; Match (Either DiedReason a)
+forall a b.
+Serializable a =&gt;
+(a -&gt; Bool) -&gt; (a -&gt; Process b) -&gt; Match b
+</span><span class="hs-identifier hs-var">matchIf</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ProcessMonitorNotification</span></span><span> </span><span id="local-6989586621679157737"><span class="annot"><span class="annottext">MonitorRef
+</span><a href="#local-6989586621679157737"><span class="hs-identifier hs-var">ref</span></a></span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">DiedReason
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">MonitorRef
+</span><a href="#local-6989586621679157737"><span class="hs-identifier hs-var">ref</span></a></span><span> </span><span class="annot"><span class="annottext">MonitorRef -&gt; MonitorRef -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">MonitorRef
+</span><a href="#local-6989586621679157746"><span class="hs-identifier hs-var">mRef</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span>              </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ProcessMonitorNotification</span></span><span> </span><span class="annot"><span class="annottext">MonitorRef
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679157736"><span class="annot"><span class="annottext">DiedReason
+</span><a href="#local-6989586621679157736"><span class="hs-identifier hs-var">reason</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Either DiedReason a -&gt; Process (Either DiedReason a)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">DiedReason -&gt; Either DiedReason a
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">DiedReason
+</span><a href="#local-6989586621679157736"><span class="hs-identifier hs-var">reason</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span>    </span><span class="hs-special">]</span><span>
+</span><span id="line-74"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either DiedReason a
+</span><a href="#local-6989586621679157744"><span class="hs-identifier hs-var">mResult</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-75"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621679157735"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679157735"><span class="hs-identifier hs-var">a</span></a></span></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-76"></span><span>      </span><span class="hs-comment">-- Wait for the monitor message so that we the mailbox doesn't grow</span><span>
+</span><span id="line-77"></span><span>      </span><span class="annot"><span class="annottext">[Match ()] -&gt; Process ()
+forall b. [Match b] -&gt; Process b
+</span><span class="hs-identifier hs-var">receiveWait</span></span><span>
+</span><span id="line-78"></span><span>        </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">(ProcessMonitorNotification -&gt; Bool)
+-&gt; (ProcessMonitorNotification -&gt; Process ()) -&gt; Match ()
+forall a b.
+Serializable a =&gt;
+(a -&gt; Bool) -&gt; (a -&gt; Process b) -&gt; Match b
+</span><span class="hs-identifier hs-var">matchIf</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ProcessMonitorNotification</span></span><span> </span><span id="local-6989586621679157734"><span class="annot"><span class="annottext">MonitorRef
+</span><a href="#local-6989586621679157734"><span class="hs-identifier hs-var">ref</span></a></span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">DiedReason
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">MonitorRef
+</span><a href="#local-6989586621679157734"><span class="hs-identifier hs-var">ref</span></a></span><span> </span><span class="annot"><span class="annottext">MonitorRef -&gt; MonitorRef -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">MonitorRef
+</span><a href="#local-6989586621679157746"><span class="hs-identifier hs-var">mRef</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span>                  </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ProcessMonitorNotification</span></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; Process ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-80"></span><span>        </span><span class="hs-special">]</span><span>
+</span><span id="line-81"></span><span>      </span><span class="hs-comment">-- Clean up connection to pid</span><span>
+</span><span id="line-82"></span><span>      </span><span class="annot"><span class="annottext">ProcessId -&gt; Process ()
+</span><span class="hs-identifier hs-var">reconnect</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679157747"><span class="hs-identifier hs-var">pid</span></a></span><span>
+</span><span id="line-83"></span><span>      </span><span class="annot"><span class="annottext">a -&gt; Process a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679157735"><span class="hs-identifier hs-var">a</span></a></span><span>
+</span><span id="line-84"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span id="local-6989586621679157732"><span class="annot"><span class="annottext">DiedReason
+</span><a href="#local-6989586621679157732"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-85"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; Process a
+forall (m :: * -&gt; *) a. MonadFail m =&gt; String -&gt; m a
+</span><span class="hs-identifier hs-var">fail</span></span><span> </span><span class="annot"><span class="annottext">(String -&gt; Process a) -&gt; String -&gt; Process a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;call: remote process died: &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><span class="hs-operator hs-var">++</span></span><span> </span><span class="annot"><span class="annottext">DiedReason -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><span class="hs-identifier hs-var">show</span></span><span> </span><span class="annot"><span class="annottext">DiedReason
+</span><a href="#local-6989586621679157732"><span class="hs-identifier hs-var">err</span></a></span><span>
+</span><span id="line-86"></span><span>
+</span><span id="line-87"></span></pre></body></html>

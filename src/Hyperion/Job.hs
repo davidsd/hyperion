@@ -127,8 +127,10 @@ setTaskCpus n cfg = cfg { jobTaskCpus = n }
 -- 'runReaderT'. The environment is mostly constructed from @SLURM@
 -- environment variables and 'ProgramInfo'. The exceptions to these
 -- are 'jobTaskCpus', which is set to @'NumCPUs' 1@, and
--- 'jobTaskLauncher', which is created by 'withPoolLauncher' with
--- logging to \"'programLogDir'\/workers\/workers\".
+-- 'jobTaskLauncher', which is created by 'withPoolLauncher'.
+-- The log file has the form \"\/a\/b\/c\/progid\/serviceid.log\"
+-- . The log directory for the node is obtained by dropping
+-- the .log extension: \"\/a\/b\/c\/progid\/serviceid\"
 runJobSlurm :: ProgramInfo -> Job a -> Process a
 runJobSlurm programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
@@ -138,11 +140,8 @@ runJobSlurm programInfo go = do
   let
     nodeLauncherConfig = NodeLauncherConfig
       { nodeLogDir = case maybeLogFile of
-          -- | The log file has the form /a/b/c/progid/serviceid.log
-          -- . The log directory for the node is obtained by dropping
-          -- the .log extension: /a/b/c/progid/serviceid
           Just logFile -> dropExtension logFile
-          -- | Fallback case for when Log.currentLogFile has not been
+          -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
           Nothing -> programLogDir programInfo </> "workers" </> "workers"
       , nodeSshCmd = programSSHCommand programInfo

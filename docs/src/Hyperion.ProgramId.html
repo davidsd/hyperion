@@ -1,0 +1,156 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DeriveGeneric  #-}</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.ProgramId</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-5"></span><span>
+</span><span id="line-6"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Aeson</span></span><span>                     </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">FromJSON</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">ToJSON</span></span><span class="hs-special">)</span><span>
+</span><span id="line-7"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Binary</span></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Binary</span></span><span class="hs-special">)</span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span>                      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Text</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">pack</span></span><span class="hs-special">)</span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Database.SQLite.Simple.ToField</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Sql</span></span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">GHC.Generics</span></span><span>                   </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Generic</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Util.html"><span class="hs-identifier">Hyperion.Util</span></a></span><span>                  </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Util.html#randomString"><span class="hs-identifier">randomString</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span id="local-6989586621679159918"><span id="local-6989586621679159919"></span></span><span class="hs-keyword">newtype</span><span> </span><span id="ProgramId"><span class="annot"><a href="Hyperion.ProgramId.html#ProgramId"><span class="hs-identifier hs-var">ProgramId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="ProgramId"><span class="annot"><a href="Hyperion.ProgramId.html#ProgramId"><span class="hs-identifier hs-var">ProgramId</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-14"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679159911"><span id="local-6989586621679159913"><span id="local-6989586621679159915"><span class="annot"><span class="annottext">Int -&gt; ProgramId -&gt; ShowS
+[ProgramId] -&gt; ShowS
+ProgramId -&gt; String
+(Int -&gt; ProgramId -&gt; ShowS)
+-&gt; (ProgramId -&gt; String)
+-&gt; ([ProgramId] -&gt; ShowS)
+-&gt; Show ProgramId
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+showList :: [ProgramId] -&gt; ShowS
+$cshowList :: [ProgramId] -&gt; ShowS
+show :: ProgramId -&gt; String
+$cshow :: ProgramId -&gt; String
+showsPrec :: Int -&gt; ProgramId -&gt; ShowS
+$cshowsPrec :: Int -&gt; ProgramId -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679159906"><span id="local-6989586621679159908"><span class="annot"><span class="annottext">ProgramId -&gt; ProgramId -&gt; Bool
+(ProgramId -&gt; ProgramId -&gt; Bool)
+-&gt; (ProgramId -&gt; ProgramId -&gt; Bool) -&gt; Eq ProgramId
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+/= :: ProgramId -&gt; ProgramId -&gt; Bool
+$c/= :: ProgramId -&gt; ProgramId -&gt; Bool
+== :: ProgramId -&gt; ProgramId -&gt; Bool
+$c== :: ProgramId -&gt; ProgramId -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679159890"><span id="local-6989586621679159892"><span id="local-6989586621679159894"><span id="local-6989586621679159896"><span id="local-6989586621679159898"><span id="local-6989586621679159900"><span id="local-6989586621679159902"><span class="annot"><span class="annottext">Eq ProgramId
+Eq ProgramId
+-&gt; (ProgramId -&gt; ProgramId -&gt; Ordering)
+-&gt; (ProgramId -&gt; ProgramId -&gt; Bool)
+-&gt; (ProgramId -&gt; ProgramId -&gt; Bool)
+-&gt; (ProgramId -&gt; ProgramId -&gt; Bool)
+-&gt; (ProgramId -&gt; ProgramId -&gt; Bool)
+-&gt; (ProgramId -&gt; ProgramId -&gt; ProgramId)
+-&gt; (ProgramId -&gt; ProgramId -&gt; ProgramId)
+-&gt; Ord ProgramId
+ProgramId -&gt; ProgramId -&gt; Bool
+ProgramId -&gt; ProgramId -&gt; Ordering
+ProgramId -&gt; ProgramId -&gt; ProgramId
+forall a.
+Eq a
+-&gt; (a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+min :: ProgramId -&gt; ProgramId -&gt; ProgramId
+$cmin :: ProgramId -&gt; ProgramId -&gt; ProgramId
+max :: ProgramId -&gt; ProgramId -&gt; ProgramId
+$cmax :: ProgramId -&gt; ProgramId -&gt; ProgramId
+&gt;= :: ProgramId -&gt; ProgramId -&gt; Bool
+$c&gt;= :: ProgramId -&gt; ProgramId -&gt; Bool
+&gt; :: ProgramId -&gt; ProgramId -&gt; Bool
+$c&gt; :: ProgramId -&gt; ProgramId -&gt; Bool
+&lt;= :: ProgramId -&gt; ProgramId -&gt; Bool
+$c&lt;= :: ProgramId -&gt; ProgramId -&gt; Bool
+&lt; :: ProgramId -&gt; ProgramId -&gt; Bool
+$c&lt; :: ProgramId -&gt; ProgramId -&gt; Bool
+compare :: ProgramId -&gt; ProgramId -&gt; Ordering
+$ccompare :: ProgramId -&gt; ProgramId -&gt; Ordering
+$cp1Ord :: Eq ProgramId
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(forall x. ProgramId -&gt; Rep ProgramId x)
+-&gt; (forall x. Rep ProgramId x -&gt; ProgramId) -&gt; Generic ProgramId
+forall x. Rep ProgramId x -&gt; ProgramId
+forall x. ProgramId -&gt; Rep ProgramId x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cto :: forall x. Rep ProgramId x -&gt; ProgramId
+$cfrom :: forall x. ProgramId -&gt; Rep ProgramId x
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679159880"><span id="local-6989586621679159882"><span id="local-6989586621679159884"><span class="annot"><span class="annottext">Get ProgramId
+[ProgramId] -&gt; Put
+ProgramId -&gt; Put
+(ProgramId -&gt; Put)
+-&gt; Get ProgramId -&gt; ([ProgramId] -&gt; Put) -&gt; Binary ProgramId
+forall t. (t -&gt; Put) -&gt; Get t -&gt; ([t] -&gt; Put) -&gt; Binary t
+putList :: [ProgramId] -&gt; Put
+$cputList :: [ProgramId] -&gt; Put
+get :: Get ProgramId
+$cget :: Get ProgramId
+put :: ProgramId -&gt; Put
+$cput :: ProgramId -&gt; Put
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Binary</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679159875"><span id="local-6989586621679159877"><span class="annot"><span class="annottext">Value -&gt; Parser [ProgramId]
+Value -&gt; Parser ProgramId
+(Value -&gt; Parser ProgramId)
+-&gt; (Value -&gt; Parser [ProgramId]) -&gt; FromJSON ProgramId
+forall a.
+(Value -&gt; Parser a) -&gt; (Value -&gt; Parser [a]) -&gt; FromJSON a
+parseJSONList :: Value -&gt; Parser [ProgramId]
+$cparseJSONList :: Value -&gt; Parser [ProgramId]
+parseJSON :: Value -&gt; Parser ProgramId
+$cparseJSON :: Value -&gt; Parser ProgramId
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">FromJSON</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679159866"><span id="local-6989586621679159868"><span id="local-6989586621679159870"><span id="local-6989586621679159872"><span class="annot"><span class="annottext">[ProgramId] -&gt; Encoding
+[ProgramId] -&gt; Value
+ProgramId -&gt; Encoding
+ProgramId -&gt; Value
+(ProgramId -&gt; Value)
+-&gt; (ProgramId -&gt; Encoding)
+-&gt; ([ProgramId] -&gt; Value)
+-&gt; ([ProgramId] -&gt; Encoding)
+-&gt; ToJSON ProgramId
+forall a.
+(a -&gt; Value)
+-&gt; (a -&gt; Encoding)
+-&gt; ([a] -&gt; Value)
+-&gt; ([a] -&gt; Encoding)
+-&gt; ToJSON a
+toEncodingList :: [ProgramId] -&gt; Encoding
+$ctoEncodingList :: [ProgramId] -&gt; Encoding
+toJSONList :: [ProgramId] -&gt; Value
+$ctoJSONList :: [ProgramId] -&gt; Value
+toEncoding :: ProgramId -&gt; Encoding
+$ctoEncoding :: ProgramId -&gt; Encoding
+toJSON :: ProgramId -&gt; Value
+$ctoJSON :: ProgramId -&gt; Value
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">ToJSON</span></span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Sql.ToField</span></span><span> </span><span class="annot"><a href="Hyperion.ProgramId.html#ProgramId"><span class="hs-identifier hs-type">ProgramId</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-17"></span><span>  </span><span id="local-6989586621679159862"><span class="annot"><span class="annottext">toField :: ProgramId -&gt; SQLData
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">toField</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; SQLData
+forall a. ToField a =&gt; a -&gt; SQLData
+</span><span class="hs-identifier hs-var">Sql.toField</span></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; SQLData) -&gt; (ProgramId -&gt; Text) -&gt; ProgramId -&gt; SQLData
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">ProgramId -&gt; Text
+</span><a href="Hyperion.ProgramId.html#programIdToText"><span class="hs-identifier hs-var">programIdToText</span></a></span><span>
+</span><span id="line-18"></span><span>
+</span><span id="line-19"></span><span class="annot"><a href="Hyperion.ProgramId.html#programIdToText"><span class="hs-identifier hs-type">programIdToText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.ProgramId.html#ProgramId"><span class="hs-identifier hs-type">ProgramId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-20"></span><span id="programIdToText"><span class="annot"><span class="annottext">programIdToText :: ProgramId -&gt; Text
+</span><a href="Hyperion.ProgramId.html#programIdToText"><span class="hs-identifier hs-var hs-var">programIdToText</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.ProgramId.html#ProgramId"><span class="hs-identifier hs-type">ProgramId</span></a></span><span> </span><span id="local-6989586621679159858"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679159858"><span class="hs-identifier hs-var">t</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679159858"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span class="annot"><a href="Hyperion.ProgramId.html#newProgramId"><span class="hs-identifier hs-type">newProgramId</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Hyperion.ProgramId.html#ProgramId"><span class="hs-identifier hs-type">ProgramId</span></a></span><span>
+</span><span id="line-23"></span><span id="newProgramId"><span class="annot"><span class="annottext">newProgramId :: IO ProgramId
+</span><a href="Hyperion.ProgramId.html#newProgramId"><span class="hs-identifier hs-var hs-var">newProgramId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(String -&gt; ProgramId) -&gt; IO String -&gt; IO ProgramId
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; ProgramId
+</span><a href="Hyperion.ProgramId.html#ProgramId"><span class="hs-identifier hs-var">ProgramId</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; ProgramId) -&gt; (String -&gt; Text) -&gt; String -&gt; ProgramId
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; Text
+</span><span class="hs-identifier hs-var">pack</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; IO String
+</span><a href="Hyperion.Util.html#randomString"><span class="hs-identifier hs-var">randomString</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">5</span></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span></pre></body></html>

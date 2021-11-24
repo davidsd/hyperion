@@ -1,0 +1,101 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE TypeApplications #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.Slurm.Environment</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Applicative</span></span><span>       </span><span class="hs-special">(</span><span class="annot"><span class="hs-operator">(&lt;|&gt;)</span></span><span class="hs-special">)</span><span>
+</span><span id="line-6"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Trans.Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MaybeT</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">runMaybeT</span></span><span class="hs-special">)</span><span>
+</span><span id="line-7"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Maybe</span></span><span>                </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">fromMaybe</span></span><span class="hs-special">)</span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Environment</span></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">lookupEnv</span></span><span class="hs-special">)</span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Process</span></span><span>            </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">readCreateProcess</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">shell</span></span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Text.Read</span></span><span>                 </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">readMaybe</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- | Returns number of tasks per node by reading system environment variables.</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- If @SLURM_NTASKS_PER_NODE@ is defined, returns it. Otherwise, tries to compute</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- from @SLURM_NTASKS@ and @SLURM_JOB_NUM_NODES@. If this doens't work either,</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- fails with 'error'.</span><span>
+</span><span id="line-16"></span><span class="annot"><a href="Hyperion.Slurm.Environment.html#getNTasksPerNode"><span class="hs-identifier hs-type">getNTasksPerNode</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-17"></span><span id="getNTasksPerNode"><span class="annot"><span class="annottext">getNTasksPerNode :: IO Int
+</span><a href="Hyperion.Slurm.Environment.html#getNTasksPerNode"><span class="hs-identifier hs-var hs-var">getNTasksPerNode</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-18"></span><span>  </span><span class="annot"><span class="annottext">Int -&gt; Maybe Int -&gt; Int
+forall a. a -&gt; Maybe a -&gt; a
+</span><span class="hs-identifier hs-var">fromMaybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Char] -&gt; Int
+forall a. HasCallStack =&gt; [Char] -&gt; a
+</span><span class="hs-identifier hs-var">error</span></span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><span class="hs-string">&quot;Could not determine NTASKS_PER_NODE&quot;</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Maybe Int -&gt; Int) -&gt; IO (Maybe Int) -&gt; IO Int
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span>
+</span><span id="line-19"></span><span>  </span><span class="annot"><span class="annottext">MaybeT IO Int -&gt; IO (Maybe Int)
+forall (m :: * -&gt; *) a. MaybeT m a -&gt; m (Maybe a)
+</span><span class="hs-identifier hs-var hs-var">runMaybeT</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">MaybeT IO Int
+</span><a href="#local-6989586621679158414"><span class="hs-identifier hs-var">lookupNTasks</span></a></span><span> </span><span class="annot"><span class="annottext">MaybeT IO Int -&gt; MaybeT IO Int -&gt; MaybeT IO Int
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><span class="hs-operator hs-var">&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">MaybeT IO Int
+</span><a href="#local-6989586621679158413"><span class="hs-identifier hs-var">computeNTasks</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-21"></span><span>    </span><span class="annot"><a href="#local-6989586621679158412"><span class="hs-identifier hs-type">lookupInt</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MaybeT</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-22"></span><span>    </span><span id="local-6989586621679158412"><span class="annot"><span class="annottext">lookupInt :: [Char] -&gt; MaybeT IO Int
+</span><a href="#local-6989586621679158412"><span class="hs-identifier hs-var hs-var">lookupInt</span></a></span></span><span> </span><span id="local-6989586621679158410"><span class="annot"><span class="annottext">[Char]
+</span><a href="#local-6989586621679158410"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Maybe Int) -&gt; MaybeT IO Int
+forall (m :: * -&gt; *) a. m (Maybe a) -&gt; MaybeT m a
+</span><span class="hs-identifier hs-var">MaybeT</span></span><span> </span><span class="annot"><span class="annottext">(IO (Maybe Int) -&gt; MaybeT IO Int)
+-&gt; IO (Maybe Int) -&gt; MaybeT IO Int
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-23"></span><span>      </span><span id="local-6989586621679158408"><span class="annot"><span class="annottext">Maybe [Char]
+</span><a href="#local-6989586621679158408"><span class="hs-identifier hs-var">mStr</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[Char] -&gt; IO (Maybe [Char])
+</span><span class="hs-identifier hs-var">lookupEnv</span></span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><a href="#local-6989586621679158410"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-24"></span><span>      </span><span class="annot"><span class="annottext">Maybe Int -&gt; IO (Maybe Int)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(Maybe Int -&gt; IO (Maybe Int)) -&gt; Maybe Int -&gt; IO (Maybe Int)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Maybe [Char]
+</span><a href="#local-6989586621679158408"><span class="hs-identifier hs-var">mStr</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe [Char] -&gt; ([Char] -&gt; Maybe Int) -&gt; Maybe Int
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="annot"><span class="annottext">Read Int =&gt; [Char] -&gt; Maybe Int
+forall a. Read a =&gt; [Char] -&gt; Maybe a
+</span><span class="hs-identifier hs-var">readMaybe</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-25"></span><span>    </span><span id="local-6989586621679158414"><span class="annot"><span class="annottext">lookupNTasks :: MaybeT IO Int
+</span><a href="#local-6989586621679158414"><span class="hs-identifier hs-var hs-var">lookupNTasks</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Char] -&gt; MaybeT IO Int
+</span><a href="#local-6989586621679158412"><span class="hs-identifier hs-var">lookupInt</span></a></span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><span class="hs-string">&quot;SLURM_NTASKS_PER_NODE&quot;</span></span><span>
+</span><span id="line-26"></span><span>    </span><span id="local-6989586621679158413"><span class="annot"><span class="annottext">computeNTasks :: MaybeT IO Int
+</span><a href="#local-6989586621679158413"><span class="hs-identifier hs-var hs-var">computeNTasks</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-27"></span><span>      </span><span id="local-6989586621679158407"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679158407"><span class="hs-identifier hs-var">nTasks</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[Char] -&gt; MaybeT IO Int
+</span><a href="#local-6989586621679158412"><span class="hs-identifier hs-var">lookupInt</span></a></span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><span class="hs-string">&quot;SLURM_NTASKS&quot;</span></span><span>
+</span><span id="line-28"></span><span>      </span><span id="local-6989586621679158406"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679158406"><span class="hs-identifier hs-var">nNodes</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[Char] -&gt; MaybeT IO Int
+</span><a href="#local-6989586621679158412"><span class="hs-identifier hs-var">lookupInt</span></a></span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><span class="hs-string">&quot;SLURM_JOB_NUM_NODES&quot;</span></span><span>
+</span><span id="line-29"></span><span>      </span><span class="annot"><span class="annottext">Int -&gt; MaybeT IO Int
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679158407"><span class="hs-identifier hs-var">nTasks</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Integral a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">`div`</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679158406"><span class="hs-identifier hs-var">nNodes</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- | Returns the contents of @SLURM_JOB_NODELIST@ as a list of nodes names</span><span>
+</span><span id="line-32"></span><span class="annot"><a href="Hyperion.Slurm.Environment.html#getJobNodes"><span class="hs-identifier hs-type">getJobNodes</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span>
+</span><span id="line-33"></span><span id="getJobNodes"><span class="annot"><span class="annottext">getJobNodes :: IO [[Char]]
+</span><a href="Hyperion.Slurm.Environment.html#getJobNodes"><span class="hs-identifier hs-var hs-var">getJobNodes</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([Char] -&gt; [[Char]]) -&gt; IO [Char] -&gt; IO [[Char]]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">[Char] -&gt; [[Char]]
+</span><span class="hs-identifier hs-var">lines</span></span><span> </span><span class="annot"><span class="annottext">(IO [Char] -&gt; IO [[Char]]) -&gt; IO [Char] -&gt; IO [[Char]]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-34"></span><span>  </span><span class="annot"><span class="annottext">CreateProcess -&gt; [Char] -&gt; IO [Char]
+</span><span class="hs-identifier hs-var">readCreateProcess</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Char] -&gt; CreateProcess
+</span><span class="hs-identifier hs-var">shell</span></span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><span class="hs-string">&quot;scontrol show hostnames $SLURM_JOB_NODELIST&quot;</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- | Returns the value of @SLURMD_NODENAME@</span><span>
+</span><span id="line-37"></span><span class="annot"><a href="Hyperion.Slurm.Environment.html#lookupHeadNode"><span class="hs-identifier hs-type">lookupHeadNode</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span id="lookupHeadNode"><span class="annot"><span class="annottext">lookupHeadNode :: IO (Maybe [Char])
+</span><a href="Hyperion.Slurm.Environment.html#lookupHeadNode"><span class="hs-identifier hs-var hs-var">lookupHeadNode</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Char] -&gt; IO (Maybe [Char])
+</span><span class="hs-identifier hs-var">lookupEnv</span></span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><span class="hs-string">&quot;SLURMD_NODENAME&quot;</span></span><span>
+</span><span id="line-39"></span></pre></body></html>

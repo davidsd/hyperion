@@ -1,0 +1,947 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass             #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DerivingStrategies         #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE FlexibleContexts           #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE FlexibleInstances          #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE GeneralizedNewtypeDeriving #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase                 #-}</span><span>
+</span><span id="line-7"></span><span class="hs-pragma">{-# LANGUAGE MultiParamTypeClasses      #-}</span><span>
+</span><span id="line-8"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings          #-}</span><span>
+</span><span id="line-9"></span><span class="hs-pragma">{-# LANGUAGE RankNTypes                 #-}</span><span>
+</span><span id="line-10"></span><span class="hs-pragma">{-# LANGUAGE RecordWildCards            #-}</span><span>
+</span><span id="line-11"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables        #-}</span><span>
+</span><span id="line-12"></span><span class="hs-pragma">{-# LANGUAGE StaticPointers             #-}</span><span>
+</span><span id="line-13"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications           #-}</span><span>
+</span><span id="line-14"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies               #-}</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.Job</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Control.Concurrent.Async</span></span><span>    </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Async</span></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Process</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">NodeId</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">Process</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">spawnLocal</span></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Lens</span></span><span>                </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">lens</span></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Catch</span></span><span>         </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">throwM</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">try</span></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Cont</span></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">ContT</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">runContT</span></span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Except</span></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Reader</span></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Binary</span></span><span>                 </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Binary</span></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map</span></span><span>                    </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Maybe</span></span><span>                  </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">catMaybes</span></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span>                   </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Typeable</span></span><span>               </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Typeable</span></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Cluster.html"><span class="hs-identifier">Hyperion.Cluster</span></a></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Command.html"><span class="hs-identifier">Hyperion.Command</span></a></span><span>            </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Command.html#hyperionWorkerCommand"><span class="hs-identifier">hyperionWorkerCommand</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Database.html"><span class="hs-identifier">Hyperion.Database</span></a></span><span>           </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">DB</span></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.HasWorkers.html"><span class="hs-identifier">Hyperion.HasWorkers</span></a></span><span>         </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.HasWorkers.html#HasWorkerLauncher"><span class="hs-identifier">HasWorkerLauncher</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-34"></span><span>                                              </span><span class="annot"><a href="Hyperion.HasWorkers.html#remoteEvalM"><span class="hs-identifier">remoteEvalM</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Log.html"><span class="hs-identifier">Hyperion.Log</span></a></span><span>                </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Log</span></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Remote.html"><span class="hs-identifier">Hyperion.Remote</span></a></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Slurm.html"><span class="hs-identifier">Hyperion.Slurm</span></a></span><span>              </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier">JobId</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Slurm.html"><span class="hs-identifier">Hyperion.Slurm</span></a></span><span>              </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Slurm</span></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Hyperion.Static</span></span><span>             </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Closure</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">Static</span></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">cAp</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">cPtr</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">cPure</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">ptrAp</span></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Util.html"><span class="hs-identifier">Hyperion.Util</span></a></span><span>               </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Util.html#myExecutable"><span class="hs-identifier">myExecutable</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html"><span class="hs-identifier">Hyperion.WorkerCpuPool</span></a></span><span>      </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier">NumCPUs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHCommand"><span class="hs-identifier">SSHCommand</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-42"></span><span>                                              </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHError"><span class="hs-identifier">SSHError</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier">WorkerAddr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-43"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html"><span class="hs-identifier">Hyperion.WorkerCpuPool</span></a></span><span>      </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">WCP</span></span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.FilePath.Posix</span></span><span>       </span><span class="hs-special">(</span><span class="annot"><span class="hs-operator">(&lt;.&gt;)</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-operator">(&lt;/&gt;)</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">dropExtension</span></span><span class="hs-special">)</span><span>
+</span><span id="line-45"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">System.Process</span></span><span>              </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">callProcess</span></span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- * General comments</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- In this module we define the 'Job' monad. It is nothing more than 'Process'</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- together with 'JobEnv' environment.</span><span>
+</span><span id="line-51"></span><span class="hs-comment">--</span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- The 'JobEnv' environment represents the environment of a job running under</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- @SLURM@. We should think about a computation in 'Job' as being run on a</span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- node allocated for the job by @SLURM@ and running remote computations on the</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- resources allocated to the job. The 'JobEnv' environment</span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- contains</span><span>
+</span><span id="line-57"></span><span class="hs-comment">--</span><span>
+</span><span id="line-58"></span><span class="hs-comment">--     * information about the master program that scheduled the job,</span><span>
+</span><span id="line-59"></span><span class="hs-comment">--     * information about the database used for recording results of the calculations,</span><span>
+</span><span id="line-60"></span><span class="hs-comment">--     * number of CPUs available per node, as well as the number of CPUs to</span><span>
+</span><span id="line-61"></span><span class="hs-comment">--       use for remote computations spawned from the 'Job' computation ('jobTaskCpus'),</span><span>
+</span><span id="line-62"></span><span class="hs-comment">--     * 'jobTaskLauncher', which allocates 'jobTaskCpus' CPUs on some node from</span><span>
+</span><span id="line-63"></span><span class="hs-comment">--       the resources available to the job and launches a worker on that node.</span><span>
+</span><span id="line-64"></span><span class="hs-comment">--       That worker is then allowed to use the allocated number of CPUs.</span><span>
+</span><span id="line-65"></span><span class="hs-comment">--       Thanks to 'jobTaskLauncher', 'Job' is an instance of 'Hyperion.Remote.HasWorkers' and</span><span>
+</span><span id="line-66"></span><span class="hs-comment">--       we can use functions such as 'Hyperion.Remote.remoteEval'.</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--</span><span>
+</span><span id="line-68"></span><span class="hs-comment">-- The common usecase is that the 'Job' computation is spawned from a 'Cluster'</span><span>
+</span><span id="line-69"></span><span class="hs-comment">-- calculation on login node via, e.g., 'remoteEvalJob' (which acquires job</span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- resources from @SLURM@). The 'Job' computation then manages the job resources</span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- and runs remote computations in the allocation via, e.g., 'Hyperion.Remote.remoteEval'.</span><span>
+</span><span id="line-72"></span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- * Documentation</span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- $</span><span>
+</span><span id="line-75"></span><span>
+</span><span id="line-76"></span><span class="hs-comment">-- | The environment type for 'Job' monad.</span><span>
+</span><span id="line-77"></span><span class="hs-keyword">data</span><span> </span><span id="JobEnv"><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-var">JobEnv</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="JobEnv"><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-var">JobEnv</span></a></span></span><span>
+</span><span id="line-78"></span><span>  </span><span class="hs-special">{</span><span>
+</span><span id="line-79"></span><span>    </span><span class="hs-comment">-- | 'DB.DatabaseConfig' for the database to use</span><span>
+</span><span id="line-80"></span><span>    </span><span id="jobDatabaseConfig"><span class="annot"><span class="annottext">JobEnv -&gt; DatabaseConfig
+</span><a href="Hyperion.Job.html#jobDatabaseConfig"><span class="hs-identifier hs-var hs-var">jobDatabaseConfig</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#DatabaseConfig"><span class="hs-identifier hs-type">DB.DatabaseConfig</span></a></span><span>
+</span><span id="line-81"></span><span>    </span><span class="hs-comment">-- | Number of CPUs available on each node in the job</span><span>
+</span><span id="line-82"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="jobNodeCpus"><span class="annot"><span class="annottext">JobEnv -&gt; NumCPUs
+</span><a href="Hyperion.Job.html#jobNodeCpus"><span class="hs-identifier hs-var hs-var">jobNodeCpus</span></a></span></span><span>       </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-type">NumCPUs</span></a></span><span>
+</span><span id="line-83"></span><span>    </span><span class="hs-comment">-- | Number of CPUs to use for running remote functions</span><span>
+</span><span id="line-84"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="jobTaskCpus"><span class="annot"><span class="annottext">JobEnv -&gt; NumCPUs
+</span><a href="Hyperion.Job.html#jobTaskCpus"><span class="hs-identifier hs-var hs-var">jobTaskCpus</span></a></span></span><span>       </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-type">NumCPUs</span></a></span><span>
+</span><span id="line-85"></span><span>    </span><span class="hs-comment">-- | 'ProgramInfo' inherited from the master</span><span>
+</span><span id="line-86"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="jobProgramInfo"><span class="annot"><span class="annottext">JobEnv -&gt; ProgramInfo
+</span><a href="Hyperion.Job.html#jobProgramInfo"><span class="hs-identifier hs-var hs-var">jobProgramInfo</span></a></span></span><span>    </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#ProgramInfo"><span class="hs-identifier hs-type">ProgramInfo</span></a></span><span>
+</span><span id="line-87"></span><span>    </span><span class="hs-comment">-- | a 'WorkerLauncher' that runs workers with the given number of CPUs allocated</span><span>
+</span><span id="line-88"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="jobTaskLauncher"><span class="annot"><span class="annottext">JobEnv -&gt; NumCPUs -&gt; WorkerLauncher JobId
+</span><a href="Hyperion.Job.html#jobTaskLauncher"><span class="hs-identifier hs-var hs-var">jobTaskLauncher</span></a></span></span><span>   </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-type">NumCPUs</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Remote.html#WorkerLauncher"><span class="hs-identifier hs-type">WorkerLauncher</span></a></span><span> </span><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier hs-type">JobId</span></a></span><span>
+</span><span id="line-89"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#HasProgramInfo"><span class="hs-identifier hs-type">HasProgramInfo</span></a></span><span> </span><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-92"></span><span>  </span><span id="local-6989586621679161223"><span class="annot"><span class="annottext">toProgramInfo :: JobEnv -&gt; ProgramInfo
+</span><a href="Hyperion.Cluster.html#toProgramInfo"><span class="hs-identifier hs-var hs-var hs-var hs-var">toProgramInfo</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">JobEnv -&gt; ProgramInfo
+</span><a href="Hyperion.Job.html#jobProgramInfo"><span class="hs-identifier hs-var hs-var">jobProgramInfo</span></a></span><span>
+</span><span id="line-93"></span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- | Configuration for 'withNodeLauncher'.</span><span>
+</span><span id="line-95"></span><span class="hs-keyword">data</span><span> </span><span id="NodeLauncherConfig"><span class="annot"><a href="Hyperion.Job.html#NodeLauncherConfig"><span class="hs-identifier hs-var">NodeLauncherConfig</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="NodeLauncherConfig"><span class="annot"><a href="Hyperion.Job.html#NodeLauncherConfig"><span class="hs-identifier hs-var">NodeLauncherConfig</span></a></span></span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-special">{</span><span>
+</span><span id="line-97"></span><span>    </span><span class="hs-comment">-- | The directory to which the workers shall log.</span><span>
+</span><span id="line-98"></span><span>    </span><span id="nodeLogDir"><span class="annot"><span class="annottext">NodeLauncherConfig -&gt; FilePath
+</span><a href="Hyperion.Job.html#nodeLogDir"><span class="hs-identifier hs-var hs-var">nodeLogDir</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span>
+</span><span id="line-99"></span><span>    </span><span class="hs-comment">-- | The command used to run @ssh@. See 'SSHCommand' for description.</span><span>
+</span><span id="line-100"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="nodeSshCmd"><span class="annot"><span class="annottext">NodeLauncherConfig -&gt; SSHCommand
+</span><a href="Hyperion.Job.html#nodeSshCmd"><span class="hs-identifier hs-var hs-var">nodeSshCmd</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHCommand"><span class="hs-identifier hs-type">SSHCommand</span></a></span><span>
+</span><span id="line-101"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- | Make 'JobEnv' an instance of 'DB.HasDB'.</span><span>
+</span><span id="line-104"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Hyperion.Database.HasDB.html#HasDB"><span class="hs-identifier hs-type">DB.HasDB</span></a></span><span> </span><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-105"></span><span>  </span><span id="local-6989586621679161216"><span class="annot"><span class="annottext">dbConfigLens :: (DatabaseConfig -&gt; f DatabaseConfig) -&gt; JobEnv -&gt; f JobEnv
+</span><a href="Hyperion.Database.HasDB.html#dbConfigLens"><span class="hs-identifier hs-var hs-var hs-var hs-var">dbConfigLens</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(JobEnv -&gt; DatabaseConfig)
+-&gt; (JobEnv -&gt; DatabaseConfig -&gt; JobEnv)
+-&gt; Lens' JobEnv DatabaseConfig
+forall s a b t. (s -&gt; a) -&gt; (s -&gt; b -&gt; t) -&gt; Lens s t a b
+</span><span class="hs-identifier hs-var">lens</span></span><span> </span><span class="annot"><span class="annottext">JobEnv -&gt; DatabaseConfig
+</span><a href="#local-6989586621679161214"><span class="hs-identifier hs-var">get</span></a></span><span> </span><span class="annot"><span class="annottext">JobEnv -&gt; DatabaseConfig -&gt; JobEnv
+</span><a href="#local-6989586621679161213"><span class="hs-identifier hs-var">set</span></a></span><span>
+</span><span id="line-106"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-107"></span><span>      </span><span id="local-6989586621679161214"><span class="annot"><span class="annottext">get :: JobEnv -&gt; DatabaseConfig
+</span><a href="#local-6989586621679161214"><span class="hs-identifier hs-var hs-var">get</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">JobEnv -&gt; DatabaseConfig
+</span><a href="Hyperion.Job.html#jobDatabaseConfig"><span class="hs-identifier hs-var hs-var">jobDatabaseConfig</span></a></span><span>
+</span><span id="line-108"></span><span>      </span><span id="local-6989586621679161213"><span class="annot"><span class="annottext">set :: JobEnv -&gt; DatabaseConfig -&gt; JobEnv
+</span><a href="#local-6989586621679161213"><span class="hs-identifier hs-var hs-var">set</span></a></span></span><span> </span><span id="local-6989586621679161212"><span class="annot"><span class="annottext">JobEnv
+</span><a href="#local-6989586621679161212"><span class="hs-identifier hs-var">cfg</span></a></span></span><span> </span><span id="local-6989586621679161211"><span class="annot"><span class="annottext">DatabaseConfig
+</span><a href="#local-6989586621679161211"><span class="hs-identifier hs-var">databaseConfig'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">JobEnv
+</span><a href="#local-6989586621679161212"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">jobDatabaseConfig :: DatabaseConfig
+</span><a href="Hyperion.Job.html#jobDatabaseConfig"><span class="hs-identifier hs-var">jobDatabaseConfig</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">DatabaseConfig
+</span><a href="#local-6989586621679161211"><span class="hs-identifier hs-var">databaseConfig'</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-109"></span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- | Make 'JobEnv' an instance of 'HasWorkerLauncher'. The 'WorkerLauncher' returned</span><span>
+</span><span id="line-111"></span><span class="hs-comment">-- by 'toWorkerLauncher' launches workers with 'jobTaskCpus' CPUs available to them.</span><span>
+</span><span id="line-112"></span><span class="hs-comment">--</span><span>
+</span><span id="line-113"></span><span class="hs-comment">-- This makes 'Job' an instance of 'HasWorkers' and gives us access to functions in</span><span>
+</span><span id="line-114"></span><span class="hs-comment">-- &quot;Hyperion.Remote&quot;.</span><span>
+</span><span id="line-115"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><a href="Hyperion.HasWorkers.html#HasWorkerLauncher"><span class="hs-identifier hs-type">HasWorkerLauncher</span></a></span><span> </span><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-116"></span><span>  </span><span id="local-6989586621679161208"><span class="annot"><span class="annottext">toWorkerLauncher :: JobEnv -&gt; WorkerLauncher JobId
+</span><a href="Hyperion.HasWorkers.html#toWorkerLauncher"><span class="hs-identifier hs-var hs-var hs-var hs-var">toWorkerLauncher</span></a></span></span><span> </span><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span class="hs-special">{</span><span id="local-6989586621679161202"><span id="local-6989586621679161203"><span id="local-6989586621679161204"><span id="local-6989586621679161205"><span id="local-6989586621679161206"><span class="annot"><span class="annottext">DatabaseConfig
+NumCPUs
+ProgramInfo
+NumCPUs -&gt; WorkerLauncher JobId
+jobTaskLauncher :: NumCPUs -&gt; WorkerLauncher JobId
+jobProgramInfo :: ProgramInfo
+jobTaskCpus :: NumCPUs
+jobNodeCpus :: NumCPUs
+jobDatabaseConfig :: DatabaseConfig
+jobTaskLauncher :: JobEnv -&gt; NumCPUs -&gt; WorkerLauncher JobId
+jobProgramInfo :: JobEnv -&gt; ProgramInfo
+jobTaskCpus :: JobEnv -&gt; NumCPUs
+jobNodeCpus :: JobEnv -&gt; NumCPUs
+jobDatabaseConfig :: JobEnv -&gt; DatabaseConfig
+</span><a href="#local-6989586621679161202"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span></span></span></span></span></span><span class="hs-special">}</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NumCPUs -&gt; WorkerLauncher JobId
+</span><a href="#local-6989586621679161202"><span class="hs-identifier hs-var">jobTaskLauncher</span></a></span><span> </span><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679161204"><span class="hs-identifier hs-var">jobTaskCpus</span></a></span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- | 'Job' monad is simply 'Process' with 'JobEnv' environment.</span><span>
+</span><span id="line-119"></span><span class="hs-keyword">type</span><span> </span><span id="Job"><span class="annot"><a href="Hyperion.Job.html#Job"><span class="hs-identifier hs-var">Job</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ReaderT</span></span><span> </span><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span>
+</span><span id="line-120"></span><span>
+</span><span id="line-121"></span><span class="hs-comment">-- | Changses 'jobTaskCpus' in 'JobEnv'</span><span>
+</span><span id="line-122"></span><span class="annot"><a href="Hyperion.Job.html#setTaskCpus"><span class="hs-identifier hs-type">setTaskCpus</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-type">NumCPUs</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span>
+</span><span id="line-123"></span><span id="setTaskCpus"><span class="annot"><span class="annottext">setTaskCpus :: NumCPUs -&gt; JobEnv -&gt; JobEnv
+</span><a href="Hyperion.Job.html#setTaskCpus"><span class="hs-identifier hs-var hs-var">setTaskCpus</span></a></span></span><span> </span><span id="local-6989586621679161200"><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679161200"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679161199"><span class="annot"><span class="annottext">JobEnv
+</span><a href="#local-6989586621679161199"><span class="hs-identifier hs-var">cfg</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">JobEnv
+</span><a href="#local-6989586621679161199"><span class="hs-identifier hs-var">cfg</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">jobTaskCpus :: NumCPUs
+</span><a href="Hyperion.Job.html#jobTaskCpus"><span class="hs-identifier hs-var">jobTaskCpus</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679161200"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-124"></span><span>
+</span><span id="line-125"></span><span class="hs-comment">-- | Runs the 'Job' monad assuming we are inside a SLURM job. In</span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- practice it just fills in the environment 'JobEnv' and calls</span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- 'runReaderT'. The environment is mostly constructed from @SLURM@</span><span>
+</span><span id="line-128"></span><span class="hs-comment">-- environment variables and 'ProgramInfo'. The exceptions to these</span><span>
+</span><span id="line-129"></span><span class="hs-comment">-- are 'jobTaskCpus', which is set to @'NumCPUs' 1@, and</span><span>
+</span><span id="line-130"></span><span class="hs-comment">-- 'jobTaskLauncher', which is created by 'withPoolLauncher'.</span><span>
+</span><span id="line-131"></span><span class="hs-comment">-- The log file has the form \&quot;\/a\/b\/c\/progid\/serviceid.log\&quot;</span><span>
+</span><span id="line-132"></span><span class="hs-comment">-- . The log directory for the node is obtained by dropping</span><span>
+</span><span id="line-133"></span><span class="hs-comment">-- the .log extension: \&quot;\/a\/b\/c\/progid\/serviceid\&quot;</span><span>
+</span><span id="line-134"></span><span id="local-6989586621679161253"><span class="annot"><a href="Hyperion.Job.html#runJobSlurm"><span class="hs-identifier hs-type">runJobSlurm</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#ProgramInfo"><span class="hs-identifier hs-type">ProgramInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Job.html#Job"><span class="hs-identifier hs-type">Job</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679161253"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161253"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-135"></span><span id="runJobSlurm"><span class="annot"><span class="annottext">runJobSlurm :: ProgramInfo -&gt; Job a -&gt; Process a
+</span><a href="Hyperion.Job.html#runJobSlurm"><span class="hs-identifier hs-var hs-var">runJobSlurm</span></a></span></span><span> </span><span id="local-6989586621679161197"><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161197"><span class="hs-identifier hs-var">programInfo</span></a></span></span><span> </span><span id="local-6989586621679161196"><span class="annot"><span class="annottext">Job a
+</span><a href="#local-6989586621679161196"><span class="hs-identifier hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-136"></span><span>  </span><span id="local-6989586621679161195"><span class="annot"><span class="annottext">DatabaseConfig
+</span><a href="#local-6989586621679161195"><span class="hs-identifier hs-var">dbConfig</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO DatabaseConfig -&gt; Process DatabaseConfig
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO DatabaseConfig -&gt; Process DatabaseConfig)
+-&gt; IO DatabaseConfig -&gt; Process DatabaseConfig
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ProgramInfo -&gt; IO DatabaseConfig
+</span><a href="Hyperion.Cluster.html#dbConfigFromProgramInfo"><span class="hs-identifier hs-var">dbConfigFromProgramInfo</span></a></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161197"><span class="hs-identifier hs-var">programInfo</span></a></span><span>
+</span><span id="line-137"></span><span>  </span><span id="local-6989586621679161192"><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679161192"><span class="hs-identifier hs-var">nodes</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO [WorkerAddr] -&gt; Process [WorkerAddr]
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">IO [WorkerAddr]
+</span><a href="Hyperion.WorkerCpuPool.html#getSlurmAddrs"><span class="hs-identifier hs-var">WCP.getSlurmAddrs</span></a></span><span>
+</span><span id="line-138"></span><span>  </span><span id="local-6989586621679161190"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679161190"><span class="hs-identifier hs-var">nodeCpus</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO Int -&gt; Process Int
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">IO Int
+</span><a href="Hyperion.Slurm.Environment.html#getNTasksPerNode"><span class="hs-identifier hs-var">Slurm.getNTasksPerNode</span></a></span><span>
+</span><span id="line-139"></span><span>  </span><span id="local-6989586621679161188"><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621679161188"><span class="hs-identifier hs-var">maybeLogFile</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process (Maybe FilePath)
+forall (m :: * -&gt; *). MonadIO m =&gt; m (Maybe FilePath)
+</span><a href="Hyperion.Log.html#getLogFile"><span class="hs-identifier hs-var">Log.getLogFile</span></a></span><span>
+</span><span id="line-140"></span><span>  </span><span class="hs-keyword">let</span><span>
+</span><span id="line-141"></span><span>    </span><span id="local-6989586621679161186"><span class="annot"><span class="annottext">nodeLauncherConfig :: NodeLauncherConfig
+</span><a href="#local-6989586621679161186"><span class="hs-identifier hs-var hs-var">nodeLauncherConfig</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NodeLauncherConfig :: FilePath -&gt; SSHCommand -&gt; NodeLauncherConfig
+</span><a href="Hyperion.Job.html#NodeLauncherConfig"><span class="hs-identifier hs-type">NodeLauncherConfig</span></a></span><span>
+</span><span id="line-142"></span><span>      </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">nodeLogDir :: FilePath
+</span><a href="Hyperion.Job.html#nodeLogDir"><span class="hs-identifier hs-var">nodeLogDir</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621679161188"><span class="hs-identifier hs-var">maybeLogFile</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-143"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679161185"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161185"><span class="hs-identifier hs-var">logFile</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath
+</span><span class="hs-identifier hs-var">dropExtension</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161185"><span class="hs-identifier hs-var">logFile</span></a></span><span>
+</span><span id="line-144"></span><span>          </span><span class="hs-comment">-- Fallback case for when Log.currentLogFile has not been</span><span>
+</span><span id="line-145"></span><span>          </span><span class="hs-comment">-- set. This should never happen.</span><span>
+</span><span id="line-146"></span><span>          </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ProgramInfo -&gt; FilePath
+</span><a href="Hyperion.Cluster.html#programLogDir"><span class="hs-identifier hs-var hs-var">programLogDir</span></a></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161197"><span class="hs-identifier hs-var">programInfo</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><span class="hs-operator hs-var">&lt;/&gt;</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;workers&quot;</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><span class="hs-operator hs-var">&lt;/&gt;</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;workers&quot;</span></span><span>
+</span><span id="line-147"></span><span>      </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">nodeSshCmd :: SSHCommand
+</span><a href="Hyperion.Job.html#nodeSshCmd"><span class="hs-identifier hs-var">nodeSshCmd</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProgramInfo -&gt; SSHCommand
+</span><a href="Hyperion.Cluster.html#programSSHCommand"><span class="hs-identifier hs-var hs-var">programSSHCommand</span></a></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161197"><span class="hs-identifier hs-var">programInfo</span></a></span><span>
+</span><span id="line-148"></span><span>      </span><span class="hs-special">}</span><span>
+</span><span id="line-149"></span><span>  </span><span class="annot"><span class="annottext">NodeLauncherConfig
+-&gt; [WorkerAddr]
+-&gt; ((NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a)
+-&gt; Process a
+forall a.
+NodeLauncherConfig
+-&gt; [WorkerAddr]
+-&gt; ((NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a)
+-&gt; Process a
+</span><a href="Hyperion.Job.html#withPoolLauncher"><span class="hs-identifier hs-var">withPoolLauncher</span></a></span><span> </span><span class="annot"><span class="annottext">NodeLauncherConfig
+</span><a href="#local-6989586621679161186"><span class="hs-identifier hs-var">nodeLauncherConfig</span></a></span><span> </span><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679161192"><span class="hs-identifier hs-var">nodes</span></a></span><span> </span><span class="annot"><span class="annottext">(((NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a) -&gt; Process a)
+-&gt; ((NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a) -&gt; Process a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161181"><span class="annot"><span class="annottext">NumCPUs -&gt; WorkerLauncher JobId
+</span><a href="#local-6989586621679161181"><span class="hs-identifier hs-var">poolLauncher</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-150"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679161180"><span class="annot"><span class="annottext">cfg :: JobEnv
+</span><a href="#local-6989586621679161180"><span class="hs-identifier hs-var hs-var">cfg</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">JobEnv :: DatabaseConfig
+-&gt; NumCPUs
+-&gt; NumCPUs
+-&gt; ProgramInfo
+-&gt; (NumCPUs -&gt; WorkerLauncher JobId)
+-&gt; JobEnv
+</span><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span>
+</span><span id="line-151"></span><span>          </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">jobDatabaseConfig :: DatabaseConfig
+</span><a href="Hyperion.Job.html#jobDatabaseConfig"><span class="hs-identifier hs-var">jobDatabaseConfig</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">DatabaseConfig
+</span><a href="#local-6989586621679161195"><span class="hs-identifier hs-var">dbConfig</span></a></span><span>
+</span><span id="line-152"></span><span>          </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">jobNodeCpus :: NumCPUs
+</span><a href="Hyperion.Job.html#jobNodeCpus"><span class="hs-identifier hs-var">jobNodeCpus</span></a></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; NumCPUs
+</span><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-var">NumCPUs</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679161190"><span class="hs-identifier hs-var">nodeCpus</span></a></span><span>
+</span><span id="line-153"></span><span>          </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">jobTaskCpus :: NumCPUs
+</span><a href="Hyperion.Job.html#jobTaskCpus"><span class="hs-identifier hs-var">jobTaskCpus</span></a></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; NumCPUs
+</span><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-var">NumCPUs</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-154"></span><span>          </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">jobTaskLauncher :: NumCPUs -&gt; WorkerLauncher JobId
+</span><a href="Hyperion.Job.html#jobTaskLauncher"><span class="hs-identifier hs-var">jobTaskLauncher</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">NumCPUs -&gt; WorkerLauncher JobId
+</span><a href="#local-6989586621679161181"><span class="hs-identifier hs-var">poolLauncher</span></a></span><span>
+</span><span id="line-155"></span><span>          </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">jobProgramInfo :: ProgramInfo
+</span><a href="Hyperion.Job.html#jobProgramInfo"><span class="hs-identifier hs-var">jobProgramInfo</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161197"><span class="hs-identifier hs-var">programInfo</span></a></span><span>
+</span><span id="line-156"></span><span>          </span><span class="hs-special">}</span><span>
+</span><span id="line-157"></span><span>    </span><span class="annot"><span class="annottext">Job a -&gt; JobEnv -&gt; Process a
+forall r (m :: * -&gt; *) a. ReaderT r m a -&gt; r -&gt; m a
+</span><span class="hs-identifier hs-var hs-var">runReaderT</span></span><span> </span><span class="annot"><span class="annottext">Job a
+</span><a href="#local-6989586621679161196"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">JobEnv
+</span><a href="#local-6989586621679161180"><span class="hs-identifier hs-var">cfg</span></a></span><span>
+</span><span id="line-158"></span><span>
+</span><span id="line-159"></span><span class="hs-comment">-- | Runs the 'Job' locally in IO without using any information from a</span><span>
+</span><span id="line-160"></span><span class="hs-comment">-- SLURM environment, with some basic default settings. This function</span><span>
+</span><span id="line-161"></span><span class="hs-comment">-- is provided primarily for testing.</span><span>
+</span><span id="line-162"></span><span id="local-6989586621679161177"><span class="annot"><a href="Hyperion.Job.html#runJobLocal"><span class="hs-identifier hs-type">runJobLocal</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#ProgramInfo"><span class="hs-identifier hs-type">ProgramInfo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Job.html#Job"><span class="hs-identifier hs-type">Job</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679161177"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="#local-6989586621679161177"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-163"></span><span id="runJobLocal"><span class="annot"><span class="annottext">runJobLocal :: ProgramInfo -&gt; Job a -&gt; IO a
+</span><a href="Hyperion.Job.html#runJobLocal"><span class="hs-identifier hs-var hs-var">runJobLocal</span></a></span></span><span> </span><span id="local-6989586621679161175"><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161175"><span class="hs-identifier hs-var">programInfo</span></a></span></span><span> </span><span id="local-6989586621679161174"><span class="annot"><span class="annottext">Job a
+</span><a href="#local-6989586621679161174"><span class="hs-identifier hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Process a -&gt; IO a
+forall a. Process a -&gt; IO a
+</span><a href="Hyperion.Remote.html#runProcessLocal"><span class="hs-identifier hs-var">runProcessLocal</span></a></span><span> </span><span class="annot"><span class="annottext">(Process a -&gt; IO a) -&gt; Process a -&gt; IO a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-164"></span><span>  </span><span id="local-6989586621679161172"><span class="annot"><span class="annottext">DatabaseConfig
+</span><a href="#local-6989586621679161172"><span class="hs-identifier hs-var">dbConfig</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO DatabaseConfig -&gt; Process DatabaseConfig
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO DatabaseConfig -&gt; Process DatabaseConfig)
+-&gt; IO DatabaseConfig -&gt; Process DatabaseConfig
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ProgramInfo -&gt; IO DatabaseConfig
+</span><a href="Hyperion.Cluster.html#dbConfigFromProgramInfo"><span class="hs-identifier hs-var">dbConfigFromProgramInfo</span></a></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161175"><span class="hs-identifier hs-var">programInfo</span></a></span><span>
+</span><span id="line-165"></span><span>  </span><span class="hs-keyword">let</span><span>
+</span><span id="line-166"></span><span>    </span><span class="annot"><a href="#local-6989586621679161171"><span class="hs-identifier hs-type">withLaunchedWorker</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679161349"><span class="annot"><a href="#local-6989586621679161349"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span class="hs-operator">.</span><span> </span><span class="annot"><span class="hs-identifier hs-type">NodeId</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Remote.html#ServiceId"><span class="hs-identifier hs-type">ServiceId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier hs-type">JobId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161349"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161349"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-167"></span><span>    </span><span id="local-6989586621679161171"><span class="annot"><span class="annottext">withLaunchedWorker :: NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+</span><a href="#local-6989586621679161171"><span class="hs-identifier hs-var hs-var">withLaunchedWorker</span></a></span></span><span> </span><span id="local-6989586621679161170"><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679161170"><span class="hs-identifier hs-var">nid</span></a></span></span><span> </span><span id="local-6989586621679161169"><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161169"><span class="hs-identifier hs-var">serviceId</span></a></span></span><span> </span><span id="local-6989586621679161168"><span class="annot"><span class="annottext">JobId -&gt; Process b
+</span><a href="#local-6989586621679161168"><span class="hs-identifier hs-var">goJobId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-168"></span><span>      </span><span class="annot"><span class="annottext">ProcessId
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process () -&gt; Process ProcessId
+</span><span class="hs-identifier hs-var">spawnLocal</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NodeId -&gt; ServiceId -&gt; Process ()
+</span><a href="Hyperion.Remote.html#worker"><span class="hs-identifier hs-var">worker</span></a></span><span> </span><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679161170"><span class="hs-identifier hs-var">nid</span></a></span><span> </span><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161169"><span class="hs-identifier hs-var">serviceId</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-169"></span><span>      </span><span class="annot"><span class="annottext">JobId -&gt; Process b
+</span><a href="#local-6989586621679161168"><span class="hs-identifier hs-var">goJobId</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; JobId
+</span><a href="Hyperion.Slurm.JobId.html#JobName"><span class="hs-identifier hs-var">JobName</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ServiceId -&gt; Text
+</span><a href="Hyperion.Remote.html#serviceIdToText"><span class="hs-identifier hs-var">serviceIdToText</span></a></span><span> </span><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161169"><span class="hs-identifier hs-var">serviceId</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-170"></span><span>    </span><span id="local-6989586621679161164"><span class="annot"><span class="annottext">connectionTimeout :: Maybe a
+</span><a href="#local-6989586621679161164"><span class="hs-identifier hs-var hs-var">connectionTimeout</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-171"></span><span>    </span><span id="local-6989586621679161163"><span class="annot"><span class="annottext">onRemoteError :: e -&gt; p -&gt; m a
+</span><a href="#local-6989586621679161163"><span class="hs-identifier hs-var hs-var">onRemoteError</span></a></span></span><span> </span><span id="local-6989586621679161162"><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679161162"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="annot"><span class="annottext">p
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">e -&gt; m a
+forall (m :: * -&gt; *) e a. (MonadThrow m, Exception e) =&gt; e -&gt; m a
+</span><span class="hs-identifier hs-var">throwM</span></span><span> </span><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679161162"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-172"></span><span>  </span><span class="annot"><span class="annottext">Job a -&gt; JobEnv -&gt; Process a
+forall r (m :: * -&gt; *) a. ReaderT r m a -&gt; r -&gt; m a
+</span><span class="hs-identifier hs-var hs-var">runReaderT</span></span><span> </span><span class="annot"><span class="annottext">Job a
+</span><a href="#local-6989586621679161174"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">(JobEnv -&gt; Process a) -&gt; JobEnv -&gt; Process a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">JobEnv :: DatabaseConfig
+-&gt; NumCPUs
+-&gt; NumCPUs
+-&gt; ProgramInfo
+-&gt; (NumCPUs -&gt; WorkerLauncher JobId)
+-&gt; JobEnv
+</span><a href="Hyperion.Job.html#JobEnv"><span class="hs-identifier hs-type">JobEnv</span></a></span><span>
+</span><span id="line-173"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">jobDatabaseConfig :: DatabaseConfig
+</span><a href="Hyperion.Job.html#jobDatabaseConfig"><span class="hs-identifier hs-var">jobDatabaseConfig</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">DatabaseConfig
+</span><a href="#local-6989586621679161172"><span class="hs-identifier hs-var">dbConfig</span></a></span><span>
+</span><span id="line-174"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">jobNodeCpus :: NumCPUs
+</span><a href="Hyperion.Job.html#jobNodeCpus"><span class="hs-identifier hs-var">jobNodeCpus</span></a></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; NumCPUs
+</span><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-var">NumCPUs</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-175"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">jobTaskCpus :: NumCPUs
+</span><a href="Hyperion.Job.html#jobTaskCpus"><span class="hs-identifier hs-var">jobTaskCpus</span></a></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; NumCPUs
+</span><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-var">NumCPUs</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-176"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">jobTaskLauncher :: NumCPUs -&gt; WorkerLauncher JobId
+</span><a href="Hyperion.Job.html#jobTaskLauncher"><span class="hs-identifier hs-var">jobTaskLauncher</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">WorkerLauncher JobId -&gt; NumCPUs -&gt; WorkerLauncher JobId
+forall a b. a -&gt; b -&gt; a
+</span><span class="hs-identifier hs-var">const</span></span><span> </span><span class="annot"><span class="annottext">WorkerLauncher :: forall j.
+(forall b. NodeId -&gt; ServiceId -&gt; (j -&gt; Process b) -&gt; Process b)
+-&gt; Maybe NominalDiffTime
+-&gt; (forall b. RemoteError -&gt; Process b -&gt; Process b)
+-&gt; WorkerLauncher j
+</span><a href="Hyperion.Remote.html#WorkerLauncher"><span class="hs-identifier hs-type">WorkerLauncher</span></a></span><span class="hs-special">{</span><span class="annot"><span class="annottext">Maybe NominalDiffTime
+forall a. Maybe a
+forall b. NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+forall b. RemoteError -&gt; Process b -&gt; Process b
+forall (m :: * -&gt; *) e p a.
+(MonadThrow m, Exception e) =&gt;
+e -&gt; p -&gt; m a
+onRemoteError :: forall b. RemoteError -&gt; Process b -&gt; Process b
+connectionTimeout :: Maybe NominalDiffTime
+withLaunchedWorker :: forall b. NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+onRemoteError :: forall (m :: * -&gt; *) e p a.
+(MonadThrow m, Exception e) =&gt;
+e -&gt; p -&gt; m a
+connectionTimeout :: forall a. Maybe a
+withLaunchedWorker :: forall b. NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+</span><a href="Hyperion.Remote.html#onRemoteError"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span><span class="hs-special">}</span><span>
+</span><span id="line-177"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">jobProgramInfo :: ProgramInfo
+</span><a href="Hyperion.Job.html#jobProgramInfo"><span class="hs-identifier hs-var">jobProgramInfo</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161175"><span class="hs-identifier hs-var">programInfo</span></a></span><span>
+</span><span id="line-178"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-179"></span><span>
+</span><span id="line-180"></span><span class="hs-comment">-- | 'WorkerLauncher' that uses the supplied command runner to launch</span><span>
+</span><span id="line-181"></span><span class="hs-comment">-- workers.  Sets 'connectionTimeout' to 'Nothing'. Uses the</span><span>
+</span><span id="line-182"></span><span class="hs-comment">-- 'ServiceId' supplied to 'withLaunchedWorker' to construct 'JobId'</span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- (through 'JobName').  The supplied 'FilePath' is used as log</span><span>
+</span><span id="line-184"></span><span class="hs-comment">-- directory for the worker, with the log file name derived from</span><span>
+</span><span id="line-185"></span><span class="hs-comment">-- 'ServiceId'.</span><span>
+</span><span id="line-186"></span><span id="local-6989586621679161338"><span class="annot"><a href="Hyperion.Job.html#workerLauncherWithRunCmd"><span class="hs-identifier hs-type">workerLauncherWithRunCmd</span></a></span><span>
+</span><span id="line-187"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679161338"><span class="hs-identifier hs-type">m</span></a></span><span>
+</span><span id="line-188"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span>
+</span><span id="line-189"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-190"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679161338"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Remote.html#WorkerLauncher"><span class="hs-identifier hs-type">WorkerLauncher</span></a></span><span> </span><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier hs-type">JobId</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-191"></span><span id="workerLauncherWithRunCmd"><span class="annot"><span class="annottext">workerLauncherWithRunCmd :: FilePath
+-&gt; ((FilePath, [FilePath]) -&gt; Process ())
+-&gt; m (WorkerLauncher JobId)
+</span><a href="Hyperion.Job.html#workerLauncherWithRunCmd"><span class="hs-identifier hs-var hs-var">workerLauncherWithRunCmd</span></a></span></span><span> </span><span id="local-6989586621679161154"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161154"><span class="hs-identifier hs-var">logDir</span></a></span></span><span> </span><span id="local-6989586621679161153"><span class="annot"><span class="annottext">(FilePath, [FilePath]) -&gt; Process ()
+</span><a href="#local-6989586621679161153"><span class="hs-identifier hs-var">runCmd</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (WorkerLauncher JobId) -&gt; m (WorkerLauncher JobId)
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO (WorkerLauncher JobId) -&gt; m (WorkerLauncher JobId))
+-&gt; IO (WorkerLauncher JobId) -&gt; m (WorkerLauncher JobId)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-192"></span><span>  </span><span id="local-6989586621679161152"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161152"><span class="hs-identifier hs-var">hyperionExec</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO FilePath
+</span><a href="Hyperion.Util.html#myExecutable"><span class="hs-identifier hs-var">myExecutable</span></a></span><span>
+</span><span id="line-193"></span><span>  </span><span class="hs-keyword">let</span><span>
+</span><span id="line-194"></span><span>    </span><span class="annot"><a href="#local-6989586621679161151"><span class="hs-identifier hs-type">withLaunchedWorker</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-keyword">forall</span><span> </span><span id="local-6989586621679161150"><span class="annot"><a href="#local-6989586621679161150"><span class="hs-identifier hs-type">b</span></a></span></span><span> </span><span class="hs-operator">.</span><span> </span><span class="annot"><span class="hs-identifier hs-type">NodeId</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Remote.html#ServiceId"><span class="hs-identifier hs-type">ServiceId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier hs-type">JobId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161150"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161150"><span class="hs-identifier hs-type">b</span></a></span><span>
+</span><span id="line-195"></span><span>    </span><span id="local-6989586621679161151"><span class="annot"><span class="annottext">withLaunchedWorker :: NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+</span><a href="#local-6989586621679161151"><span class="hs-identifier hs-var hs-var">withLaunchedWorker</span></a></span></span><span> </span><span id="local-6989586621679161149"><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679161149"><span class="hs-identifier hs-var">nid</span></a></span></span><span> </span><span id="local-6989586621679161148"><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161148"><span class="hs-identifier hs-var">serviceId</span></a></span></span><span> </span><span id="local-6989586621679161147"><span class="annot"><span class="annottext">JobId -&gt; Process b
+</span><a href="#local-6989586621679161147"><span class="hs-identifier hs-var">goJobId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-196"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679161146"><span class="annot"><span class="annottext">jobId :: JobId
+</span><a href="#local-6989586621679161146"><span class="hs-identifier hs-var hs-var">jobId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; JobId
+</span><a href="Hyperion.Slurm.JobId.html#JobName"><span class="hs-identifier hs-var">JobName</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ServiceId -&gt; Text
+</span><a href="Hyperion.Remote.html#serviceIdToText"><span class="hs-identifier hs-var">serviceIdToText</span></a></span><span> </span><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161148"><span class="hs-identifier hs-var">serviceId</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-197"></span><span>          </span><span id="local-6989586621679161145"><span class="annot"><span class="annottext">logFile :: FilePath
+</span><a href="#local-6989586621679161145"><span class="hs-identifier hs-var hs-var">logFile</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161154"><span class="hs-identifier hs-var">logDir</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><span class="hs-operator hs-var">&lt;/&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; FilePath
+</span><span class="hs-identifier hs-var">T.unpack</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ServiceId -&gt; Text
+</span><a href="Hyperion.Remote.html#serviceIdToText"><span class="hs-identifier hs-var">serviceIdToText</span></a></span><span> </span><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161148"><span class="hs-identifier hs-var">serviceId</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><span class="hs-operator hs-var">&lt;.&gt;</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;log&quot;</span></span><span>
+</span><span id="line-198"></span><span>      </span><span class="annot"><span class="annottext">(FilePath, [FilePath]) -&gt; Process ()
+</span><a href="#local-6989586621679161153"><span class="hs-identifier hs-var">runCmd</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+-&gt; NodeId -&gt; ServiceId -&gt; FilePath -&gt; (FilePath, [FilePath])
+</span><a href="Hyperion.Command.html#hyperionWorkerCommand"><span class="hs-identifier hs-var">hyperionWorkerCommand</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161152"><span class="hs-identifier hs-var">hyperionExec</span></a></span><span> </span><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679161149"><span class="hs-identifier hs-var">nid</span></a></span><span> </span><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161148"><span class="hs-identifier hs-var">serviceId</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161145"><span class="hs-identifier hs-var">logFile</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-199"></span><span>      </span><span class="annot"><span class="annottext">JobId -&gt; Process b
+</span><a href="#local-6989586621679161147"><span class="hs-identifier hs-var">goJobId</span></a></span><span> </span><span class="annot"><span class="annottext">JobId
+</span><a href="#local-6989586621679161146"><span class="hs-identifier hs-var">jobId</span></a></span><span>
+</span><span id="line-200"></span><span>    </span><span id="local-6989586621679161143"><span class="annot"><span class="annottext">connectionTimeout :: Maybe a
+</span><a href="#local-6989586621679161143"><span class="hs-identifier hs-var hs-var">connectionTimeout</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe a
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-201"></span><span>    </span><span id="local-6989586621679161142"><span class="annot"><span class="annottext">onRemoteError :: e -&gt; p -&gt; m a
+</span><a href="#local-6989586621679161142"><span class="hs-identifier hs-var hs-var">onRemoteError</span></a></span></span><span> </span><span id="local-6989586621679161141"><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679161141"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="annot"><span class="annottext">p
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">e -&gt; m a
+forall (m :: * -&gt; *) e a. (MonadThrow m, Exception e) =&gt; e -&gt; m a
+</span><span class="hs-identifier hs-var">throwM</span></span><span> </span><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679161141"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-202"></span><span>  </span><span class="annot"><span class="annottext">WorkerLauncher JobId -&gt; IO (WorkerLauncher JobId)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">WorkerLauncher :: forall j.
+(forall b. NodeId -&gt; ServiceId -&gt; (j -&gt; Process b) -&gt; Process b)
+-&gt; Maybe NominalDiffTime
+-&gt; (forall b. RemoteError -&gt; Process b -&gt; Process b)
+-&gt; WorkerLauncher j
+</span><a href="Hyperion.Remote.html#WorkerLauncher"><span class="hs-identifier hs-type">WorkerLauncher</span></a></span><span class="hs-special">{</span><span class="annot"><span class="annottext">Maybe NominalDiffTime
+forall a. Maybe a
+forall b. NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+forall b. RemoteError -&gt; Process b -&gt; Process b
+forall (m :: * -&gt; *) e p a.
+(MonadThrow m, Exception e) =&gt;
+e -&gt; p -&gt; m a
+onRemoteError :: forall (m :: * -&gt; *) e p a.
+(MonadThrow m, Exception e) =&gt;
+e -&gt; p -&gt; m a
+connectionTimeout :: forall a. Maybe a
+withLaunchedWorker :: forall b. NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+onRemoteError :: forall b. RemoteError -&gt; Process b -&gt; Process b
+connectionTimeout :: Maybe NominalDiffTime
+withLaunchedWorker :: forall b. NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+</span><a href="#local-6989586621679161142"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span><span class="hs-special">}</span><span>
+</span><span id="line-203"></span><span>
+</span><span id="line-204"></span><span class="hs-comment">-- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the continuation</span><span>
+</span><span id="line-205"></span><span class="hs-comment">-- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher'</span><span>
+</span><span id="line-206"></span><span class="hs-comment">-- 'JobId')@.  Passing 'Nothing' repersents @ssh@ failure.</span><span>
+</span><span id="line-207"></span><span class="hs-comment">--</span><span>
+</span><span id="line-208"></span><span class="hs-comment">-- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher'</span><span>
+</span><span id="line-209"></span><span class="hs-comment">-- launches workers on the node at 'WorkerAddr'. The launcher is</span><span>
+</span><span id="line-210"></span><span class="hs-comment">-- derived from 'workerLauncherWithRunCmd', where command runner is</span><span>
+</span><span id="line-211"></span><span class="hs-comment">-- either local shell (if 'WorkerAddr' is 'LocalHost') or a</span><span>
+</span><span id="line-212"></span><span class="hs-comment">-- 'RemoteFunction' that runs the local shell on 'WorkerAddr' via</span><span>
+</span><span id="line-213"></span><span class="hs-comment">-- 'withRemoteRunProcess' and related functions (if 'WorkerAddr' is</span><span>
+</span><span id="line-214"></span><span class="hs-comment">-- 'RemoteAddr').</span><span>
+</span><span id="line-215"></span><span class="hs-comment">--</span><span>
+</span><span id="line-216"></span><span class="hs-comment">-- Note that the process of launching a worker on the remote node will</span><span>
+</span><span id="line-217"></span><span class="hs-comment">-- actually spawn an \&quot;utility\&quot; worker there that will launch all new</span><span>
+</span><span id="line-218"></span><span class="hs-comment">-- workers in the continuation.  This utility worker will have its log</span><span>
+</span><span id="line-219"></span><span class="hs-comment">-- in the log dir, identified by some random 'ServiceId' and put</span><span>
+</span><span id="line-220"></span><span class="hs-comment">-- messages like \&quot;Running command ...\&quot;.</span><span>
+</span><span id="line-221"></span><span class="hs-comment">--</span><span>
+</span><span id="line-222"></span><span class="hs-comment">-- The reason that utility workers are used on each Job node is to</span><span>
+</span><span id="line-223"></span><span class="hs-comment">-- minimize the number of calls to @ssh@ or @srun@. The naive way to</span><span>
+</span><span id="line-224"></span><span class="hs-comment">-- launch workers in the 'Job' monad would be to determine what node</span><span>
+</span><span id="line-225"></span><span class="hs-comment">-- they should be run on, and run the hyperion worker command via</span><span>
+</span><span id="line-226"></span><span class="hs-comment">-- @ssh@. Unfortunately, many clusters have flakey @ssh@</span><span>
+</span><span id="line-227"></span><span class="hs-comment">-- configurations that start throwing errors if @ssh@ is called too</span><span>
+</span><span id="line-228"></span><span class="hs-comment">-- many times in quick succession. @ssh@ also has to perform</span><span>
+</span><span id="line-229"></span><span class="hs-comment">-- authentication. Experience shows that @srun@ is also not a good</span><span>
+</span><span id="line-230"></span><span class="hs-comment">-- solution to this problem, since @srun@ talks to @SLURM@ to manage</span><span>
+</span><span id="line-231"></span><span class="hs-comment">-- resources and this can take a long time, affecting</span><span>
+</span><span id="line-232"></span><span class="hs-comment">-- performance. Instead, we @ssh@ exactly once to each node in the Job</span><span>
+</span><span id="line-233"></span><span class="hs-comment">-- (besides the head node), and start utility workers there. These</span><span>
+</span><span id="line-234"></span><span class="hs-comment">-- workers can then communicate with the head node via the usual</span><span>
+</span><span id="line-235"></span><span class="hs-comment">-- machinery of @hyperion@ --- effectively, we keep a connection open</span><span>
+</span><span id="line-236"></span><span class="hs-comment">-- to each node so that we no longer have to use @ssh@.</span><span>
+</span><span id="line-237"></span><span id="local-6989586621679161283"><span class="annot"><a href="Hyperion.Job.html#withNodeLauncher"><span class="hs-identifier hs-type">withNodeLauncher</span></a></span><span>
+</span><span id="line-238"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.Job.html#NodeLauncherConfig"><span class="hs-identifier hs-type">NodeLauncherConfig</span></a></span><span>
+</span><span id="line-239"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span>
+</span><span id="line-240"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Hyperion.Remote.html#WorkerLauncher"><span class="hs-identifier hs-type">WorkerLauncher</span></a></span><span> </span><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier hs-type">JobId</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161283"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-241"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161283"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-242"></span><span id="withNodeLauncher"><span class="annot"><span class="annottext">withNodeLauncher :: NodeLauncherConfig
+-&gt; WorkerAddr
+-&gt; (Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a)
+-&gt; Process a
+</span><a href="Hyperion.Job.html#withNodeLauncher"><span class="hs-identifier hs-var hs-var">withNodeLauncher</span></a></span></span><span> </span><span class="annot"><a href="Hyperion.Job.html#NodeLauncherConfig"><span class="hs-identifier hs-type">NodeLauncherConfig</span></a></span><span class="hs-special">{</span><span id="local-6989586621679161138"><span id="local-6989586621679161139"><span class="annot"><span class="annottext">FilePath
+SSHCommand
+nodeSshCmd :: SSHCommand
+nodeLogDir :: FilePath
+nodeSshCmd :: NodeLauncherConfig -&gt; SSHCommand
+nodeLogDir :: NodeLauncherConfig -&gt; FilePath
+</span><a href="#local-6989586621679161138"><span class="hs-glyph hs-var hs-var hs-var hs-var">..</span></a></span></span></span><span class="hs-special">}</span><span> </span><span id="local-6989586621679161137"><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679161137"><span class="hs-identifier hs-var">addr'</span></a></span></span><span> </span><span id="local-6989586621679161136"><span class="annot"><span class="annottext">Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a
+</span><a href="#local-6989586621679161136"><span class="hs-identifier hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679161137"><span class="hs-identifier hs-var">addr'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-243"></span><span>  </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#RemoteAddr"><span class="hs-identifier hs-type">WCP.RemoteAddr</span></a></span><span> </span><span id="local-6989586621679161134"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161134"><span class="hs-identifier hs-var">addr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-244"></span><span>    </span><span id="local-6989586621679161133"><span class="annot"><span class="annottext">WorkerLauncher JobId
+</span><a href="#local-6989586621679161133"><span class="hs-identifier hs-var">sshLauncher</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath
+-&gt; ((FilePath, [FilePath]) -&gt; Process ())
+-&gt; Process (WorkerLauncher JobId)
+forall (m :: * -&gt; *).
+MonadIO m =&gt;
+FilePath
+-&gt; ((FilePath, [FilePath]) -&gt; Process ())
+-&gt; m (WorkerLauncher JobId)
+</span><a href="Hyperion.Job.html#workerLauncherWithRunCmd"><span class="hs-identifier hs-var">workerLauncherWithRunCmd</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161139"><span class="hs-identifier hs-var">nodeLogDir</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ())
+-&gt; ((FilePath, [FilePath]) -&gt; IO ())
+-&gt; (FilePath, [FilePath])
+-&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; SSHCommand -&gt; (FilePath, [FilePath]) -&gt; IO ()
+</span><a href="Hyperion.WorkerCpuPool.html#sshRunCmd"><span class="hs-identifier hs-var">WCP.sshRunCmd</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161134"><span class="hs-identifier hs-var">addr</span></a></span><span> </span><span class="annot"><span class="annottext">SSHCommand
+</span><a href="#local-6989586621679161138"><span class="hs-identifier hs-var">nodeSshCmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-245"></span><span>    </span><span id="local-6989586621679161130"><span class="annot"><span class="annottext">Either SSHError a
+</span><a href="#local-6989586621679161130"><span class="hs-identifier hs-var">eitherResult</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall a.
+(MonadCatch Process, Exception SSHError) =&gt;
+Process a -&gt; Process (Either SSHError a)
+forall (m :: * -&gt; *) e a.
+(MonadCatch m, Exception e) =&gt;
+m a -&gt; m (Either e a)
+</span><span class="hs-identifier hs-var">try</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#SSHError"><span class="hs-identifier hs-type">SSHError</span></a></span><span> </span><span class="annot"><span class="annottext">(Process a -&gt; Process (Either SSHError a))
+-&gt; Process a -&gt; Process (Either SSHError a)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-246"></span><span>      </span><span class="annot"><span class="annottext">WorkerLauncher JobId
+-&gt; (RemoteProcessRunner -&gt; Process a) -&gt; Process a
+forall j a.
+Show j =&gt;
+WorkerLauncher j -&gt; (RemoteProcessRunner -&gt; Process a) -&gt; Process a
+</span><a href="Hyperion.Remote.html#withRemoteRunProcess"><span class="hs-identifier hs-var">withRemoteRunProcess</span></a></span><span> </span><span class="annot"><span class="annottext">WorkerLauncher JobId
+</span><a href="#local-6989586621679161133"><span class="hs-identifier hs-var">sshLauncher</span></a></span><span> </span><span class="annot"><span class="annottext">((RemoteProcessRunner -&gt; Process a) -&gt; Process a)
+-&gt; (RemoteProcessRunner -&gt; Process a) -&gt; Process a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161128"><span class="annot"><span class="annottext">RemoteProcessRunner
+</span><a href="#local-6989586621679161128"><span class="hs-identifier hs-var">remoteRunNode</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-247"></span><span>        </span><span class="hs-keyword">let</span><span>
+</span><span id="line-248"></span><span>          </span><span id="local-6989586621679161127"><span class="annot"><span class="annottext">runCmdOnNode :: (FilePath, [FilePath]) -&gt; Process ()
+</span><a href="#local-6989586621679161127"><span class="hs-identifier hs-var hs-var">runCmdOnNode</span></a></span></span><span> </span><span id="local-6989586621679161126"><span class="annot"><span class="annottext">(FilePath, [FilePath])
+</span><a href="#local-6989586621679161126"><span class="hs-identifier hs-var">cmd</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-249"></span><span>            </span><span id="local-6989586621679161125"><span class="annot"><span class="annottext">SerializableClosureProcess ()
+</span><a href="#local-6989586621679161125"><span class="hs-identifier hs-var">scp</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Closure (Dict (Serializable ()))
+-&gt; Process (Closure (Process ()))
+-&gt; Process (SerializableClosureProcess ())
+forall b.
+Typeable b =&gt;
+Closure (Dict (Serializable b))
+-&gt; Process (Closure (Process b))
+-&gt; Process (SerializableClosureProcess b)
+</span><a href="Hyperion.Remote.html#mkSerializableClosureProcess"><span class="hs-identifier hs-var">mkSerializableClosureProcess</span></a></span><span> </span><span class="annot"><span class="annottext">Closure (Dict (Serializable ()))
+forall (c :: Constraint). Static c =&gt; Closure (Dict c)
+</span><span class="hs-identifier hs-var">closureDict</span></span><span> </span><span class="annot"><span class="annottext">(Process (Closure (Process ()))
+ -&gt; Process (SerializableClosureProcess ()))
+-&gt; Process (Closure (Process ()))
+-&gt; Process (SerializableClosureProcess ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Closure (Process ()) -&gt; Process (Closure (Process ()))
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">(Closure (Process ()) -&gt; Process (Closure (Process ())))
+-&gt; Closure (Process ()) -&gt; Process (Closure (Process ()))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-250"></span><span>              </span><span class="hs-keyword">static</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ())
+-&gt; ((FilePath, [FilePath]) -&gt; IO ())
+-&gt; (FilePath, [FilePath])
+-&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">(FilePath, [FilePath]) -&gt; IO ()
+</span><a href="Hyperion.Job.html#runCmdLocalLog"><span class="hs-identifier hs-var">runCmdLocalLog</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">StaticPtr ((FilePath, [FilePath]) -&gt; Process ())
+-&gt; Closure (FilePath, [FilePath]) -&gt; Closure (Process ())
+forall a b.
+(Typeable a, Typeable b) =&gt;
+StaticPtr (a -&gt; b) -&gt; Closure a -&gt; Closure b
+</span><span class="hs-operator hs-var">`ptrAp`</span></span><span> </span><span class="annot"><span class="annottext">(FilePath, [FilePath]) -&gt; Closure (FilePath, [FilePath])
+forall a. (Static (Binary a), Typeable a) =&gt; a -&gt; Closure a
+</span><span class="hs-identifier hs-var">cPure</span></span><span> </span><span class="annot"><span class="annottext">(FilePath, [FilePath])
+</span><a href="#local-6989586621679161126"><span class="hs-identifier hs-var">cmd</span></a></span><span>
+</span><span id="line-251"></span><span>            </span><span class="annot"><span class="annottext">SerializableClosureProcess () -&gt; Process ()
+RemoteProcessRunner
+</span><a href="#local-6989586621679161128"><span class="hs-identifier hs-var">remoteRunNode</span></a></span><span> </span><span class="annot"><span class="annottext">SerializableClosureProcess ()
+</span><a href="#local-6989586621679161125"><span class="hs-identifier hs-var">scp</span></a></span><span>
+</span><span id="line-252"></span><span>        </span><span class="hs-keyword">in</span><span>
+</span><span id="line-253"></span><span>          </span><span class="annot"><span class="annottext">FilePath
+-&gt; ((FilePath, [FilePath]) -&gt; Process ())
+-&gt; Process (WorkerLauncher JobId)
+forall (m :: * -&gt; *).
+MonadIO m =&gt;
+FilePath
+-&gt; ((FilePath, [FilePath]) -&gt; Process ())
+-&gt; m (WorkerLauncher JobId)
+</span><a href="Hyperion.Job.html#workerLauncherWithRunCmd"><span class="hs-identifier hs-var">workerLauncherWithRunCmd</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161139"><span class="hs-identifier hs-var">nodeLogDir</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath, [FilePath]) -&gt; Process ()
+</span><a href="#local-6989586621679161127"><span class="hs-identifier hs-var">runCmdOnNode</span></a></span><span> </span><span class="annot"><span class="annottext">Process (WorkerLauncher JobId)
+-&gt; (WorkerLauncher JobId -&gt; Process a) -&gt; Process a
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161121"><span class="annot"><span class="annottext">WorkerLauncher JobId
+</span><a href="#local-6989586621679161121"><span class="hs-identifier hs-var">launcher</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-254"></span><span>          </span><span class="annot"><span class="annottext">Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a
+</span><a href="#local-6989586621679161136"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(WorkerAddr, WorkerLauncher JobId)
+-&gt; Maybe (WorkerAddr, WorkerLauncher JobId)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679161137"><span class="hs-identifier hs-var">addr'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">WorkerLauncher JobId
+</span><a href="#local-6989586621679161121"><span class="hs-identifier hs-var">launcher</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-255"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Either SSHError a
+</span><a href="#local-6989586621679161130"><span class="hs-identifier hs-var">eitherResult</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-256"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621679161120"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679161120"><span class="hs-identifier hs-var">result</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; Process a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679161120"><span class="hs-identifier hs-var">result</span></a></span><span>
+</span><span id="line-257"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span id="local-6989586621679161119"><span class="annot"><span class="annottext">SSHError
+</span><a href="#local-6989586621679161119"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-258"></span><span>        </span><span class="annot"><span class="annottext">Text -&gt; SSHError -&gt; Process ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#warn"><span class="hs-identifier hs-var">Log.warn</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Couldn't start launcher&quot;</span></span><span> </span><span class="annot"><span class="annottext">SSHError
+</span><a href="#local-6989586621679161119"><span class="hs-identifier hs-var">err</span></a></span><span>
+</span><span id="line-259"></span><span>        </span><span class="annot"><span class="annottext">Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a
+</span><a href="#local-6989586621679161136"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (WorkerAddr, WorkerLauncher JobId)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-260"></span><span>  </span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#LocalHost"><span class="hs-identifier hs-type">WCP.LocalHost</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-261"></span><span>    </span><span class="annot"><span class="annottext">FilePath
+-&gt; ((FilePath, [FilePath]) -&gt; Process ())
+-&gt; Process (WorkerLauncher JobId)
+forall (m :: * -&gt; *).
+MonadIO m =&gt;
+FilePath
+-&gt; ((FilePath, [FilePath]) -&gt; Process ())
+-&gt; m (WorkerLauncher JobId)
+</span><a href="Hyperion.Job.html#workerLauncherWithRunCmd"><span class="hs-identifier hs-var">workerLauncherWithRunCmd</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679161139"><span class="hs-identifier hs-var">nodeLogDir</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ())
+-&gt; ((FilePath, [FilePath]) -&gt; IO ())
+-&gt; (FilePath, [FilePath])
+-&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">(FilePath, [FilePath]) -&gt; IO ()
+</span><a href="Hyperion.Job.html#runCmdLocalAsync"><span class="hs-identifier hs-var">runCmdLocalAsync</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Process (WorkerLauncher JobId)
+-&gt; (WorkerLauncher JobId -&gt; Process a) -&gt; Process a
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161115"><span class="annot"><span class="annottext">WorkerLauncher JobId
+</span><a href="#local-6989586621679161115"><span class="hs-identifier hs-var">launcher</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-262"></span><span>    </span><span class="annot"><span class="annottext">Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a
+</span><a href="#local-6989586621679161136"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(WorkerAddr, WorkerLauncher JobId)
+-&gt; Maybe (WorkerAddr, WorkerLauncher JobId)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679161137"><span class="hs-identifier hs-var">addr'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">WorkerLauncher JobId
+</span><a href="#local-6989586621679161115"><span class="hs-identifier hs-var">launcher</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-263"></span><span>
+</span><span id="line-264"></span><span class="hs-comment">-- | Run the given command in a child thread. Async.link ensures</span><span>
+</span><span id="line-265"></span><span class="hs-comment">-- that exceptions from the child are propagated to the parent.</span><span>
+</span><span id="line-266"></span><span class="hs-comment">--</span><span>
+</span><span id="line-267"></span><span class="hs-comment">-- NB: Previously, this function used 'System.Process.createProcess'</span><span>
+</span><span id="line-268"></span><span class="hs-comment">-- and discarded the resulting 'ProcessHandle'. This could result in</span><span>
+</span><span id="line-269"></span><span class="hs-comment">-- &quot;insufficient resource&quot; errors for OS threads. Hopefully the</span><span>
+</span><span id="line-270"></span><span class="hs-comment">-- current implementation avoids this problem.</span><span>
+</span><span id="line-271"></span><span class="annot"><a href="Hyperion.Job.html#runCmdLocalAsync"><span class="hs-identifier hs-type">runCmdLocalAsync</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-272"></span><span id="runCmdLocalAsync"><span class="annot"><span class="annottext">runCmdLocalAsync :: (FilePath, [FilePath]) -&gt; IO ()
+</span><a href="Hyperion.Job.html#runCmdLocalAsync"><span class="hs-identifier hs-var hs-var">runCmdLocalAsync</span></a></span></span><span> </span><span id="local-6989586621679161114"><span class="annot"><span class="annottext">(FilePath, [FilePath])
+</span><a href="#local-6989586621679161114"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO (Async ())
+forall a. IO a -&gt; IO (Async a)
+</span><span class="hs-identifier hs-var">Async.async</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath -&gt; [FilePath] -&gt; IO ())
+-&gt; (FilePath, [FilePath]) -&gt; IO ()
+forall a b c. (a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
+</span><span class="hs-identifier hs-var">uncurry</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; [FilePath] -&gt; IO ()
+</span><span class="hs-identifier hs-var">callProcess</span></span><span> </span><span class="annot"><span class="annottext">(FilePath, [FilePath])
+</span><a href="#local-6989586621679161114"><span class="hs-identifier hs-var">c</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO (Async ()) -&gt; (Async () -&gt; IO ()) -&gt; IO ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="annot"><span class="annottext">Async () -&gt; IO ()
+forall a. Async a -&gt; IO ()
+</span><span class="hs-identifier hs-var">Async.link</span></span><span>
+</span><span id="line-273"></span><span>
+</span><span id="line-274"></span><span class="hs-comment">-- | Run the given command and log the command. This is suitable</span><span>
+</span><span id="line-275"></span><span class="hs-comment">-- for running on remote machines so we can keep track of what is</span><span>
+</span><span id="line-276"></span><span class="hs-comment">-- being run where.</span><span>
+</span><span id="line-277"></span><span class="annot"><a href="Hyperion.Job.html#runCmdLocalLog"><span class="hs-identifier hs-type">runCmdLocalLog</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-278"></span><span id="runCmdLocalLog"><span class="annot"><span class="annottext">runCmdLocalLog :: (FilePath, [FilePath]) -&gt; IO ()
+</span><a href="Hyperion.Job.html#runCmdLocalLog"><span class="hs-identifier hs-var hs-var">runCmdLocalLog</span></a></span></span><span> </span><span id="local-6989586621679161110"><span class="annot"><span class="annottext">(FilePath, [FilePath])
+</span><a href="#local-6989586621679161110"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-279"></span><span>  </span><span class="annot"><span class="annottext">Text -&gt; (FilePath, [FilePath]) -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Running command&quot;</span></span><span> </span><span class="annot"><span class="annottext">(FilePath, [FilePath])
+</span><a href="#local-6989586621679161110"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-280"></span><span>  </span><span class="annot"><span class="annottext">(FilePath, [FilePath]) -&gt; IO ()
+</span><a href="Hyperion.Job.html#runCmdLocalAsync"><span class="hs-identifier hs-var">runCmdLocalAsync</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath, [FilePath])
+</span><a href="#local-6989586621679161110"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-281"></span><span>
+</span><span id="line-282"></span><span class="hs-comment">-- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to</span><span>
+</span><span id="line-283"></span><span class="hs-comment">-- start \&quot;worker-launcher\&quot; workers on these addresses (see</span><span>
+</span><span id="line-284"></span><span class="hs-comment">-- 'withNodeLauncher').  Discards addresses on which the this</span><span>
+</span><span id="line-285"></span><span class="hs-comment">-- fails. From remaining addresses builds a worker CPU pool. The</span><span>
+</span><span id="line-286"></span><span class="hs-comment">-- continuation is then passed a function that launches workers in</span><span>
+</span><span id="line-287"></span><span class="hs-comment">-- this pool. The 'WorkerLaunchers' that continuation gets have</span><span>
+</span><span id="line-288"></span><span class="hs-comment">-- 'connectionTimeout' to 'Nothing'.</span><span>
+</span><span id="line-289"></span><span id="local-6989586621679161379"><span class="annot"><a href="Hyperion.Job.html#withPoolLauncher"><span class="hs-identifier hs-type">withPoolLauncher</span></a></span><span>
+</span><span id="line-290"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.Job.html#NodeLauncherConfig"><span class="hs-identifier hs-type">NodeLauncherConfig</span></a></span><span>
+</span><span id="line-291"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#WorkerAddr"><span class="hs-identifier hs-type">WorkerAddr</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-292"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.WorkerCpuPool.html#NumCPUs"><span class="hs-identifier hs-type">NumCPUs</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Remote.html#WorkerLauncher"><span class="hs-identifier hs-type">WorkerLauncher</span></a></span><span> </span><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier hs-type">JobId</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161379"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-293"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679161379"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-294"></span><span id="withPoolLauncher"><span class="annot"><span class="annottext">withPoolLauncher :: NodeLauncherConfig
+-&gt; [WorkerAddr]
+-&gt; ((NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a)
+-&gt; Process a
+</span><a href="Hyperion.Job.html#withPoolLauncher"><span class="hs-identifier hs-var hs-var">withPoolLauncher</span></a></span></span><span> </span><span id="local-6989586621679161108"><span class="annot"><span class="annottext">NodeLauncherConfig
+</span><a href="#local-6989586621679161108"><span class="hs-identifier hs-var">cfg</span></a></span></span><span> </span><span id="local-6989586621679161107"><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679161107"><span class="hs-identifier hs-var">addrs'</span></a></span></span><span> </span><span id="local-6989586621679161106"><span class="annot"><span class="annottext">(NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a
+</span><a href="#local-6989586621679161106"><span class="hs-identifier hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(ContT a Process a -&gt; (a -&gt; Process a) -&gt; Process a)
+-&gt; (a -&gt; Process a) -&gt; ContT a Process a -&gt; Process a
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><span class="hs-identifier hs-var">flip</span></span><span> </span><span class="annot"><span class="annottext">ContT a Process a -&gt; (a -&gt; Process a) -&gt; Process a
+forall k (r :: k) (m :: k -&gt; *) a. ContT r m a -&gt; (a -&gt; m r) -&gt; m r
+</span><span class="hs-identifier hs-var hs-var">runContT</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; Process a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(ContT a Process a -&gt; Process a) -&gt; ContT a Process a -&gt; Process a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-295"></span><span>  </span><span id="local-6989586621679161104"><span class="annot"><span class="annottext">[Maybe (WorkerAddr, WorkerLauncher JobId)]
+</span><a href="#local-6989586621679161104"><span class="hs-identifier hs-var">mLaunchers</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(WorkerAddr
+ -&gt; ContT a Process (Maybe (WorkerAddr, WorkerLauncher JobId)))
+-&gt; [WorkerAddr]
+-&gt; ContT a Process [Maybe (WorkerAddr, WorkerLauncher JobId)]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><span class="hs-identifier hs-var">mapM</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">((Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a)
+ -&gt; Process a)
+-&gt; ContT a Process (Maybe (WorkerAddr, WorkerLauncher JobId))
+forall k (r :: k) (m :: k -&gt; *) a.
+((a -&gt; m r) -&gt; m r) -&gt; ContT r m a
+</span><span class="hs-identifier hs-var">ContT</span></span><span> </span><span class="annot"><span class="annottext">(((Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a)
+  -&gt; Process a)
+ -&gt; ContT a Process (Maybe (WorkerAddr, WorkerLauncher JobId)))
+-&gt; (WorkerAddr
+    -&gt; (Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a)
+    -&gt; Process a)
+-&gt; WorkerAddr
+-&gt; ContT a Process (Maybe (WorkerAddr, WorkerLauncher JobId))
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">NodeLauncherConfig
+-&gt; WorkerAddr
+-&gt; (Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a)
+-&gt; Process a
+forall a.
+NodeLauncherConfig
+-&gt; WorkerAddr
+-&gt; (Maybe (WorkerAddr, WorkerLauncher JobId) -&gt; Process a)
+-&gt; Process a
+</span><a href="Hyperion.Job.html#withNodeLauncher"><span class="hs-identifier hs-var">withNodeLauncher</span></a></span><span> </span><span class="annot"><span class="annottext">NodeLauncherConfig
+</span><a href="#local-6989586621679161108"><span class="hs-identifier hs-var">cfg</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679161107"><span class="hs-identifier hs-var">addrs'</span></a></span><span>
+</span><span id="line-296"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679161101"><span class="annot"><span class="annottext">launcherMap :: Map WorkerAddr (WorkerLauncher JobId)
+</span><a href="#local-6989586621679161101"><span class="hs-identifier hs-var hs-var">launcherMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[(WorkerAddr, WorkerLauncher JobId)]
+-&gt; Map WorkerAddr (WorkerLauncher JobId)
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><span class="hs-identifier hs-var">Map.fromList</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Maybe (WorkerAddr, WorkerLauncher JobId)]
+-&gt; [(WorkerAddr, WorkerLauncher JobId)]
+forall a. [Maybe a] -&gt; [a]
+</span><span class="hs-identifier hs-var">catMaybes</span></span><span> </span><span class="annot"><span class="annottext">[Maybe (WorkerAddr, WorkerLauncher JobId)]
+</span><a href="#local-6989586621679161104"><span class="hs-identifier hs-var">mLaunchers</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-297"></span><span>      </span><span id="local-6989586621679161099"><span class="annot"><span class="annottext">addrs :: [WorkerAddr]
+</span><a href="#local-6989586621679161099"><span class="hs-identifier hs-var hs-var">addrs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map WorkerAddr (WorkerLauncher JobId) -&gt; [WorkerAddr]
+forall k a. Map k a -&gt; [k]
+</span><span class="hs-identifier hs-var">Map.keys</span></span><span> </span><span class="annot"><span class="annottext">Map WorkerAddr (WorkerLauncher JobId)
+</span><a href="#local-6989586621679161101"><span class="hs-identifier hs-var">launcherMap</span></a></span><span>
+</span><span id="line-298"></span><span>  </span><span id="local-6989586621679161097"><span class="annot"><span class="annottext">WorkerCpuPool
+</span><a href="#local-6989586621679161097"><span class="hs-identifier hs-var">workerCpuPool</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO WorkerCpuPool -&gt; ContT a Process WorkerCpuPool
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[WorkerAddr] -&gt; IO WorkerCpuPool
+</span><a href="Hyperion.WorkerCpuPool.html#newJobPool"><span class="hs-identifier hs-var">WCP.newJobPool</span></a></span><span> </span><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679161099"><span class="hs-identifier hs-var">addrs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-299"></span><span>  </span><span class="annot"><span class="annottext">Text -&gt; [WorkerAddr] -&gt; ContT a Process ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#info"><span class="hs-identifier hs-var">Log.info</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Started worker launchers at&quot;</span></span><span> </span><span class="annot"><span class="annottext">[WorkerAddr]
+</span><a href="#local-6989586621679161099"><span class="hs-identifier hs-var">addrs</span></a></span><span>
+</span><span id="line-300"></span><span>  </span><span class="annot"><span class="annottext">Process a -&gt; ContT a Process a
+forall (t :: (* -&gt; *) -&gt; * -&gt; *) (m :: * -&gt; *) a.
+(MonadTrans t, Monad m) =&gt;
+m a -&gt; t m a
+</span><span class="hs-identifier hs-var">lift</span></span><span> </span><span class="annot"><span class="annottext">(Process a -&gt; ContT a Process a) -&gt; Process a -&gt; ContT a Process a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a
+</span><a href="#local-6989586621679161106"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">((NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a)
+-&gt; (NumCPUs -&gt; WorkerLauncher JobId) -&gt; Process a
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161094"><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679161094"><span class="hs-identifier hs-var">nCpus</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">WorkerLauncher :: forall j.
+(forall b. NodeId -&gt; ServiceId -&gt; (j -&gt; Process b) -&gt; Process b)
+-&gt; Maybe NominalDiffTime
+-&gt; (forall b. RemoteError -&gt; Process b -&gt; Process b)
+-&gt; WorkerLauncher j
+</span><a href="Hyperion.Remote.html#WorkerLauncher"><span class="hs-identifier hs-type">WorkerLauncher</span></a></span><span>
+</span><span id="line-301"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">withLaunchedWorker :: forall b. NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+</span><a href="Hyperion.Remote.html#withLaunchedWorker"><span class="hs-identifier hs-var">withLaunchedWorker</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161093"><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679161093"><span class="hs-identifier hs-var">nodeId</span></a></span></span><span> </span><span id="local-6989586621679161092"><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161092"><span class="hs-identifier hs-var">serviceId</span></a></span></span><span> </span><span id="local-6989586621679161091"><span class="annot"><span class="annottext">JobId -&gt; Process b
+</span><a href="#local-6989586621679161091"><span class="hs-identifier hs-var">goJobId</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-302"></span><span>        </span><span class="annot"><span class="annottext">WorkerCpuPool -&gt; NumCPUs -&gt; (WorkerAddr -&gt; Process b) -&gt; Process b
+forall (m :: * -&gt; *) a.
+(MonadIO m, MonadMask m) =&gt;
+WorkerCpuPool -&gt; NumCPUs -&gt; (WorkerAddr -&gt; m a) -&gt; m a
+</span><a href="Hyperion.WorkerCpuPool.html#withWorkerAddr"><span class="hs-identifier hs-var">WCP.withWorkerAddr</span></a></span><span> </span><span class="annot"><span class="annottext">WorkerCpuPool
+</span><a href="#local-6989586621679161097"><span class="hs-identifier hs-var">workerCpuPool</span></a></span><span> </span><span class="annot"><span class="annottext">NumCPUs
+</span><a href="#local-6989586621679161094"><span class="hs-identifier hs-var">nCpus</span></a></span><span> </span><span class="annot"><span class="annottext">((WorkerAddr -&gt; Process b) -&gt; Process b)
+-&gt; (WorkerAddr -&gt; Process b) -&gt; Process b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161089"><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679161089"><span class="hs-identifier hs-var">addr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-303"></span><span>        </span><span class="annot"><span class="annottext">WorkerLauncher JobId
+-&gt; NodeId -&gt; ServiceId -&gt; (JobId -&gt; Process b) -&gt; Process b
+forall j.
+WorkerLauncher j
+-&gt; forall b. NodeId -&gt; ServiceId -&gt; (j -&gt; Process b) -&gt; Process b
+</span><a href="Hyperion.Remote.html#withLaunchedWorker"><span class="hs-identifier hs-var hs-var">withLaunchedWorker</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map WorkerAddr (WorkerLauncher JobId)
+</span><a href="#local-6989586621679161101"><span class="hs-identifier hs-var">launcherMap</span></a></span><span> </span><span class="annot"><span class="annottext">Map WorkerAddr (WorkerLauncher JobId)
+-&gt; WorkerAddr -&gt; WorkerLauncher JobId
+forall k a. Ord k =&gt; Map k a -&gt; k -&gt; a
+</span><span class="hs-operator hs-var">Map.!</span></span><span> </span><span class="annot"><span class="annottext">WorkerAddr
+</span><a href="#local-6989586621679161089"><span class="hs-identifier hs-var">addr</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679161093"><span class="hs-identifier hs-var">nodeId</span></a></span><span> </span><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679161092"><span class="hs-identifier hs-var">serviceId</span></a></span><span> </span><span class="annot"><span class="annottext">JobId -&gt; Process b
+</span><a href="#local-6989586621679161091"><span class="hs-identifier hs-var">goJobId</span></a></span><span>
+</span><span id="line-304"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">connectionTimeout :: Maybe NominalDiffTime
+</span><a href="Hyperion.Remote.html#connectionTimeout"><span class="hs-identifier hs-var">connectionTimeout</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe NominalDiffTime
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-305"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">onRemoteError :: forall b. RemoteError -&gt; Process b -&gt; Process b
+</span><a href="Hyperion.Remote.html#onRemoteError"><span class="hs-identifier hs-var">onRemoteError</span></a></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679161087"><span class="annot"><span class="annottext">RemoteError
+</span><a href="#local-6989586621679161087"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="annot"><span class="annottext">Process b
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">RemoteError -&gt; Process b
+forall (m :: * -&gt; *) e a. (MonadThrow m, Exception e) =&gt; e -&gt; m a
+</span><span class="hs-identifier hs-var">throwM</span></span><span> </span><span class="annot"><span class="annottext">RemoteError
+</span><a href="#local-6989586621679161087"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-306"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-307"></span><span>
+</span><span id="line-308"></span><span id="local-6989586621679161249"><span class="annot"><a href="Hyperion.Job.html#remoteEvalJobM"><span class="hs-identifier hs-type">remoteEvalJobM</span></a></span><span>
+</span><span id="line-309"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Static</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679161249"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679161249"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-310"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#Cluster"><span class="hs-identifier hs-type">Cluster</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Closure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Job.html#Job"><span class="hs-identifier hs-type">Job</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679161249"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-311"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#Cluster"><span class="hs-identifier hs-type">Cluster</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679161249"><span class="hs-identifier hs-type">b</span></a></span></span><span>
+</span><span id="line-312"></span><span id="remoteEvalJobM"><span class="annot"><span class="annottext">remoteEvalJobM :: Cluster (Closure (Job b)) -&gt; Cluster b
+</span><a href="Hyperion.Job.html#remoteEvalJobM"><span class="hs-identifier hs-var hs-var">remoteEvalJobM</span></a></span></span><span> </span><span id="local-6989586621679161085"><span class="annot"><span class="annottext">Cluster (Closure (Job b))
+</span><a href="#local-6989586621679161085"><span class="hs-identifier hs-var">mc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-313"></span><span>  </span><span id="local-6989586621679161084"><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161084"><span class="hs-identifier hs-var">programInfo</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(ClusterEnv -&gt; ProgramInfo)
+-&gt; ReaderT ClusterEnv Process ProgramInfo
+forall r (m :: * -&gt; *) a. MonadReader r m =&gt; (r -&gt; a) -&gt; m a
+</span><span class="hs-identifier hs-var">asks</span></span><span> </span><span class="annot"><span class="annottext">ClusterEnv -&gt; ProgramInfo
+</span><a href="Hyperion.Cluster.html#clusterProgramInfo"><span class="hs-identifier hs-var hs-var">clusterProgramInfo</span></a></span><span>
+</span><span id="line-314"></span><span>  </span><span class="annot"><span class="annottext">ReaderT ClusterEnv Process (Closure (Process b)) -&gt; Cluster b
+forall (m :: * -&gt; *) b.
+(HasWorkers m, Static (Binary b), Typeable b) =&gt;
+m (Closure (Process b)) -&gt; m b
+</span><a href="Hyperion.HasWorkers.html#remoteEvalM"><span class="hs-identifier hs-var">remoteEvalM</span></a></span><span> </span><span class="annot"><span class="annottext">(ReaderT ClusterEnv Process (Closure (Process b)) -&gt; Cluster b)
+-&gt; ReaderT ClusterEnv Process (Closure (Process b)) -&gt; Cluster b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-315"></span><span>    </span><span id="local-6989586621679161081"><span class="annot"><span class="annottext">Closure (Job b)
+</span><a href="#local-6989586621679161081"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Cluster (Closure (Job b))
+</span><a href="#local-6989586621679161085"><span class="hs-identifier hs-var">mc</span></a></span><span>
+</span><span id="line-316"></span><span>    </span><span class="annot"><span class="annottext">Closure (Process b)
+-&gt; ReaderT ClusterEnv Process (Closure (Process b))
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">(Closure (Process b)
+ -&gt; ReaderT ClusterEnv Process (Closure (Process b)))
+-&gt; Closure (Process b)
+-&gt; ReaderT ClusterEnv Process (Closure (Process b))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">StaticPtr (ProgramInfo -&gt; Job b -&gt; Process b)
+-&gt; Closure (ProgramInfo -&gt; Job b -&gt; Process b)
+forall a. Typeable a =&gt; StaticPtr a -&gt; Closure a
+</span><span class="hs-identifier hs-var">cPtr</span></span><span> </span><span class="hs-special">(</span><span class="hs-keyword">static</span><span> </span><span class="annot"><span class="annottext">ProgramInfo -&gt; Job b -&gt; Process b
+forall a. ProgramInfo -&gt; Job a -&gt; Process a
+</span><a href="Hyperion.Job.html#runJobSlurm"><span class="hs-identifier hs-var">runJobSlurm</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Closure (ProgramInfo -&gt; Job b -&gt; Process b)
+-&gt; Closure ProgramInfo -&gt; Closure (Job b -&gt; Process b)
+forall a b. Closure (a -&gt; b) -&gt; Closure a -&gt; Closure b
+</span><span class="hs-operator hs-var">`cAp`</span></span><span> </span><span class="annot"><span class="annottext">ProgramInfo -&gt; Closure ProgramInfo
+forall a. (Static (Binary a), Typeable a) =&gt; a -&gt; Closure a
+</span><span class="hs-identifier hs-var">cPure</span></span><span> </span><span class="annot"><span class="annottext">ProgramInfo
+</span><a href="#local-6989586621679161084"><span class="hs-identifier hs-var">programInfo</span></a></span><span> </span><span class="annot"><span class="annottext">Closure (Job b -&gt; Process b)
+-&gt; Closure (Job b) -&gt; Closure (Process b)
+forall a b. Closure (a -&gt; b) -&gt; Closure a -&gt; Closure b
+</span><span class="hs-operator hs-var">`cAp`</span></span><span> </span><span class="annot"><span class="annottext">Closure (Job b)
+</span><a href="#local-6989586621679161081"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-317"></span><span>
+</span><span id="line-318"></span><span id="local-6989586621679161080"><span class="annot"><a href="Hyperion.Job.html#remoteEvalJob"><span class="hs-identifier hs-type">remoteEvalJob</span></a></span><span>
+</span><span id="line-319"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Static</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679161080"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679161080"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-320"></span><span>  </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Closure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Job.html#Job"><span class="hs-identifier hs-type">Job</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679161080"><span class="hs-identifier hs-type">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-321"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Cluster.html#Cluster"><span class="hs-identifier hs-type">Cluster</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679161080"><span class="hs-identifier hs-type">b</span></a></span></span><span>
+</span><span id="line-322"></span><span id="remoteEvalJob"><span class="annot"><span class="annottext">remoteEvalJob :: Closure (Job b) -&gt; Cluster b
+</span><a href="Hyperion.Job.html#remoteEvalJob"><span class="hs-identifier hs-var hs-var">remoteEvalJob</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cluster (Closure (Job b)) -&gt; Cluster b
+forall b.
+(Static (Binary b), Typeable b) =&gt;
+Cluster (Closure (Job b)) -&gt; Cluster b
+</span><a href="Hyperion.Job.html#remoteEvalJobM"><span class="hs-identifier hs-var">remoteEvalJobM</span></a></span><span> </span><span class="annot"><span class="annottext">(Cluster (Closure (Job b)) -&gt; Cluster b)
+-&gt; (Closure (Job b) -&gt; Cluster (Closure (Job b)))
+-&gt; Closure (Job b)
+-&gt; Cluster b
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Closure (Job b) -&gt; Cluster (Closure (Job b))
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span>
+</span><span id="line-323"></span></pre></body></html>

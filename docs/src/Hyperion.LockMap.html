@@ -1,0 +1,725 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass      #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE LambdaCase          #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings   #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE ScopedTypeVariables #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE StaticPointers      #-}</span><span>
+</span><span id="line-6"></span><span>
+</span><span id="line-7"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.LockMap</span><span>
+</span><span id="line-8"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#LockMap"><span class="hs-identifier">LockMap</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-9"></span><span>    </span><span class="annot"><a href="Hyperion.LockMap.html#withLock"><span class="hs-identifier">withLock</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-10"></span><span>    </span><span class="annot"><a href="Hyperion.LockMap.html#withLocks"><span class="hs-identifier">withLocks</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-11"></span><span>    </span><span class="annot"><a href="Hyperion.LockMap.html#newLockMap"><span class="hs-identifier">newLockMap</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-12"></span><span>    </span><span class="annot"><a href="Hyperion.LockMap.html#registerLockMap"><span class="hs-identifier">registerLockMap</span></a></span><span>
+</span><span id="line-13"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-15"></span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM</span></span><span>                   </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">STM</span></span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Process</span></span><span>              </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">DiedReason</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-18"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">Process</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">ProcessId</span></span><span class="hs-special">,</span><span>
+</span><span id="line-19"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">ProcessLinkException</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-20"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">RemoteTable</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">call</span></span><span class="hs-special">,</span><span>
+</span><span id="line-21"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">closure</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">getSelfPid</span></span><span class="hs-special">,</span><span>
+</span><span id="line-22"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">liftIO</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">link</span></span><span class="hs-special">,</span><span>
+</span><span id="line-23"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">spawnLocal</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">unStatic</span></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Process.Serializable</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">SerializableDict</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Distributed.Static</span></span><span>               </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Static</span></span><span class="hs-special">,</span><span>
+</span><span id="line-26"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">registerStatic</span></span><span class="hs-special">,</span><span>
+</span><span id="line-27"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">staticLabel</span></span><span class="hs-special">,</span><span>
+</span><span id="line-28"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">staticPtr</span></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad</span></span><span>                            </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">void</span></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Catch</span></span><span>                      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">catch</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">bracket</span></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.Extra</span></span><span>                      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">unless</span></span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Binary</span></span><span>                              </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Binary</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">decode</span></span><span class="hs-special">,</span><span>
+</span><span id="line-33"></span><span>                                                           </span><span class="annot"><span class="hs-identifier">encode</span></span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.ByteString.Lazy</span></span><span>                     </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">ByteString</span></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map.Strict</span></span><span>                          </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Rank1Dynamic</span></span><span>                        </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">toDynamic</span></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Typeable</span></span><span>                            </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Typeable</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">typeOf</span></span><span class="hs-special">)</span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Log.html"><span class="hs-identifier">Hyperion.Log</span></a></span><span>                             </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Log</span></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><a href="Hyperion.Remote.html"><span class="hs-identifier">Hyperion.Remote</span></a></span><span>                          </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.Remote.html#getMasterNodeId"><span class="hs-identifier">getMasterNodeId</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- Presence of a pid value indicates that the lock is locked by the process with the given ProcessId</span><span>
+</span><span id="line-42"></span><span class="hs-keyword">type</span><span> </span><span id="Lock"><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-var">Lock</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.TMVar</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">ProcessId</span></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="hs-keyword">newtype</span><span> </span><span id="Key"><span class="annot"><a href="Hyperion.LockMap.html#Key"><span class="hs-identifier hs-var">Key</span></a></span></span><span> </span><span id="local-6989586621679159574"><span class="annot"><a href="#local-6989586621679159574"><span class="hs-identifier hs-type">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Key"><span class="annot"><a href="Hyperion.LockMap.html#Key"><span class="hs-identifier hs-var">Key</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="unKey"><span class="annot"><span class="annottext">Key a -&gt; a
+</span><a href="Hyperion.LockMap.html#unKey"><span class="hs-identifier hs-var hs-var">unKey</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="#local-6989586621679159574"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">--newLockedLock :: ProcessId -&gt; STM.STM Lock</span><span>
+</span><span id="line-47"></span><span class="hs-comment">--newLockedLock = STM.newTMVar</span><span>
+</span><span id="line-48"></span><span class="hs-comment">--</span><span>
+</span><span id="line-49"></span><span class="hs-comment">--newUnlockedLock :: STM.STM Lock</span><span>
+</span><span id="line-50"></span><span class="hs-comment">--newUnlockedLock = STM.newEmptyTMVar</span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span class="annot"><a href="Hyperion.LockMap.html#isLocked"><span class="hs-identifier hs-type">isLocked</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.STM</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-53"></span><span id="isLocked"><span class="annot"><span class="annottext">isLocked :: Lock -&gt; STM Bool
+</span><a href="Hyperion.LockMap.html#isLocked"><span class="hs-identifier hs-var hs-var">isLocked</span></a></span></span><span> </span><span id="local-6989586621679159531"><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159531"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; STM Bool -&gt; STM Bool
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Lock -&gt; STM Bool
+forall a. TMVar a -&gt; STM Bool
+</span><span class="hs-identifier hs-var">STM.isEmptyTMVar</span></span><span> </span><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159531"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="annot"><a href="Hyperion.LockMap.html#isUnlocked"><span class="hs-identifier hs-type">isUnlocked</span></a></span><span> </span><span class="hs-glyph">::</span><span>  </span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.STM</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-56"></span><span id="isUnlocked"><span class="annot"><span class="annottext">isUnlocked :: Lock -&gt; STM Bool
+</span><a href="Hyperion.LockMap.html#isUnlocked"><span class="hs-identifier hs-var hs-var">isUnlocked</span></a></span></span><span> </span><span id="local-6989586621679159526"><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159526"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; STM Bool -&gt; STM Bool
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Lock -&gt; STM Bool
+</span><a href="Hyperion.LockMap.html#isLocked"><span class="hs-identifier hs-var">isLocked</span></a></span><span> </span><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159526"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-57"></span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- Blocks</span><span>
+</span><span id="line-59"></span><span class="annot"><a href="Hyperion.LockMap.html#lock"><span class="hs-identifier hs-type">lock</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ProcessId</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.STM</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span id="lock"><span class="annot"><span class="annottext">lock :: ProcessId -&gt; Lock -&gt; STM ()
+</span><a href="Hyperion.LockMap.html#lock"><span class="hs-identifier hs-var hs-var">lock</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Lock -&gt; ProcessId -&gt; STM ()) -&gt; ProcessId -&gt; Lock -&gt; STM ()
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><span class="hs-identifier hs-var">flip</span></span><span> </span><span class="annot"><span class="annottext">Lock -&gt; ProcessId -&gt; STM ()
+forall a. TMVar a -&gt; a -&gt; STM ()
+</span><span class="hs-identifier hs-var">STM.putTMVar</span></span><span>
+</span><span id="line-61"></span><span>
+</span><span id="line-62"></span><span class="hs-comment">-- Doesn't block</span><span>
+</span><span id="line-63"></span><span class="annot"><a href="Hyperion.LockMap.html#unlock"><span class="hs-identifier hs-type">unlock</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.STM</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span id="unlock"><span class="annot"><span class="annottext">unlock :: Lock -&gt; STM ()
+</span><a href="Hyperion.LockMap.html#unlock"><span class="hs-identifier hs-var hs-var">unlock</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">STM (Maybe ProcessId) -&gt; STM ()
+forall (f :: * -&gt; *) a. Functor f =&gt; f a -&gt; f ()
+</span><span class="hs-identifier hs-var">void</span></span><span> </span><span class="annot"><span class="annottext">(STM (Maybe ProcessId) -&gt; STM ())
+-&gt; (Lock -&gt; STM (Maybe ProcessId)) -&gt; Lock -&gt; STM ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Lock -&gt; STM (Maybe ProcessId)
+forall a. TMVar a -&gt; STM (Maybe a)
+</span><span class="hs-identifier hs-var">STM.tryTakeTMVar</span></span><span>
+</span><span id="line-65"></span><span>
+</span><span id="line-66"></span><span class="hs-comment">--wait :: Lock -&gt; STM.STM ()</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--wait l = STM.isEmptyTMVar l &gt;&gt;= \case</span><span>
+</span><span id="line-68"></span><span class="hs-comment">--  True -&gt; return ()</span><span>
+</span><span id="line-69"></span><span class="hs-comment">--  False -&gt; STM.retry</span><span>
+</span><span id="line-70"></span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- By default, all locks are open</span><span>
+</span><span id="line-72"></span><span class="hs-keyword">type</span><span> </span><span id="LockMap"><span class="annot"><a href="Hyperion.LockMap.html#LockMap"><span class="hs-identifier hs-var">LockMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.TVar</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Map.Map</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-73"></span><span>
+</span><span id="line-74"></span><span class="annot"><a href="Hyperion.LockMap.html#lockMapLabel"><span class="hs-identifier hs-type">lockMapLabel</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span>
+</span><span id="line-75"></span><span id="lockMapLabel"><span class="annot"><span class="annottext">lockMapLabel :: String
+</span><a href="Hyperion.LockMap.html#lockMapLabel"><span class="hs-identifier hs-var hs-var">lockMapLabel</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;lockMapLabel&quot;</span></span><span>
+</span><span id="line-76"></span><span>
+</span><span id="line-77"></span><span class="annot"><a href="Hyperion.LockMap.html#lockMapStatic"><span class="hs-identifier hs-type">lockMapStatic</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Static</span></span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#LockMap"><span class="hs-identifier hs-type">LockMap</span></a></span><span>
+</span><span id="line-78"></span><span id="lockMapStatic"><span class="annot"><span class="annottext">lockMapStatic :: Static LockMap
+</span><a href="Hyperion.LockMap.html#lockMapStatic"><span class="hs-identifier hs-var hs-var">lockMapStatic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Static LockMap
+forall a. String -&gt; Static a
+</span><span class="hs-identifier hs-var">staticLabel</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="Hyperion.LockMap.html#lockMapLabel"><span class="hs-identifier hs-var">lockMapLabel</span></a></span><span>
+</span><span id="line-79"></span><span>
+</span><span id="line-80"></span><span class="annot"><a href="Hyperion.LockMap.html#getLockMap"><span class="hs-identifier hs-type">getLockMap</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#LockMap"><span class="hs-identifier hs-type">LockMap</span></a></span><span>
+</span><span id="line-81"></span><span id="getLockMap"><span class="annot"><span class="annottext">getLockMap :: Process LockMap
+</span><a href="Hyperion.LockMap.html#getLockMap"><span class="hs-identifier hs-var hs-var">getLockMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Static LockMap -&gt; Process LockMap
+forall a. Typeable a =&gt; Static a -&gt; Process a
+</span><span class="hs-identifier hs-var">unStatic</span></span><span> </span><span class="annot"><span class="annottext">Static LockMap
+</span><a href="Hyperion.LockMap.html#lockMapStatic"><span class="hs-identifier hs-var">lockMapStatic</span></a></span><span>
+</span><span id="line-82"></span><span>
+</span><span id="line-83"></span><span class="annot"><a href="Hyperion.LockMap.html#newLockMap"><span class="hs-identifier hs-type">newLockMap</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#LockMap"><span class="hs-identifier hs-type">LockMap</span></a></span><span>
+</span><span id="line-84"></span><span id="newLockMap"><span class="annot"><span class="annottext">newLockMap :: IO LockMap
+</span><a href="Hyperion.LockMap.html#newLockMap"><span class="hs-identifier hs-var hs-var">newLockMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map ByteString Lock -&gt; IO LockMap
+forall a. a -&gt; IO (TVar a)
+</span><span class="hs-identifier hs-var">STM.newTVarIO</span></span><span> </span><span class="annot"><span class="annottext">Map ByteString Lock
+forall k a. Map k a
+</span><span class="hs-identifier hs-var">Map.empty</span></span><span>
+</span><span id="line-85"></span><span>
+</span><span id="line-86"></span><span class="annot"><a href="Hyperion.LockMap.html#registerLockMap"><span class="hs-identifier hs-type">registerLockMap</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#LockMap"><span class="hs-identifier hs-type">LockMap</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">RemoteTable</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">RemoteTable</span></span><span>
+</span><span id="line-87"></span><span id="registerLockMap"><span class="annot"><span class="annottext">registerLockMap :: LockMap -&gt; RemoteTable -&gt; RemoteTable
+</span><a href="Hyperion.LockMap.html#registerLockMap"><span class="hs-identifier hs-var hs-var">registerLockMap</span></a></span></span><span> </span><span id="local-6989586621679159514"><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159514"><span class="hs-identifier hs-var">var</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; Dynamic -&gt; RemoteTable -&gt; RemoteTable
+</span><span class="hs-identifier hs-var">registerStatic</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="Hyperion.LockMap.html#lockMapLabel"><span class="hs-identifier hs-var">lockMapLabel</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LockMap -&gt; Dynamic
+forall a. Typeable a =&gt; a -&gt; Dynamic
+</span><span class="hs-identifier hs-var">toDynamic</span></span><span> </span><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159514"><span class="hs-identifier hs-var">var</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span>
+</span><span id="line-89"></span><span class="annot"><a href="Hyperion.LockMap.html#lockRemote_"><span class="hs-identifier hs-type">lockRemote_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span id="lockRemote_"><span class="annot"><span class="annottext">lockRemote_ :: ByteString -&gt; Process ()
+</span><a href="Hyperion.LockMap.html#lockRemote_"><span class="hs-identifier hs-var hs-var">lockRemote_</span></a></span></span><span> </span><span id="local-6989586621679159512"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159512"><span class="hs-identifier hs-var">bs'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-91"></span><span>  </span><span class="annot"><span class="annottext">Process (Maybe NodeId)
+</span><a href="Hyperion.Remote.html#getMasterNodeId"><span class="hs-identifier hs-var">getMasterNodeId</span></a></span><span> </span><span class="annot"><span class="annottext">Process (Maybe NodeId)
+-&gt; (Maybe NodeId -&gt; Process ()) -&gt; Process ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-92"></span><span>    </span><span class="annot"><span class="annottext">Maybe NodeId
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-93"></span><span>      </span><span class="hs-keyword">let</span><span>
+</span><span id="line-94"></span><span>        </span><span class="hs-special">(</span><span id="local-6989586621679159511"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159511"><span class="hs-identifier hs-var">pid</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679159510"><span class="annot"><span class="annottext">[ByteString]
+</span><a href="#local-6989586621679159510"><span class="hs-identifier hs-var">bss</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; (ProcessId, [ByteString])
+forall a. Binary a =&gt; ByteString -&gt; a
+</span><span class="hs-identifier hs-var">decode</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159512"><span class="hs-identifier hs-var">bs'</span></a></span><span>
+</span><span id="line-95"></span><span>      </span><span class="hs-comment">-- Make sure there is a cleanup process linked to the original caller</span><span>
+</span><span id="line-96"></span><span>      </span><span class="hs-comment">-- Create a signal TMVar for receiving a green light from the cleanup process</span><span>
+</span><span id="line-97"></span><span>      </span><span id="local-6989586621679159509"><span class="annot"><span class="annottext">TMVar ()
+</span><a href="#local-6989586621679159509"><span class="hs-identifier hs-var">sig</span></a></span></span><span>  </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (TMVar ()) -&gt; Process (TMVar ())
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO (TMVar ()) -&gt; Process (TMVar ()))
+-&gt; (STM (TMVar ()) -&gt; IO (TMVar ()))
+-&gt; STM (TMVar ())
+-&gt; Process (TMVar ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM (TMVar ()) -&gt; IO (TMVar ())
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM (TMVar ()) -&gt; Process (TMVar ()))
+-&gt; STM (TMVar ()) -&gt; Process (TMVar ())
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">STM (TMVar ())
+forall a. STM (TMVar a)
+</span><span class="hs-identifier hs-var">STM.newEmptyTMVar</span></span><span>
+</span><span id="line-98"></span><span>      </span><span class="hs-comment">-- TMVar that lets the cleanup process know what to clean up</span><span>
+</span><span id="line-99"></span><span>      </span><span id="local-6989586621679159506"><span class="annot"><span class="annottext">TMVar [Lock]
+</span><a href="#local-6989586621679159506"><span class="hs-identifier hs-var">lvar</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (TMVar [Lock]) -&gt; Process (TMVar [Lock])
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO (TMVar [Lock]) -&gt; Process (TMVar [Lock]))
+-&gt; (STM (TMVar [Lock]) -&gt; IO (TMVar [Lock]))
+-&gt; STM (TMVar [Lock])
+-&gt; Process (TMVar [Lock])
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM (TMVar [Lock]) -&gt; IO (TMVar [Lock])
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM (TMVar [Lock]) -&gt; Process (TMVar [Lock]))
+-&gt; STM (TMVar [Lock]) -&gt; Process (TMVar [Lock])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">STM (TMVar [Lock])
+forall a. STM (TMVar a)
+</span><span class="hs-identifier hs-var">STM.newEmptyTMVar</span></span><span>
+</span><span id="line-100"></span><span>      </span><span class="hs-comment">-- Start the cleanup process</span><span>
+</span><span id="line-101"></span><span>      </span><span class="annot"><span class="annottext">ProcessId
+</span><span class="hs-identifier">_</span></span><span>    </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process () -&gt; Process ProcessId
+</span><span class="hs-identifier hs-var">spawnLocal</span></span><span> </span><span class="annot"><span class="annottext">(Process () -&gt; Process ProcessId)
+-&gt; Process () -&gt; Process ProcessId
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ProcessId -&gt; TMVar [Lock] -&gt; TMVar () -&gt; Process ()
+</span><a href="#local-6989586621679159505"><span class="hs-identifier hs-var">cleanup</span></a></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159511"><span class="hs-identifier hs-var">pid</span></a></span><span> </span><span class="annot"><span class="annottext">TMVar [Lock]
+</span><a href="#local-6989586621679159506"><span class="hs-identifier hs-var">lvar</span></a></span><span> </span><span class="annot"><span class="annottext">TMVar ()
+</span><a href="#local-6989586621679159509"><span class="hs-identifier hs-var">sig</span></a></span><span>
+</span><span id="line-102"></span><span>      </span><span class="hs-comment">-- Receive the signal from cleanup process that it is linked to the caller</span><span>
+</span><span id="line-103"></span><span>      </span><span class="hs-comment">-- We can now safely acquire the locks</span><span>
+</span><span id="line-104"></span><span>      </span><span class="hs-special">(</span><span class="hs-special">)</span><span>   </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ()) -&gt; (STM () -&gt; IO ()) -&gt; STM () -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; Process ()) -&gt; STM () -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">TMVar () -&gt; STM ()
+forall a. TMVar a -&gt; STM a
+</span><span class="hs-identifier hs-var">STM.takeTMVar</span></span><span> </span><span class="annot"><span class="annottext">TMVar ()
+</span><a href="#local-6989586621679159509"><span class="hs-identifier hs-var">sig</span></a></span><span>
+</span><span id="line-105"></span><span>
+</span><span id="line-106"></span><span>      </span><span id="local-6989586621679159503"><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159503"><span class="hs-identifier hs-var">lmapvar</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process LockMap
+</span><a href="Hyperion.LockMap.html#getLockMap"><span class="hs-identifier hs-var">getLockMap</span></a></span><span>
+</span><span id="line-107"></span><span>      </span><span class="hs-comment">-- We perform a transaction where we lookup the locks by keys, create new locks if needed.</span><span>
+</span><span id="line-108"></span><span>      </span><span class="hs-comment">-- We then peform a second transaction where</span><span>
+</span><span id="line-109"></span><span>      </span><span class="hs-comment">--  If all locks are open, we lock them all with caller pid and send them to cleanup proc</span><span>
+</span><span id="line-110"></span><span>      </span><span class="hs-comment">--  if at least one is closed, the transaction is retried (no changes to memory are recorded).</span><span>
+</span><span id="line-111"></span><span>      </span><span class="hs-comment">-- We can use a single transaction, but it would be restarted each time someone accesses the lock map</span><span>
+</span><span id="line-112"></span><span>      </span><span class="hs-comment">-- or our locks, rather than just our locks, which is a bit silly.</span><span>
+</span><span id="line-113"></span><span>      </span><span id="local-6989586621679159502"><span class="annot"><span class="annottext">[Lock]
+</span><a href="#local-6989586621679159502"><span class="hs-identifier hs-var">locks</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO [Lock] -&gt; Process [Lock]
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO [Lock] -&gt; Process [Lock])
+-&gt; (STM [Lock] -&gt; IO [Lock]) -&gt; STM [Lock] -&gt; Process [Lock]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM [Lock] -&gt; IO [Lock]
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM [Lock] -&gt; Process [Lock]) -&gt; STM [Lock] -&gt; Process [Lock]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">LockMap -&gt; [ByteString] -&gt; STM [Lock]
+</span><a href="#local-6989586621679159501"><span class="hs-identifier hs-var">getLocks</span></a></span><span> </span><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159503"><span class="hs-identifier hs-var">lmapvar</span></a></span><span> </span><span class="annot"><span class="annottext">[ByteString]
+</span><a href="#local-6989586621679159510"><span class="hs-identifier hs-var">bss</span></a></span><span>
+</span><span id="line-114"></span><span>      </span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ()) -&gt; (STM () -&gt; IO ()) -&gt; STM () -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; Process ()) -&gt; STM () -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-115"></span><span>        </span><span id="local-6989586621679159500"><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679159500"><span class="hs-identifier hs-var">unlocked</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Lock -&gt; STM Bool) -&gt; [Lock] -&gt; STM [Bool]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><span class="hs-identifier hs-var">mapM</span></span><span> </span><span class="annot"><span class="annottext">Lock -&gt; STM Bool
+</span><a href="Hyperion.LockMap.html#isUnlocked"><span class="hs-identifier hs-var">isUnlocked</span></a></span><span> </span><span class="annot"><span class="annottext">[Lock]
+</span><a href="#local-6989586621679159502"><span class="hs-identifier hs-var">locks</span></a></span><span>
+</span><span id="line-116"></span><span>        </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; [Bool] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">all</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+forall a. a -&gt; a
+</span><span class="hs-identifier hs-var">id</span></span><span> </span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679159500"><span class="hs-identifier hs-var">unlocked</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-117"></span><span>          </span><span class="annot"><span class="annottext">(Lock -&gt; STM ()) -&gt; [Lock] -&gt; STM ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m ()
+</span><span class="hs-identifier hs-var">mapM_</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ProcessId -&gt; Lock -&gt; STM ()
+</span><a href="Hyperion.LockMap.html#lock"><span class="hs-identifier hs-var">lock</span></a></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159511"><span class="hs-identifier hs-var">pid</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Lock]
+</span><a href="#local-6989586621679159502"><span class="hs-identifier hs-var">locks</span></a></span><span>
+</span><span id="line-118"></span><span>          </span><span class="annot"><span class="annottext">TMVar [Lock] -&gt; [Lock] -&gt; STM ()
+forall a. TMVar a -&gt; a -&gt; STM ()
+</span><span class="hs-identifier hs-var">STM.putTMVar</span></span><span> </span><span class="annot"><span class="annottext">TMVar [Lock]
+</span><a href="#local-6989586621679159506"><span class="hs-identifier hs-var">lvar</span></a></span><span> </span><span class="annot"><span class="annottext">[Lock]
+</span><a href="#local-6989586621679159502"><span class="hs-identifier hs-var">locks</span></a></span><span>
+</span><span id="line-119"></span><span>        </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">STM ()
+forall a. STM a
+</span><span class="hs-identifier hs-var">STM.retry</span></span><span>
+</span><span id="line-120"></span><span>      </span><span class="annot"><span class="annottext">() -&gt; Process ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-121"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679159494"><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679159494"><span class="hs-identifier hs-var">nid</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-122"></span><span>      </span><span class="annot"><span class="annottext">Static (SerializableDict ())
+-&gt; NodeId -&gt; Closure (Process ()) -&gt; Process ()
+forall a.
+Serializable a =&gt;
+Static (SerializableDict a)
+-&gt; NodeId -&gt; Closure (Process a) -&gt; Process a
+</span><span class="hs-identifier hs-var">call</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StaticPtr (SerializableDict ()) -&gt; Static (SerializableDict ())
+forall a. Typeable a =&gt; StaticPtr a -&gt; Static a
+</span><span class="hs-identifier hs-var">staticPtr</span></span><span> </span><span class="hs-special">(</span><span class="hs-keyword">static</span><span> </span><span class="annot"><span class="annottext">SerializableDict ()
+forall a. Serializable a =&gt; SerializableDict a
+</span><span class="hs-identifier hs-var">SerializableDict</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679159494"><span class="hs-identifier hs-var">nid</span></a></span><span> </span><span class="annot"><span class="annottext">(Closure (Process ()) -&gt; Process ())
+-&gt; Closure (Process ()) -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-123"></span><span>        </span><span class="annot"><span class="annottext">Static (ByteString -&gt; Process ())
+-&gt; ByteString -&gt; Closure (Process ())
+forall a. Static (ByteString -&gt; a) -&gt; ByteString -&gt; Closure a
+</span><span class="hs-identifier hs-var">closure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StaticPtr (ByteString -&gt; Process ())
+-&gt; Static (ByteString -&gt; Process ())
+forall a. Typeable a =&gt; StaticPtr a -&gt; Static a
+</span><span class="hs-identifier hs-var">staticPtr</span></span><span> </span><span class="hs-special">(</span><span class="hs-keyword">static</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Process ()
+</span><a href="Hyperion.LockMap.html#lockRemote_"><span class="hs-identifier hs-var">lockRemote_</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159512"><span class="hs-identifier hs-var">bs'</span></a></span><span>
+</span><span id="line-124"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-125"></span><span>    </span><span class="annot"><a href="#local-6989586621679159501"><span class="hs-identifier hs-type">getLocks</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#LockMap"><span class="hs-identifier hs-type">LockMap</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.STM</span></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-126"></span><span>    </span><span id="local-6989586621679159501"><span class="annot"><span class="annottext">getLocks :: LockMap -&gt; [ByteString] -&gt; STM [Lock]
+</span><a href="#local-6989586621679159501"><span class="hs-identifier hs-var hs-var">getLocks</span></a></span></span><span> </span><span id="local-6989586621679159492"><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159492"><span class="hs-identifier hs-var">lmapvar</span></a></span></span><span> </span><span id="local-6989586621679159491"><span class="annot"><span class="annottext">[ByteString]
+</span><a href="#local-6989586621679159491"><span class="hs-identifier hs-var">bss</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-127"></span><span>      </span><span class="annot"><span class="annottext">(ByteString -&gt; STM Lock) -&gt; [ByteString] -&gt; STM [Lock]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><span class="hs-identifier hs-var">mapM</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; STM Lock
+</span><a href="#local-6989586621679159490"><span class="hs-identifier hs-var">lookupOrNew</span></a></span><span> </span><span class="annot"><span class="annottext">[ByteString]
+</span><a href="#local-6989586621679159491"><span class="hs-identifier hs-var">bss</span></a></span><span>
+</span><span id="line-128"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-129"></span><span>        </span><span class="annot"><a href="#local-6989586621679159490"><span class="hs-identifier hs-type">lookupOrNew</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.STM</span></span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span>
+</span><span id="line-130"></span><span>        </span><span id="local-6989586621679159490"><span class="annot"><span class="annottext">lookupOrNew :: ByteString -&gt; STM Lock
+</span><a href="#local-6989586621679159490"><span class="hs-identifier hs-var hs-var">lookupOrNew</span></a></span></span><span> </span><span id="local-6989586621679159489"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159489"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-131"></span><span>          </span><span id="local-6989586621679159488"><span class="annot"><span class="annottext">Map ByteString Lock
+</span><a href="#local-6989586621679159488"><span class="hs-identifier hs-var">lmap</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">LockMap -&gt; STM (Map ByteString Lock)
+forall a. TVar a -&gt; STM a
+</span><span class="hs-identifier hs-var">STM.readTVar</span></span><span> </span><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159492"><span class="hs-identifier hs-var">lmapvar</span></a></span><span>
+</span><span id="line-132"></span><span>          </span><span class="hs-keyword">let</span><span>
+</span><span id="line-133"></span><span>            </span><span id="local-6989586621679159486"><span class="annot"><span class="annottext">mlock :: Maybe Lock
+</span><a href="#local-6989586621679159486"><span class="hs-identifier hs-var hs-var">mlock</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Map ByteString Lock -&gt; Maybe Lock
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Map.lookup</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159489"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="annot"><span class="annottext">Map ByteString Lock
+</span><a href="#local-6989586621679159488"><span class="hs-identifier hs-var">lmap</span></a></span><span>
+</span><span id="line-134"></span><span>            </span><span id="local-6989586621679159484"><span class="annot"><span class="annottext">new :: STM Lock
+</span><a href="#local-6989586621679159484"><span class="hs-identifier hs-var hs-var">new</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-135"></span><span>                </span><span id="local-6989586621679159483"><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159483"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">STM Lock
+forall a. STM (TMVar a)
+</span><span class="hs-identifier hs-var">STM.newEmptyTMVar</span></span><span>
+</span><span id="line-136"></span><span>                </span><span class="annot"><span class="annottext">LockMap -&gt; Map ByteString Lock -&gt; STM ()
+forall a. TVar a -&gt; a -&gt; STM ()
+</span><span class="hs-identifier hs-var">STM.writeTVar</span></span><span> </span><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159492"><span class="hs-identifier hs-var">lmapvar</span></a></span><span> </span><span class="annot"><span class="annottext">(Map ByteString Lock -&gt; STM ()) -&gt; Map ByteString Lock -&gt; STM ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Lock -&gt; Map ByteString Lock -&gt; Map ByteString Lock
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">Map.insert</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159489"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159483"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Map ByteString Lock
+</span><a href="#local-6989586621679159488"><span class="hs-identifier hs-var">lmap</span></a></span><span>
+</span><span id="line-137"></span><span>                </span><span class="annot"><span class="annottext">Lock -&gt; STM Lock
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159483"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-138"></span><span>          </span><span class="annot"><span class="annottext">STM Lock -&gt; (Lock -&gt; STM Lock) -&gt; Maybe Lock -&gt; STM Lock
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="annot"><span class="annottext">STM Lock
+</span><a href="#local-6989586621679159484"><span class="hs-identifier hs-var">new</span></a></span><span> </span><span class="annot"><span class="annottext">Lock -&gt; STM Lock
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Maybe Lock
+</span><a href="#local-6989586621679159486"><span class="hs-identifier hs-var">mlock</span></a></span><span>
+</span><span id="line-139"></span><span>
+</span><span id="line-140"></span><span>    </span><span class="annot"><a href="#local-6989586621679159505"><span class="hs-identifier hs-type">cleanup</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ProcessId</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.TMVar</span></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.TMVar</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span>    </span><span id="local-6989586621679159505"><span class="annot"><span class="annottext">cleanup :: ProcessId -&gt; TMVar [Lock] -&gt; TMVar () -&gt; Process ()
+</span><a href="#local-6989586621679159505"><span class="hs-identifier hs-var hs-var">cleanup</span></a></span></span><span> </span><span id="local-6989586621679159479"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159479"><span class="hs-identifier hs-var">pid</span></a></span></span><span> </span><span id="local-6989586621679159478"><span class="annot"><span class="annottext">TMVar [Lock]
+</span><a href="#local-6989586621679159478"><span class="hs-identifier hs-var">lvar</span></a></span></span><span> </span><span id="local-6989586621679159477"><span class="annot"><span class="annottext">TMVar ()
+</span><a href="#local-6989586621679159477"><span class="hs-identifier hs-var">sig</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-142"></span><span>      </span><span class="annot"><span class="annottext">Process () -&gt; (ProcessLinkException -&gt; Process ()) -&gt; Process ()
+forall (m :: * -&gt; *) e a.
+(MonadCatch m, Exception e) =&gt;
+m a -&gt; (e -&gt; m a) -&gt; m a
+</span><span class="hs-identifier hs-var">catch</span></span><span> </span><span class="hs-comment">-- We catch the exceptions raised due to link to pid</span><span>
+</span><span id="line-143"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-144"></span><span>            </span><span class="annot"><span class="annottext">ProcessId -&gt; Process ()
+</span><span class="hs-identifier hs-var">link</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159479"><span class="hs-identifier hs-var">pid</span></a></span><span> </span><span class="hs-comment">-- Link to pid</span><span>
+</span><span id="line-145"></span><span>            </span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ()) -&gt; (STM () -&gt; IO ()) -&gt; STM () -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; Process ()) -&gt; STM () -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">TMVar () -&gt; () -&gt; STM ()
+forall a. TMVar a -&gt; a -&gt; STM ()
+</span><span class="hs-identifier hs-var">STM.putTMVar</span></span><span> </span><span class="annot"><span class="annottext">TMVar ()
+</span><a href="#local-6989586621679159477"><span class="hs-identifier hs-var">sig</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- Inform master process that we have linked</span><span>
+</span><span id="line-146"></span><span>            </span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ()) -&gt; (STM () -&gt; IO ()) -&gt; STM () -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; Process ()) -&gt; STM () -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">TMVar [Lock] -&gt; STM [Lock]
+forall a. TMVar a -&gt; STM a
+</span><span class="hs-identifier hs-var">STM.readTMVar</span></span><span> </span><span class="annot"><span class="annottext">TMVar [Lock]
+</span><a href="#local-6989586621679159478"><span class="hs-identifier hs-var">lvar</span></a></span><span> </span><span class="annot"><span class="annottext">STM [Lock] -&gt; ([Lock] -&gt; STM ()) -&gt; STM ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="annot"><span class="annottext">(Lock -&gt; STM ()) -&gt; [Lock] -&gt; STM ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m ()
+</span><span class="hs-identifier hs-var">mapM_</span></span><span> </span><span class="annot"><span class="annottext">Lock -&gt; STM ()
+</span><a href="#local-6989586621679159475"><span class="hs-identifier hs-var">wait</span></a></span><span> </span><span class="hs-comment">-- Wait for the locks locked by our caller's pid</span><span>
+</span><span id="line-147"></span><span>        </span><span class="hs-special">)</span><span>
+</span><span id="line-148"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ProcessLinkException</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679159473"><span class="annot"><span class="annottext">DiedReason
+</span><a href="#local-6989586621679159473"><span class="hs-identifier hs-var">reason</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-149"></span><span>            </span><span class="hs-comment">-- We do not clean up if the caller died normally. It is the caller's responsibility to clean things up.</span><span>
+</span><span id="line-150"></span><span>            </span><span class="hs-comment">-- This of course includes handled exceptions in the caller. In this case we clean up using 'bracket' in the</span><span>
+</span><span id="line-151"></span><span>            </span><span class="hs-comment">-- caller.</span><span>
+</span><span id="line-152"></span><span>            </span><span class="annot"><span class="annottext">Bool -&gt; Process () -&gt; Process ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><span class="hs-identifier hs-var">unless</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">DiedReason
+</span><a href="#local-6989586621679159473"><span class="hs-identifier hs-var">reason</span></a></span><span> </span><span class="annot"><span class="annottext">DiedReason -&gt; DiedReason -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">DiedReason
+</span><span class="hs-identifier hs-var">DiedNormal</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Process () -&gt; Process ()) -&gt; Process () -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-153"></span><span>              </span><span id="local-6989586621679159471"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679159471"><span class="hs-identifier hs-var">pidReleasedLock</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO Bool -&gt; Process Bool
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO Bool -&gt; Process Bool)
+-&gt; (STM Bool -&gt; IO Bool) -&gt; STM Bool -&gt; Process Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM Bool -&gt; IO Bool
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM Bool -&gt; Process Bool) -&gt; STM Bool -&gt; Process Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-154"></span><span>                </span><span id="local-6989586621679159470"><span class="annot"><span class="annottext">Maybe [Lock]
+</span><a href="#local-6989586621679159470"><span class="hs-identifier hs-var">mlocks</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TMVar [Lock] -&gt; STM (Maybe [Lock])
+forall a. TMVar a -&gt; STM (Maybe a)
+</span><span class="hs-identifier hs-var">STM.tryReadTMVar</span></span><span> </span><span class="annot"><span class="annottext">TMVar [Lock]
+</span><a href="#local-6989586621679159478"><span class="hs-identifier hs-var">lvar</span></a></span><span>
+</span><span id="line-155"></span><span>                </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe [Lock]
+</span><a href="#local-6989586621679159470"><span class="hs-identifier hs-var">mlocks</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-156"></span><span>                  </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679159468"><span class="annot"><span class="annottext">[Lock]
+</span><a href="#local-6989586621679159468"><span class="hs-identifier hs-var">locks</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-157"></span><span>                    </span><span id="local-6989586621679159467"><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679159467"><span class="hs-identifier hs-var">releases</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">((Lock -&gt; STM Bool) -&gt; [Lock] -&gt; STM [Bool])
+-&gt; [Lock] -&gt; (Lock -&gt; STM Bool) -&gt; STM [Bool]
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><span class="hs-identifier hs-var">flip</span></span><span> </span><span class="annot"><span class="annottext">(Lock -&gt; STM Bool) -&gt; [Lock] -&gt; STM [Bool]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><span class="hs-identifier hs-var">mapM</span></span><span> </span><span class="annot"><span class="annottext">[Lock]
+</span><a href="#local-6989586621679159468"><span class="hs-identifier hs-var">locks</span></a></span><span> </span><span class="annot"><span class="annottext">((Lock -&gt; STM Bool) -&gt; STM [Bool])
+-&gt; (Lock -&gt; STM Bool) -&gt; STM [Bool]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679159466"><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159466"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-158"></span><span>                      </span><span class="annot"><span class="annottext">Lock -&gt; STM (Maybe ProcessId)
+forall a. TMVar a -&gt; STM (Maybe a)
+</span><span class="hs-identifier hs-var">STM.tryReadTMVar</span></span><span> </span><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159466"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">STM (Maybe ProcessId) -&gt; (Maybe ProcessId -&gt; STM Bool) -&gt; STM Bool
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-159"></span><span>                        </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679159465"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159465"><span class="hs-identifier hs-var">pid'</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159479"><span class="hs-identifier hs-var">pid</span></a></span><span> </span><span class="annot"><span class="annottext">ProcessId -&gt; ProcessId -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159465"><span class="hs-identifier hs-var">pid'</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-160"></span><span>                          </span><span class="annot"><span class="annottext">Lock -&gt; STM ()
+</span><a href="Hyperion.LockMap.html#unlock"><span class="hs-identifier hs-var">unlock</span></a></span><span> </span><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159466"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-161"></span><span>                          </span><span class="annot"><span class="annottext">Bool -&gt; STM Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-162"></span><span>                          </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; STM Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-163"></span><span>                        </span><span class="annot"><span class="annottext">Maybe ProcessId
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; STM Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-164"></span><span>                    </span><span class="annot"><span class="annottext">Bool -&gt; STM Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; [Bool] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">all</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+forall a. a -&gt; a
+</span><span class="hs-identifier hs-var">id</span></span><span> </span><span class="annot"><span class="annottext">[Bool]
+</span><a href="#local-6989586621679159467"><span class="hs-identifier hs-var">releases</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-165"></span><span>                  </span><span class="annot"><span class="annottext">Maybe [Lock]
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; STM Bool
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-166"></span><span>              </span><span class="annot"><span class="annottext">Bool -&gt; Process () -&gt; Process ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><span class="hs-identifier hs-var">unless</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679159471"><span class="hs-identifier hs-var">pidReleasedLock</span></a></span><span> </span><span class="annot"><span class="annottext">(Process () -&gt; Process ()) -&gt; Process () -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; ProcessId -&gt; Process ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#warn"><span class="hs-identifier hs-var">Log.warn</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Process holding a lock died, released the locks it held&quot;</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159479"><span class="hs-identifier hs-var">pid</span></a></span><span>
+</span><span id="line-167"></span><span>        </span><span class="hs-special">)</span><span>
+</span><span id="line-168"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-169"></span><span>        </span><span class="annot"><a href="#local-6989586621679159475"><span class="hs-identifier hs-type">wait</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.LockMap.html#Lock"><span class="hs-identifier hs-type">Lock</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">STM.STM</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-170"></span><span>        </span><span id="local-6989586621679159475"><span class="annot"><span class="annottext">wait :: Lock -&gt; STM ()
+</span><a href="#local-6989586621679159475"><span class="hs-identifier hs-var hs-var">wait</span></a></span></span><span> </span><span id="local-6989586621679159463"><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159463"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Lock -&gt; STM (Maybe ProcessId)
+forall a. TMVar a -&gt; STM (Maybe a)
+</span><span class="hs-identifier hs-var">STM.tryReadTMVar</span></span><span> </span><span class="annot"><span class="annottext">Lock
+</span><a href="#local-6989586621679159463"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">STM (Maybe ProcessId) -&gt; (Maybe ProcessId -&gt; STM ()) -&gt; STM ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-171"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679159462"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159462"><span class="hs-identifier hs-var">pid'</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159479"><span class="hs-identifier hs-var">pid</span></a></span><span> </span><span class="annot"><span class="annottext">ProcessId -&gt; ProcessId -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159462"><span class="hs-identifier hs-var">pid'</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">STM ()
+forall a. STM a
+</span><span class="hs-identifier hs-var">STM.retry</span></span><span>
+</span><span id="line-172"></span><span>                                      </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">() -&gt; STM ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span>          </span><span class="annot"><span class="annottext">Maybe ProcessId
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>   </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; STM ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-174"></span><span>
+</span><span id="line-175"></span><span class="annot"><a href="Hyperion.LockMap.html#unlockRemote_"><span class="hs-identifier hs-type">unlockRemote_</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-176"></span><span id="unlockRemote_"><span class="annot"><span class="annottext">unlockRemote_ :: ByteString -&gt; Process ()
+</span><a href="Hyperion.LockMap.html#unlockRemote_"><span class="hs-identifier hs-var hs-var">unlockRemote_</span></a></span></span><span> </span><span id="local-6989586621679159460"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159460"><span class="hs-identifier hs-var">bss'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-177"></span><span>  </span><span class="annot"><span class="annottext">Process (Maybe NodeId)
+</span><a href="Hyperion.Remote.html#getMasterNodeId"><span class="hs-identifier hs-var">getMasterNodeId</span></a></span><span> </span><span class="annot"><span class="annottext">Process (Maybe NodeId)
+-&gt; (Maybe NodeId -&gt; Process ()) -&gt; Process ()
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-178"></span><span>    </span><span class="annot"><span class="annottext">Maybe NodeId
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-179"></span><span>      </span><span id="local-6989586621679159459"><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159459"><span class="hs-identifier hs-var">lvar</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process LockMap
+</span><a href="Hyperion.LockMap.html#getLockMap"><span class="hs-identifier hs-var">getLockMap</span></a></span><span>
+</span><span id="line-180"></span><span>      </span><span class="annot"><span class="annottext">IO () -&gt; Process ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; Process ()) -&gt; (STM () -&gt; IO ()) -&gt; STM () -&gt; Process ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">STM.atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; Process ()) -&gt; STM () -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-181"></span><span>        </span><span id="local-6989586621679159458"><span class="annot"><span class="annottext">Map ByteString Lock
+</span><a href="#local-6989586621679159458"><span class="hs-identifier hs-var">lmap</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">LockMap -&gt; STM (Map ByteString Lock)
+forall a. TVar a -&gt; STM a
+</span><span class="hs-identifier hs-var">STM.readTVar</span></span><span> </span><span class="annot"><span class="annottext">LockMap
+</span><a href="#local-6989586621679159459"><span class="hs-identifier hs-var">lvar</span></a></span><span>
+</span><span id="line-182"></span><span>        </span><span class="hs-keyword">let</span><span>
+</span><span id="line-183"></span><span>          </span><span id="local-6989586621679159457"><span class="annot"><span class="annottext">unlock' :: ByteString -&gt; STM ()
+</span><a href="#local-6989586621679159457"><span class="hs-identifier hs-var hs-var">unlock'</span></a></span></span><span> </span><span id="local-6989586621679159456"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159456"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">STM () -&gt; (Lock -&gt; STM ()) -&gt; Maybe Lock -&gt; STM ()
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">() -&gt; STM ()
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Lock -&gt; STM ()
+</span><a href="Hyperion.LockMap.html#unlock"><span class="hs-identifier hs-var">unlock</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Map ByteString Lock -&gt; Maybe Lock
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Map.lookup</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159456"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="annot"><span class="annottext">Map ByteString Lock
+</span><a href="#local-6989586621679159458"><span class="hs-identifier hs-var">lmap</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-184"></span><span>        </span><span class="annot"><span class="annottext">(ByteString -&gt; STM ()) -&gt; [ByteString] -&gt; STM ()
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Foldable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m ()
+</span><span class="hs-identifier hs-var">mapM_</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; STM ()
+</span><a href="#local-6989586621679159457"><span class="hs-identifier hs-var">unlock'</span></a></span><span> </span><span class="annot"><span class="annottext">[ByteString]
+</span><a href="#local-6989586621679159455"><span class="hs-identifier hs-var">bss</span></a></span><span>
+</span><span id="line-185"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679159454"><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679159454"><span class="hs-identifier hs-var">nid</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-186"></span><span>      </span><span class="annot"><span class="annottext">Static (SerializableDict ())
+-&gt; NodeId -&gt; Closure (Process ()) -&gt; Process ()
+forall a.
+Serializable a =&gt;
+Static (SerializableDict a)
+-&gt; NodeId -&gt; Closure (Process a) -&gt; Process a
+</span><span class="hs-identifier hs-var">call</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StaticPtr (SerializableDict ()) -&gt; Static (SerializableDict ())
+forall a. Typeable a =&gt; StaticPtr a -&gt; Static a
+</span><span class="hs-identifier hs-var">staticPtr</span></span><span> </span><span class="hs-special">(</span><span class="hs-keyword">static</span><span> </span><span class="annot"><span class="annottext">SerializableDict ()
+forall a. Serializable a =&gt; SerializableDict a
+</span><span class="hs-identifier hs-var">SerializableDict</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679159454"><span class="hs-identifier hs-var">nid</span></a></span><span> </span><span class="annot"><span class="annottext">(Closure (Process ()) -&gt; Process ())
+-&gt; Closure (Process ()) -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-187"></span><span>        </span><span class="annot"><span class="annottext">Static (ByteString -&gt; Process ())
+-&gt; ByteString -&gt; Closure (Process ())
+forall a. Static (ByteString -&gt; a) -&gt; ByteString -&gt; Closure a
+</span><span class="hs-identifier hs-var">closure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">StaticPtr (ByteString -&gt; Process ())
+-&gt; Static (ByteString -&gt; Process ())
+forall a. Typeable a =&gt; StaticPtr a -&gt; Static a
+</span><span class="hs-identifier hs-var">staticPtr</span></span><span> </span><span class="hs-special">(</span><span class="hs-keyword">static</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Process ()
+</span><a href="Hyperion.LockMap.html#unlockRemote_"><span class="hs-identifier hs-var">unlockRemote_</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159460"><span class="hs-identifier hs-var">bss'</span></a></span><span>
+</span><span id="line-188"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-189"></span><span>    </span><span class="annot"><a href="#local-6989586621679159455"><span class="hs-identifier hs-type">bss</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span class="hs-special">]</span><span>
+</span><span id="line-190"></span><span>    </span><span id="local-6989586621679159455"><span class="annot"><span class="annottext">bss :: [ByteString]
+</span><a href="#local-6989586621679159455"><span class="hs-identifier hs-var hs-var">bss</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; [ByteString]
+forall a. Binary a =&gt; ByteString -&gt; a
+</span><span class="hs-identifier hs-var">decode</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679159460"><span class="hs-identifier hs-var">bss'</span></a></span><span>
+</span><span id="line-191"></span><span>
+</span><span id="line-192"></span><span class="hs-comment">--isLockedRemote_ :: ByteString -&gt; Process Bool</span><span>
+</span><span id="line-193"></span><span class="hs-comment">--isLockedRemote_ bs = do</span><span>
+</span><span id="line-194"></span><span class="hs-comment">--  getMasterNodeId &gt;&gt;= \case</span><span>
+</span><span id="line-195"></span><span class="hs-comment">--    Nothing -&gt; do</span><span>
+</span><span id="line-196"></span><span class="hs-comment">--      lvar &lt;- getLockMap</span><span>
+</span><span id="line-197"></span><span class="hs-comment">--      liftIO . STM.atomically $ do</span><span>
+</span><span id="line-198"></span><span class="hs-comment">--        lmap &lt;- STM.readTVar lvar</span><span>
+</span><span id="line-199"></span><span class="hs-comment">--        let mlock = Map.lookup bs lmap</span><span>
+</span><span id="line-200"></span><span class="hs-comment">--        maybe (return False) isLocked mlock</span><span>
+</span><span id="line-201"></span><span class="hs-comment">--    Just nid -&gt;</span><span>
+</span><span id="line-202"></span><span class="hs-comment">--      call (staticPtr (static SerializableDict)) nid $</span><span>
+</span><span id="line-203"></span><span class="hs-comment">--        closure (staticPtr (static isLockedRemote_)) bs</span><span>
+</span><span id="line-204"></span><span>
+</span><span id="line-205"></span><span id="local-6989586621679159575"><span class="annot"><a href="Hyperion.LockMap.html#serialize"><span class="hs-identifier hs-type">serialize</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679159575"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679159575"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679159575"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span></span><span>
+</span><span id="line-206"></span><span id="serialize"><span class="annot"><span class="annottext">serialize :: a -&gt; ByteString
+</span><a href="Hyperion.LockMap.html#serialize"><span class="hs-identifier hs-var hs-var">serialize</span></a></span></span><span> </span><span id="local-6989586621679159452"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679159452"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(TypeRep, a) -&gt; ByteString
+forall a. Binary a =&gt; a -&gt; ByteString
+</span><span class="hs-identifier hs-var">encode</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; TypeRep
+forall a. Typeable a =&gt; a -&gt; TypeRep
+</span><span class="hs-identifier hs-var">typeOf</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679159452"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679159452"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-207"></span><span>
+</span><span id="line-208"></span><span id="local-6989586621679159565"><span class="annot"><a href="Hyperion.LockMap.html#lockRemote"><span class="hs-identifier hs-type">lockRemote</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679159565"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679159565"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679159565"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Hyperion.LockMap.html#Key"><span class="hs-identifier hs-type">Key</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679159565"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-209"></span><span id="lockRemote"><span class="annot"><span class="annottext">lockRemote :: [a] -&gt; Process [Key a]
+</span><a href="Hyperion.LockMap.html#lockRemote"><span class="hs-identifier hs-var hs-var">lockRemote</span></a></span></span><span> </span><span id="local-6989586621679159450"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679159450"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-210"></span><span>  </span><span id="local-6989586621679159449"><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159449"><span class="hs-identifier hs-var">pid</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Process ProcessId
+</span><span class="hs-identifier hs-var">getSelfPid</span></span><span>
+</span><span id="line-211"></span><span>  </span><span class="annot"><span class="annottext">ByteString -&gt; Process ()
+</span><a href="Hyperion.LockMap.html#lockRemote_"><span class="hs-identifier hs-var">lockRemote_</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Process ()) -&gt; ByteString -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(ProcessId, [ByteString]) -&gt; ByteString
+forall a. Binary a =&gt; a -&gt; ByteString
+</span><span class="hs-identifier hs-var">encode</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ProcessId
+</span><a href="#local-6989586621679159449"><span class="hs-identifier hs-var">pid</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(a -&gt; ByteString) -&gt; [a] -&gt; [ByteString]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; ByteString
+forall a. (Typeable a, Binary a) =&gt; a -&gt; ByteString
+</span><a href="Hyperion.LockMap.html#serialize"><span class="hs-identifier hs-var">serialize</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679159450"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-212"></span><span>  </span><span class="annot"><span class="annottext">[Key a] -&gt; Process [Key a]
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(a -&gt; Key a) -&gt; [a] -&gt; [Key a]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">a -&gt; Key a
+forall a. a -&gt; Key a
+</span><a href="Hyperion.LockMap.html#Key"><span class="hs-identifier hs-var">Key</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679159450"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-213"></span><span>
+</span><span id="line-214"></span><span id="local-6989586621679159564"><span class="annot"><a href="Hyperion.LockMap.html#unlockRemote"><span class="hs-identifier hs-type">unlockRemote</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679159564"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679159564"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Hyperion.LockMap.html#Key"><span class="hs-identifier hs-type">Key</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679159564"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-215"></span><span id="unlockRemote"><span class="annot"><span class="annottext">unlockRemote :: [Key a] -&gt; Process ()
+</span><a href="Hyperion.LockMap.html#unlockRemote"><span class="hs-identifier hs-var hs-var">unlockRemote</span></a></span></span><span> </span><span id="local-6989586621679159447"><span class="annot"><span class="annottext">[Key a]
+</span><a href="#local-6989586621679159447"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Process ()
+</span><a href="Hyperion.LockMap.html#unlockRemote_"><span class="hs-identifier hs-var">unlockRemote_</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Process ()) -&gt; ByteString -&gt; Process ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">[ByteString] -&gt; ByteString
+forall a. Binary a =&gt; a -&gt; ByteString
+</span><span class="hs-identifier hs-var">encode</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Key a -&gt; ByteString) -&gt; [Key a] -&gt; [ByteString]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a -&gt; ByteString
+forall a. (Typeable a, Binary a) =&gt; a -&gt; ByteString
+</span><a href="Hyperion.LockMap.html#serialize"><span class="hs-identifier hs-var">serialize</span></a></span><span> </span><span class="annot"><span class="annottext">(a -&gt; ByteString) -&gt; (Key a -&gt; a) -&gt; Key a -&gt; ByteString
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Key a -&gt; a
+forall a. Key a -&gt; a
+</span><a href="Hyperion.LockMap.html#unKey"><span class="hs-identifier hs-var hs-var">unKey</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Key a]
+</span><a href="#local-6989586621679159447"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-216"></span><span>
+</span><span id="line-217"></span><span class="hs-comment">--isLockedRemote :: (Typeable a, Binary a) =&gt; a -&gt; Process Bool</span><span>
+</span><span id="line-218"></span><span class="hs-comment">--isLockedRemote = isLockedRemote_ . serialize</span><span>
+</span><span id="line-219"></span><span>
+</span><span id="line-220"></span><span id="local-6989586621679159558"><span id="local-6989586621679159559"><span class="annot"><a href="Hyperion.LockMap.html#withLocks"><span class="hs-identifier hs-type">withLocks</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679159559"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679159559"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679159559"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679159558"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679159558"><span class="hs-identifier hs-type">r</span></a></span></span></span><span>
+</span><span id="line-221"></span><span id="withLocks"><span class="annot"><span class="annottext">withLocks :: [a] -&gt; Process r -&gt; Process r
+</span><a href="Hyperion.LockMap.html#withLocks"><span class="hs-identifier hs-var hs-var">withLocks</span></a></span></span><span> </span><span id="local-6989586621679159446"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679159446"><span class="hs-identifier hs-var">obj</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Process [Key a]
+-&gt; ([Key a] -&gt; Process ()) -&gt; ([Key a] -&gt; Process r) -&gt; Process r
+forall (m :: * -&gt; *) a c b.
+MonadMask m =&gt;
+m a -&gt; (a -&gt; m c) -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-identifier hs-var">bracket</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[a] -&gt; Process [Key a]
+forall a. (Typeable a, Binary a) =&gt; [a] -&gt; Process [Key a]
+</span><a href="Hyperion.LockMap.html#lockRemote"><span class="hs-identifier hs-var">lockRemote</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679159446"><span class="hs-identifier hs-var">obj</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Key a] -&gt; Process ()
+forall a. (Typeable a, Binary a) =&gt; [Key a] -&gt; Process ()
+</span><a href="Hyperion.LockMap.html#unlockRemote"><span class="hs-identifier hs-var">unlockRemote</span></a></span><span> </span><span class="annot"><span class="annottext">(([Key a] -&gt; Process r) -&gt; Process r)
+-&gt; (Process r -&gt; [Key a] -&gt; Process r) -&gt; Process r -&gt; Process r
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Process r -&gt; [Key a] -&gt; Process r
+forall a b. a -&gt; b -&gt; a
+</span><span class="hs-identifier hs-var">const</span></span><span>
+</span><span id="line-222"></span><span>
+</span><span id="line-223"></span><span id="local-6989586621679159443"><span id="local-6989586621679159444"><span class="annot"><a href="Hyperion.LockMap.html#withLock"><span class="hs-identifier hs-type">withLock</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Typeable</span></span><span> </span><span class="annot"><a href="#local-6989586621679159444"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Binary</span></span><span> </span><span class="annot"><a href="#local-6989586621679159444"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679159444"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679159443"><span class="hs-identifier hs-type">r</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Process</span></span><span> </span><span class="annot"><a href="#local-6989586621679159443"><span class="hs-identifier hs-type">r</span></a></span></span></span><span>
+</span><span id="line-224"></span><span id="withLock"><span class="annot"><span class="annottext">withLock :: a -&gt; Process r -&gt; Process r
+</span><a href="Hyperion.LockMap.html#withLock"><span class="hs-identifier hs-var hs-var">withLock</span></a></span></span><span> </span><span id="local-6989586621679159442"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679159442"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[a] -&gt; Process r -&gt; Process r
+forall a r. (Typeable a, Binary a) =&gt; [a] -&gt; Process r -&gt; Process r
+</span><a href="Hyperion.LockMap.html#withLocks"><span class="hs-identifier hs-var">withLocks</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679159442"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">]</span></pre></body></html>

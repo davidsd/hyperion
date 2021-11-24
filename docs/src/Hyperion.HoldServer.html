@@ -1,0 +1,214 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DataKinds         #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE PolyKinds         #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE TypeApplications  #-}</span><span>
+</span><span id="line-5"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies      #-}</span><span>
+</span><span id="line-6"></span><span class="hs-pragma">{-# LANGUAGE TypeOperators     #-}</span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Hyperion.HoldServer</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-9"></span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Concurrent.MVar</span></span><span>     </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">newEmptyMVar</span></span><span class="hs-special">,</span><span>
+</span><span id="line-11"></span><span>                                              </span><span class="annot"><span class="hs-identifier">readMVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">tryPutMVar</span></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM</span></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">atomically</span></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM.TVar</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">TVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">modifyTVar</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">newTVarIO</span></span><span class="hs-special">,</span><span>
+</span><span id="line-14"></span><span>                                              </span><span class="annot"><span class="hs-identifier">readTVarIO</span></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad</span></span><span>               </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">when</span></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Control.Monad.IO.Class</span></span><span>      </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MonadIO</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">liftIO</span></span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Map</span></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Map</span></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map</span></span><span>                    </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Data.Maybe</span></span><span>                  </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">catMaybes</span></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span>                   </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><a href="Hyperion.Log.html"><span class="hs-identifier">Hyperion.Log</span></a></span><span>                </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Log</span></span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Network.Wai</span></span><span>                 </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Network.Wai.Handler.Warp</span></span><span>    </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Warp</span></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span>           </span><span class="annot"><span class="hs-identifier">Servant</span></span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">type</span><span> </span><span id="HoldApi"><span class="annot"><a href="Hyperion.HoldServer.html#HoldApi"><span class="hs-identifier hs-var">HoldApi</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-27"></span><span>       </span><span class="annot"><span class="hs-string">&quot;retry&quot;</span></span><span> </span><span class="annot"><span class="hs-operator hs-type">:&gt;</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Capture</span></span><span> </span><span class="annot"><span class="hs-string">&quot;service&quot;</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">T.Text</span></span><span> </span><span class="annot"><span class="hs-operator hs-type">:&gt;</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Get</span></span><span> </span><span class="hs-special">'</span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">JSON</span></span><span class="hs-special">]</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">T.Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span>  </span><span class="annot"><span class="hs-operator hs-type">:&lt;|&gt;</span></span><span> </span><span class="annot"><span class="hs-string">&quot;retry-all&quot;</span></span><span> </span><span class="annot"><span class="hs-operator hs-type">:&gt;</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Get</span></span><span> </span><span class="hs-special">'</span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">JSON</span></span><span class="hs-special">]</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">T.Text</span></span><span class="hs-special">]</span><span>
+</span><span id="line-29"></span><span>  </span><span class="annot"><span class="hs-operator hs-type">:&lt;|&gt;</span></span><span> </span><span class="annot"><span class="hs-string">&quot;list&quot;</span></span><span> </span><span class="annot"><span class="hs-operator hs-type">:&gt;</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Get</span></span><span> </span><span class="hs-special">'</span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">JSON</span></span><span class="hs-special">]</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">T.Text</span></span><span class="hs-special">]</span><span>
+</span><span id="line-30"></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">newtype</span><span> </span><span id="HoldMap"><span class="annot"><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-var">HoldMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="HoldMap"><span class="annot"><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-var">HoldMap</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">TVar</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Map</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">T.Text</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MVar</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span>
+</span><span id="line-33"></span><span class="annot"><a href="Hyperion.HoldServer.html#newHoldMap"><span class="hs-identifier hs-type">newHoldMap</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-type">HoldMap</span></a></span><span>
+</span><span id="line-34"></span><span id="newHoldMap"><span class="annot"><span class="annottext">newHoldMap :: IO HoldMap
+</span><a href="Hyperion.HoldServer.html#newHoldMap"><span class="hs-identifier hs-var hs-var">newHoldMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TVar (Map Text (MVar ())) -&gt; HoldMap
+</span><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-var">HoldMap</span></a></span><span> </span><span class="annot"><span class="annottext">(TVar (Map Text (MVar ())) -&gt; HoldMap)
+-&gt; IO (TVar (Map Text (MVar ()))) -&gt; IO HoldMap
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Map Text (MVar ()) -&gt; IO (TVar (Map Text (MVar ())))
+forall a. a -&gt; IO (TVar a)
+</span><span class="hs-identifier hs-var">newTVarIO</span></span><span> </span><span class="annot"><span class="annottext">Map Text (MVar ())
+forall k a. Map k a
+</span><span class="hs-identifier hs-var">Map.empty</span></span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span class="annot"><a href="Hyperion.HoldServer.html#server"><span class="hs-identifier hs-type">server</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-type">HoldMap</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Server</span></span><span> </span><span class="annot"><a href="Hyperion.HoldServer.html#HoldApi"><span class="hs-identifier hs-type">HoldApi</span></a></span><span>
+</span><span id="line-37"></span><span id="server"><span class="annot"><span class="annottext">server :: HoldMap -&gt; Server HoldApi
+</span><a href="Hyperion.HoldServer.html#server"><span class="hs-identifier hs-var hs-var">server</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-type">HoldMap</span></a></span><span> </span><span id="local-6989586621679158319"><span class="annot"><span class="annottext">TVar (Map Text (MVar ()))
+</span><a href="#local-6989586621679158319"><span class="hs-identifier hs-var">holdMap</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Handler (Maybe Text)
+</span><a href="#local-6989586621679158318"><span class="hs-identifier hs-var">retry</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Handler (Maybe Text))
+-&gt; (Handler [Text] :&lt;|&gt; Handler [Text])
+-&gt; (Text -&gt; Handler (Maybe Text))
+   :&lt;|&gt; (Handler [Text] :&lt;|&gt; Handler [Text])
+forall a b. a -&gt; b -&gt; a :&lt;|&gt; b
+</span><span class="hs-operator hs-var">:&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">Handler [Text]
+</span><a href="#local-6989586621679158316"><span class="hs-identifier hs-var">retryAll</span></a></span><span> </span><span class="annot"><span class="annottext">Handler [Text]
+-&gt; Handler [Text] -&gt; Handler [Text] :&lt;|&gt; Handler [Text]
+forall a b. a -&gt; b -&gt; a :&lt;|&gt; b
+</span><span class="hs-operator hs-var">:&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">Handler [Text]
+</span><a href="#local-6989586621679158315"><span class="hs-identifier hs-var">listHolds</span></a></span><span>
+</span><span id="line-38"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-39"></span><span>    </span><span id="local-6989586621679158318"><span class="annot"><span class="annottext">retry :: Text -&gt; Handler (Maybe Text)
+</span><a href="#local-6989586621679158318"><span class="hs-identifier hs-var hs-var">retry</span></a></span></span><span> </span><span id="local-6989586621679158314"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679158314"><span class="hs-identifier hs-var">service</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO (Maybe Text) -&gt; Handler (Maybe Text)
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO (Maybe Text) -&gt; Handler (Maybe Text))
+-&gt; IO (Maybe Text) -&gt; Handler (Maybe Text)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-40"></span><span>      </span><span id="local-6989586621679158313"><span class="annot"><span class="annottext">Map Text (MVar ())
+</span><a href="#local-6989586621679158313"><span class="hs-identifier hs-var">serviceMap</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TVar (Map Text (MVar ())) -&gt; IO (Map Text (MVar ()))
+forall a. TVar a -&gt; IO a
+</span><span class="hs-identifier hs-var">readTVarIO</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map Text (MVar ()))
+</span><a href="#local-6989586621679158319"><span class="hs-identifier hs-var">holdMap</span></a></span><span>
+</span><span id="line-41"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Map Text (MVar ()) -&gt; Maybe (MVar ())
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Map.lookup</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679158314"><span class="hs-identifier hs-var">service</span></a></span><span> </span><span class="annot"><span class="annottext">Map Text (MVar ())
+</span><a href="#local-6989586621679158313"><span class="hs-identifier hs-var">serviceMap</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-42"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679158311"><span class="annot"><span class="annottext">MVar ()
+</span><a href="#local-6989586621679158311"><span class="hs-identifier hs-var">holdVar</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-43"></span><span>          </span><span id="local-6989586621679158310"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679158310"><span class="hs-identifier hs-var">unblocked</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">MVar () -&gt; () -&gt; IO Bool
+forall a. MVar a -&gt; a -&gt; IO Bool
+</span><span class="hs-identifier hs-var">tryPutMVar</span></span><span> </span><span class="annot"><span class="annottext">MVar ()
+</span><a href="#local-6989586621679158311"><span class="hs-identifier hs-var">holdVar</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span>          </span><span class="annot"><span class="annottext">Bool -&gt; IO () -&gt; IO ()
+forall (f :: * -&gt; *). Applicative f =&gt; Bool -&gt; f () -&gt; f ()
+</span><span class="hs-identifier hs-var">when</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679158310"><span class="hs-identifier hs-var">unblocked</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; IO ()) -&gt; IO () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; IO ()
+forall a (m :: * -&gt; *). (Show a, MonadIO m) =&gt; Text -&gt; a -&gt; m ()
+</span><a href="Hyperion.Log.html#warn"><span class="hs-identifier hs-var">Log.warn</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;Service already unblocked&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679158314"><span class="hs-identifier hs-var">service</span></a></span><span>
+</span><span id="line-45"></span><span>          </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; IO ()) -&gt; STM () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map Text (MVar ()))
+-&gt; (Map Text (MVar ()) -&gt; Map Text (MVar ())) -&gt; STM ()
+forall a. TVar a -&gt; (a -&gt; a) -&gt; STM ()
+</span><span class="hs-identifier hs-var">modifyTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map Text (MVar ()))
+</span><a href="#local-6989586621679158319"><span class="hs-identifier hs-var">holdMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Map Text (MVar ()) -&gt; Map Text (MVar ())
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">Map.delete</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679158314"><span class="hs-identifier hs-var">service</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span>          </span><span class="annot"><span class="annottext">Maybe Text -&gt; IO (Maybe Text)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Maybe Text
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679158314"><span class="hs-identifier hs-var">service</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span>        </span><span class="annot"><span class="annottext">Maybe (MVar ())
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Text -&gt; IO (Maybe Text)
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Maybe Text
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-48"></span><span>    </span><span id="local-6989586621679158315"><span class="annot"><span class="annottext">listHolds :: Handler [Text]
+</span><a href="#local-6989586621679158315"><span class="hs-identifier hs-var hs-var">listHolds</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-49"></span><span>      </span><span class="annot"><span class="annottext">IO [Text] -&gt; Handler [Text]
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO [Text] -&gt; Handler [Text]) -&gt; IO [Text] -&gt; Handler [Text]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(Map Text (MVar ()) -&gt; [Text])
+-&gt; IO (Map Text (MVar ())) -&gt; IO [Text]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">Map Text (MVar ()) -&gt; [Text]
+forall k a. Map k a -&gt; [k]
+</span><span class="hs-identifier hs-var">Map.keys</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TVar (Map Text (MVar ())) -&gt; IO (Map Text (MVar ()))
+forall a. TVar a -&gt; IO a
+</span><span class="hs-identifier hs-var">readTVarIO</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map Text (MVar ()))
+</span><a href="#local-6989586621679158319"><span class="hs-identifier hs-var">holdMap</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-50"></span><span>    </span><span id="local-6989586621679158316"><span class="annot"><span class="annottext">retryAll :: Handler [Text]
+</span><a href="#local-6989586621679158316"><span class="hs-identifier hs-var hs-var">retryAll</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-51"></span><span>      </span><span id="local-6989586621679158305"><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679158305"><span class="hs-identifier hs-var">services</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Handler [Text]
+</span><a href="#local-6989586621679158315"><span class="hs-identifier hs-var">listHolds</span></a></span><span>
+</span><span id="line-52"></span><span>      </span><span class="annot"><span class="annottext">([Maybe Text] -&gt; [Text]) -&gt; Handler [Maybe Text] -&gt; Handler [Text]
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="annot"><span class="annottext">[Maybe Text] -&gt; [Text]
+forall a. [Maybe a] -&gt; [a]
+</span><span class="hs-identifier hs-var">catMaybes</span></span><span> </span><span class="annot"><span class="annottext">(Handler [Maybe Text] -&gt; Handler [Text])
+-&gt; Handler [Maybe Text] -&gt; Handler [Text]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Handler (Maybe Text)) -&gt; [Text] -&gt; Handler [Maybe Text]
+forall (t :: * -&gt; *) (m :: * -&gt; *) a b.
+(Traversable t, Monad m) =&gt;
+(a -&gt; m b) -&gt; t a -&gt; m (t b)
+</span><span class="hs-identifier hs-var">mapM</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Handler (Maybe Text)
+</span><a href="#local-6989586621679158318"><span class="hs-identifier hs-var">retry</span></a></span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679158305"><span class="hs-identifier hs-var">services</span></a></span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- | Start a hold associated to the given service. Returns an IO action</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- that blocks until the hold is released</span><span>
+</span><span id="line-56"></span><span id="local-6989586621679158303"><span class="annot"><a href="Hyperion.HoldServer.html#blockUntilRetried"><span class="hs-identifier hs-type">blockUntilRetried</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MonadIO</span></span><span> </span><span class="annot"><a href="#local-6989586621679158303"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-type">HoldMap</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">T.Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679158303"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span></span><span>
+</span><span id="line-57"></span><span id="blockUntilRetried"><span class="annot"><span class="annottext">blockUntilRetried :: HoldMap -&gt; Text -&gt; m ()
+</span><a href="Hyperion.HoldServer.html#blockUntilRetried"><span class="hs-identifier hs-var hs-var">blockUntilRetried</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-type">HoldMap</span></a></span><span> </span><span id="local-6989586621679158301"><span class="annot"><span class="annottext">TVar (Map Text (MVar ()))
+</span><a href="#local-6989586621679158301"><span class="hs-identifier hs-var">holdMap</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679158300"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679158300"><span class="hs-identifier hs-var">service</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO () -&gt; m ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; IO a -&gt; m a
+</span><span class="hs-identifier hs-var">liftIO</span></span><span> </span><span class="annot"><span class="annottext">(IO () -&gt; m ()) -&gt; IO () -&gt; m ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-58"></span><span>  </span><span id="local-6989586621679158299"><span class="annot"><span class="annottext">MVar ()
+</span><a href="#local-6989586621679158299"><span class="hs-identifier hs-var">holdVar</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (MVar ())
+forall a. IO (MVar a)
+</span><span class="hs-identifier hs-var">newEmptyMVar</span></span><span>
+</span><span id="line-59"></span><span>  </span><span class="hs-comment">-- This will loose the blocking MVar if service is already blocked</span><span>
+</span><span id="line-60"></span><span>  </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall a. STM a -&gt; IO a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM () -&gt; IO ()) -&gt; STM () -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map Text (MVar ()))
+-&gt; (Map Text (MVar ()) -&gt; Map Text (MVar ())) -&gt; STM ()
+forall a. TVar a -&gt; (a -&gt; a) -&gt; STM ()
+</span><span class="hs-identifier hs-var">modifyTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Map Text (MVar ()))
+</span><a href="#local-6989586621679158301"><span class="hs-identifier hs-var">holdMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; MVar () -&gt; Map Text (MVar ()) -&gt; Map Text (MVar ())
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">Map.insert</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679158300"><span class="hs-identifier hs-var">service</span></a></span><span> </span><span class="annot"><span class="annottext">MVar ()
+</span><a href="#local-6989586621679158299"><span class="hs-identifier hs-var">holdVar</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-61"></span><span>  </span><span class="annot"><span class="annottext">MVar () -&gt; IO ()
+forall a. MVar a -&gt; IO a
+</span><span class="hs-identifier hs-var">readMVar</span></span><span> </span><span class="annot"><span class="annottext">MVar ()
+</span><a href="#local-6989586621679158299"><span class="hs-identifier hs-var">holdVar</span></a></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- | Start the hold server on an available port and pass the port</span><span>
+</span><span id="line-64"></span><span class="hs-comment">-- number to the given action. The server is killed after the action</span><span>
+</span><span id="line-65"></span><span class="hs-comment">-- finishes.</span><span>
+</span><span id="line-66"></span><span class="hs-comment">--</span><span>
+</span><span id="line-67"></span><span id="local-6989586621679158297"><span class="annot"><a href="Hyperion.HoldServer.html#withHoldServer"><span class="hs-identifier hs-type">withHoldServer</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.HoldServer.html#HoldMap"><span class="hs-identifier hs-type">HoldMap</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="#local-6989586621679158297"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="#local-6989586621679158297"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-68"></span><span id="withHoldServer"><span class="annot"><span class="annottext">withHoldServer :: HoldMap -&gt; (Int -&gt; IO a) -&gt; IO a
+</span><a href="Hyperion.HoldServer.html#withHoldServer"><span class="hs-identifier hs-var hs-var">withHoldServer</span></a></span></span><span> </span><span id="local-6989586621679158295"><span class="annot"><span class="annottext">HoldMap
+</span><a href="#local-6989586621679158295"><span class="hs-identifier hs-var">holdMap</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">IO Application -&gt; (Int -&gt; IO a) -&gt; IO a
+forall a. IO Application -&gt; (Int -&gt; IO a) -&gt; IO a
+</span><span class="hs-identifier hs-var">Warp.withApplication</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Application -&gt; IO Application
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">Application
+</span><a href="#local-6989586621679158293"><span class="hs-identifier hs-var">app</span></a></span><span class="hs-special">)</span><span> </span><span>
+</span><span id="line-69"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-70"></span><span>    </span><span id="local-6989586621679158293"><span class="annot"><span class="annottext">app :: Application
+</span><a href="#local-6989586621679158293"><span class="hs-identifier hs-var hs-var">app</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Proxy HoldApi -&gt; Server HoldApi -&gt; Application
+forall api.
+HasServer api '[] =&gt;
+Proxy api -&gt; Server api -&gt; Application
+</span><span class="hs-identifier hs-var">serve</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Proxy HoldApi
+forall k (t :: k). Proxy t
+</span><span class="hs-identifier hs-var">Proxy</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="Hyperion.HoldServer.html#HoldApi"><span class="hs-identifier hs-type">HoldApi</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HoldMap -&gt; Server HoldApi
+</span><a href="Hyperion.HoldServer.html#server"><span class="hs-identifier hs-var">server</span></a></span><span> </span><span class="annot"><span class="annottext">HoldMap
+</span><a href="#local-6989586621679158295"><span class="hs-identifier hs-var">holdMap</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-71"></span></pre></body></html>
