@@ -48,6 +48,7 @@ instance Show Unique where
 
 uniqueSource :: IORef Integer
 uniqueSource = unsafePerformIO (newIORef 0)
+{-# NOINLINE uniqueSource #-}
 
 -- | Get a new Unique.
 newUnique :: IO Unique

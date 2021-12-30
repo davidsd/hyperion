@@ -19,9 +19,9 @@ import qualified Control.Concurrent.Async    as Async
 import           Control.Distributed.Process (NodeId, Process, spawnLocal)
 import           Control.Lens                (lens)
 import           Control.Monad.Catch         (throwM, try)
-import           Control.Monad.Cont          (ContT (..), runContT)
 import           Control.Monad.Except
 import           Control.Monad.Reader
+import           Control.Monad.Trans.Cont    (ContT (..), evalContT)
 import           Data.Binary                 (Binary)
 import qualified Data.Map                    as Map
 import           Data.Maybe                  (catMaybes)
@@ -36,12 +36,13 @@ import qualified Hyperion.Log                as Log
 import           Hyperion.Remote
 import           Hyperion.Slurm              (JobId (..))
 import qualified Hyperion.Slurm              as Slurm
-import           Hyperion.Static             (Closure, Static(..), cAp, cPtr, cPure, ptrAp)
+import           Hyperion.Static             (Closure, Static (..), cAp, cPtr,
+                                              cPure, ptrAp)
 import           Hyperion.Util               (myExecutable)
 import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHCommand,
                                               SSHError, WorkerAddr)
 import qualified Hyperion.WorkerCpuPool      as WCP
-import           System.FilePath.Posix       ((<.>), (</>), dropExtension)
+import           System.FilePath.Posix       (dropExtension, (<.>), (</>))
 import           System.Process              (callProcess)
 
 -- * General comments
@@ -143,7 +144,7 @@ runJobSlurm programInfo go = do
           Just logFile -> dropExtension logFile
           -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
-          Nothing -> programLogDir programInfo </> "workers" </> "workers"
+          Nothing      -> programLogDir programInfo </> "workers" </> "workers"
       , nodeSshCmd = programSSHCommand programInfo
       }
   withPoolLauncher nodeLauncherConfig nodes $ \poolLauncher -> do
@@ -291,7 +292,7 @@ withPoolLauncher
   -> [WorkerAddr]
   -> ((NumCPUs -> WorkerLauncher JobId) -> Process a)
   -> Process a
-withPoolLauncher cfg addrs' go = flip runContT return $ do
+withPoolLauncher cfg addrs' go = evalContT $ do
   mLaunchers <- mapM (ContT . withNodeLauncher cfg) addrs'
   let launcherMap = Map.fromList (catMaybes mLaunchers)
       addrs = Map.keys launcherMap

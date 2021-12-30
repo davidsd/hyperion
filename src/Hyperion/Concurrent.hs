@@ -157,20 +157,25 @@ newtype Concurrently m a = Concurrently { runConcurrently :: m a }
 instance Functor m => Functor (Concurrently m) where
   fmap f (Concurrently m) = Concurrently (fmap f m)
 
-instance Applicative (Concurrently (ReaderT r Process)) where
+instance Applicative (Concurrently Process) where
   pure = Concurrently . pure
   Concurrently f <*> Concurrently a =
-    Concurrently $ uncurry ($) <$> mapReaderT2 concurrently f a
+    Concurrently $ uncurry ($) <$> concurrently f a
 
-instance Alternative (Concurrently (ReaderT r Process)) where
+instance Alternative (Concurrently Process) where
   empty = Concurrently $ liftIO $ forever (threadDelay maxBound)
   Concurrently as <|> Concurrently bs =
-    Concurrently $ either id id <$> mapReaderT2 race as bs
+    Concurrently $ either id id <$> race as bs
 
--- | Utility function for lifting functions of two variables through ReaderT.
-mapReaderT2 :: (m a -> n b -> o c) -> ReaderT r m a -> ReaderT r n b -> ReaderT r o c
-mapReaderT2 mf (ReaderT ma) (ReaderT mb) =
-  ReaderT $ \r -> mf (ma r) (mb r)
+instance (Functor m, Applicative (Concurrently m)) => Applicative (Concurrently (ReaderT r m)) where
+  pure = Concurrently . ReaderT . const . runConcurrently . pure
+  Concurrently (ReaderT f) <*> Concurrently (ReaderT a) =
+    Concurrently $ ReaderT $ \r -> runConcurrently $ Concurrently (f r) <*> Concurrently (a r)
+
+instance (Functor m, Alternative (Concurrently m)) => Alternative (Concurrently (ReaderT r m)) where
+  empty = Concurrently $ ReaderT $ const $ runConcurrently empty
+  Concurrently (ReaderT as) <|> Concurrently (ReaderT bs) =
+    Concurrently $ ReaderT $ \r -> runConcurrently $ Concurrently (as r) <|> Concurrently (bs r)
 
 instance (Applicative (Concurrently m), Semigroup a) => Semigroup (Concurrently m a) where
   (<>) = liftA2 (<>)
