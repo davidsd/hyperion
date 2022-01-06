@@ -71,10 +71,6 @@ newtype Concurrently m a
 Concurrently :: m a -> Concurrently m a
 [runConcurrently] :: Concurrently m a -> m a
 
--- | Utility function for lifting functions of two variables through
---   ReaderT.
-mapReaderT2 :: (m a -> n b -> o c) -> ReaderT r m a -> ReaderT r n b -> ReaderT r o c
-
 -- | Run several computations in a traversable structure concurrently and
 --   collect the results.
 doConcurrently :: (Applicative (Concurrently m), Traversable t) => t (m a) -> m (t a)
@@ -104,8 +100,10 @@ replicateConcurrently :: Applicative (Concurrently m) => Int -> m a -> m [a]
 --   results.
 replicateConcurrently_ :: Applicative (Concurrently m) => Int -> m a -> m ()
 instance GHC.Base.Functor m => GHC.Base.Functor (Hyperion.Concurrent.Concurrently m)
-instance GHC.Base.Applicative (Hyperion.Concurrent.Concurrently (Control.Monad.Trans.Reader.ReaderT r Control.Distributed.Process.Internal.Types.Process))
-instance GHC.Base.Alternative (Hyperion.Concurrent.Concurrently (Control.Monad.Trans.Reader.ReaderT r Control.Distributed.Process.Internal.Types.Process))
+instance GHC.Base.Applicative (Hyperion.Concurrent.Concurrently Control.Distributed.Process.Internal.Types.Process)
+instance GHC.Base.Alternative (Hyperion.Concurrent.Concurrently Control.Distributed.Process.Internal.Types.Process)
+instance (GHC.Base.Functor m, GHC.Base.Applicative (Hyperion.Concurrent.Concurrently m)) => GHC.Base.Applicative (Hyperion.Concurrent.Concurrently (Control.Monad.Trans.Reader.ReaderT r m))
+instance (GHC.Base.Functor m, GHC.Base.Alternative (Hyperion.Concurrent.Concurrently m)) => GHC.Base.Alternative (Hyperion.Concurrent.Concurrently (Control.Monad.Trans.Reader.ReaderT r m))
 instance (GHC.Base.Applicative (Hyperion.Concurrent.Concurrently m), GHC.Base.Semigroup a) => GHC.Base.Semigroup (Hyperion.Concurrent.Concurrently m a)
 instance (GHC.Base.Applicative (Hyperion.Concurrent.Concurrently m), GHC.Base.Semigroup a, GHC.Base.Monoid a) => GHC.Base.Monoid (Hyperion.Concurrent.Concurrently m a)
 
@@ -602,6 +600,84 @@ instance Hyperion.HasWorkers.HasWorkerLauncher env => Hyperion.HasWorkers.HasWor
 instance Hyperion.HasWorkers.MonadUnliftProcess Control.Distributed.Process.Internal.Types.Process
 instance Hyperion.HasWorkers.MonadUnliftProcess m => Hyperion.HasWorkers.MonadUnliftProcess (Control.Monad.Trans.Reader.ReaderT r m)
 instance Control.Monad.Base.MonadBase Control.Distributed.Process.Internal.Types.Process Control.Distributed.Process.Internal.Types.Process
+
+
+-- | An <a>ExtVar</a> is an <a>MVar</a> that can be accessed by an external
+--   client. The "host" is the machine where the underlying <a>MVar</a>
+--   exists. The host can continue to use the underlying <a>MVar</a> as
+--   usual. A client can interact with it via functions like
+--   <a>takeExtVar</a>, <a>putExtVar</a>, <a>readExtVar</a>, etc., which
+--   behave in the same way as their <a>MVar</a> counterparts. An
+--   <a>ExtVar</a> can be recontstructed from its representation as a
+--   String or serialized to/from Binary data (and hence sent across a
+--   network).
+--   
+--   For an example of using an <a>ExtVar</a> as a client, look in the
+--   hosts logs for a line that looks like:
+--   
+--   <ul>
+--   <li><i>Thu 01<i>06</i>22 13:04:17</i> Made ExtVar: extVar @Int
+--   "login1.cm.cluster:39443:0" "test"</li>
+--   </ul>
+--   
+--   This shows that the host machine has made an ExtVar and it is ready to
+--   be accessed by a client. Now in a GHCi session (possibly on a
+--   completely different machine), you can do:
+--   
+--   <pre>
+--   eVar = extVar @Int "login1.cm.cluster:39443:0" "test"
+--   tryReadExtVarIO eVar
+--   </pre>
+--   
+--   Just 42 &gt; modifyExtVarIO_ eVar (x -&gt; pure (x+1)) () &gt;
+--   tryReadExtVarIO eVar Just 43
+module Hyperion.ExtVar
+data ExtVar a
+
+-- | <a>ExtVar</a> from an address and a name. To see what arguments you
+--   should pass to <a>extVar</a>, it is best to look for the "Made ExtVar"
+--   entry in the log o the host machine.
+extVar :: ByteString -> String -> ExtVar a
+
+-- | Make a new <a>ExtVar</a> from an <a>MVar</a>, together with a name.
+--   The host program can continue to use the <a>MVar</a> as usual. If the
+--   name is not unique, a <tt>ProcessRegistrationException</tt> will be
+--   thrown.
+newExtVar :: (Binary a, Typeable a) => String -> MVar a -> Process (ExtVar a)
+
+-- | Kill the server underlying the <a>ExtVar</a>. Subsequent calls from
+--   clients may block indefinitely.
+killExtVar :: forall a. (Binary a, Typeable a) => ExtVar a -> Process ()
+
+-- | <a>takeExtVar</a>, etc. are analogous to <a>takeMVar</a>, etc. All
+--   functions block until they receive a response from the host.
+takeExtVar :: (Binary a, Typeable a) => ExtVar a -> Process a
+tryTakeExtVar :: (Binary a, Typeable a) => ExtVar a -> Process (Maybe a)
+putExtVar :: (Binary a, Typeable a) => ExtVar a -> a -> Process ()
+tryPutExtVar :: (Binary a, Typeable a) => ExtVar a -> a -> Process Bool
+readExtVar :: (Binary a, Typeable a) => ExtVar a -> Process a
+tryReadExtVar :: (Binary a, Typeable a) => ExtVar a -> Process (Maybe a)
+withExtVar :: (Binary a, Typeable a) => ExtVar a -> (a -> Process b) -> Process b
+modifyExtVar_ :: (Binary a, Typeable a) => ExtVar a -> (a -> Process a) -> Process ()
+modifyExtVar :: (Binary a, Typeable a) => ExtVar a -> (a -> Process (a, b)) -> Process b
+
+-- | <a>IO</a> versions of <a>ExtVar</a> functions, for convenience.
+takeExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO a
+tryTakeExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO (Maybe a)
+putExtVarIO :: (Binary a, Typeable a) => ExtVar a -> a -> IO ()
+tryPutExtVarIO :: (Binary a, Typeable a) => ExtVar a -> a -> IO Bool
+readExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO a
+tryReadExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO (Maybe a)
+withExtVarIO :: (Binary a, Typeable a) => ExtVar a -> (a -> IO b) -> IO b
+modifyExtVarIO_ :: (Binary a, Typeable a) => ExtVar a -> (a -> IO a) -> IO ()
+modifyExtVarIO :: (Binary a, Typeable a) => ExtVar a -> (a -> IO (a, b)) -> IO b
+instance forall k (a :: k). Data.Binary.Class.Binary (Hyperion.ExtVar.ExtVar a)
+instance forall k (a :: k). GHC.Generics.Generic (Hyperion.ExtVar.ExtVar a)
+instance forall k (a :: k). GHC.Classes.Ord (Hyperion.ExtVar.ExtVar a)
+instance forall k (a :: k). GHC.Classes.Eq (Hyperion.ExtVar.ExtVar a)
+instance (Data.Binary.Class.Binary a, Data.Typeable.Internal.Typeable a) => Data.Binary.Class.Binary (Hyperion.ExtVar.ExtVarMessage a)
+instance GHC.Generics.Generic (Hyperion.ExtVar.ExtVarMessage a)
+instance forall k (a :: k). Data.Typeable.Internal.Typeable a => GHC.Show.Show (Hyperion.ExtVar.ExtVar a)
 
 module Hyperion.Command
 

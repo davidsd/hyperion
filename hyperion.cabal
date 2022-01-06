@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 42624933610d1af9fb04539a9ef1fec3c50a656c9622fe6a80b04b2847f0a058
+-- hash: bf7f59c1d4a82331926d19012e0b0b6c4895ce12ae9dcdc4f432369a2f8ee370
 
 name:           hyperion
 version:        0.1.0.0
@@ -24,6 +24,7 @@ library
       Hyperion.Database
       Hyperion.Database.HasDB
       Hyperion.Database.KeyValMap
+      Hyperion.ExtVar
       Hyperion.HasWorkers
       Hyperion.HoldServer
       Hyperion.Job
