@@ -615,22 +615,26 @@ instance Control.Monad.Base.MonadBase Control.Distributed.Process.Internal.Types
 --   For an example of using an <a>ExtVar</a> as a client, look in the
 --   hosts logs for a line that looks like:
 --   
---   <ul>
---   <li><i>Thu 01<i>06</i>22 13:04:17</i> Made ExtVar: extVar @Int
---   "login1.cm.cluster:39443:0" "test"</li>
---   </ul>
+--   <pre>
+--   [Thu 01/06/22 13:04:17] Made ExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
+--   </pre>
 --   
 --   This shows that the host machine has made an ExtVar and it is ready to
 --   be accessed by a client. Now in a GHCi session (possibly on a
 --   completely different machine), you can do:
 --   
 --   <pre>
---   eVar = extVar @Int "login1.cm.cluster:39443:0" "test"
---   tryReadExtVarIO eVar
---   </pre>
+--   &gt;&gt;&gt; eVar = extVar @Int "login1.cm.cluster:39443:0" "test"
 --   
---   Just 42 &gt; modifyExtVarIO_ eVar (x -&gt; pure (x+1)) () &gt;
---   tryReadExtVarIO eVar Just 43
+--   &gt;&gt;&gt; tryReadExtVarIO eVar
+--   Just 42
+--   
+--   &gt;&gt;&gt; modifyExtVarIO_ eVar (\x -&gt; pure (x+1))
+--   ()
+--   
+--   &gt;&gt;&gt; tryReadExtVarIO eVar
+--   Just 43
+--   </pre>
 module Hyperion.ExtVar
 data ExtVar a
 
