@@ -19,19 +19,19 @@
 -- For an example of using an 'ExtVar' as a client, look in the hosts
 -- logs for a line that looks like:
 --
--- [Thu 01/06/22 13:04:17] Made ExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
+-- > [Thu 01/06/22 13:04:17] Made ExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
 --
 -- This shows that the host machine has made an ExtVar and it is ready
 -- to be accessed by a client.  Now in a GHCi session (possibly on a
 -- completely different machine), you can do:
 --
---   > eVar = extVar @Int "login1.cm.cluster:39443:0" "test"
---   > tryReadExtVarIO eVar
---   Just 42
---   > modifyExtVarIO_ eVar (\x -> pure (x+1))
---   ()
---   > tryReadExtVarIO eVar
---   Just 43
+-- >>> eVar = extVar @Int "login1.cm.cluster:39443:0" "test"
+-- >>> tryReadExtVarIO eVar
+-- Just 42
+-- >>> modifyExtVarIO_ eVar (\x -> pure (x+1))
+-- ()
+-- >>> tryReadExtVarIO eVar
+-- Just 43
 --
 module Hyperion.ExtVar
   ( ExtVar
