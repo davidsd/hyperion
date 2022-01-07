@@ -665,12 +665,12 @@ forall a. Serializable a =&gt; ReceivePort a -&gt; Process a
 </span><span id="line-221"></span><span class="hs-comment">-- Here is an example situation where that would occur. Suppose that</span><span>
 </span><span id="line-222"></span><span class="hs-comment">-- we have an 'ExtVar' with type 'String':</span><span>
 </span><span id="line-223"></span><span class="hs-comment">--</span><span>
-</span><span id="line-224"></span><span class="hs-comment">-- extVar @String &quot;host.address.com&quot; &quot;extVar:0&quot;</span><span>
+</span><span id="line-224"></span><span class="hs-comment">-- &gt; extVar @String &quot;host.address.com&quot; &quot;extVar:0&quot;</span><span>
 </span><span id="line-225"></span><span class="hs-comment">--</span><span>
 </span><span id="line-226"></span><span class="hs-comment">-- However, suppose that a client tries to take an 'ExtVar' with the</span><span>
 </span><span id="line-227"></span><span class="hs-comment">-- same address and name, but the wrong type:</span><span>
 </span><span id="line-228"></span><span class="hs-comment">--</span><span>
-</span><span id="line-229"></span><span class="hs-comment">-- &gt;&gt;&gt; takeExtVarIO $ @Int &quot;host.address.com&quot; &quot;extVar:0&quot;</span><span>
+</span><span id="line-229"></span><span class="hs-comment">-- &gt;&gt;&gt; takeExtVarIO $ extVar @Int &quot;host.address.com&quot; &quot;extVar:0&quot;</span><span>
 </span><span id="line-230"></span><span class="hs-comment">--</span><span>
 </span><span id="line-231"></span><span class="hs-comment">-- On the host, the 'String' will be removed from the 'MVar',</span><span>
 </span><span id="line-232"></span><span class="hs-comment">-- serialized to 'ByteString', and sent to the client. (The 'host' no</span><span>

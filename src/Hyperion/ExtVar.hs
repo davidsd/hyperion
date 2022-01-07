@@ -221,12 +221,12 @@ withSelf (MkExtVar nid name) mkMessage = do
 -- Here is an example situation where that would occur. Suppose that
 -- we have an 'ExtVar' with type 'String':
 --
--- extVar @String "host.address.com" "extVar:0"
+-- > extVar @String "host.address.com" "extVar:0"
 --
 -- However, suppose that a client tries to take an 'ExtVar' with the
 -- same address and name, but the wrong type:
 --
--- >>> takeExtVarIO $ @Int "host.address.com" "extVar:0"
+-- >>> takeExtVarIO $ extVar @Int "host.address.com" "extVar:0"
 --
 -- On the host, the 'String' will be removed from the 'MVar',
 -- serialized to 'ByteString', and sent to the client. (The 'host' no

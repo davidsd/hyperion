@@ -676,13 +676,15 @@ killExtVar :: forall a. (Binary a, Typeable a) => ExtVar a -> Process ()
 --   Here is an example situation where that would occur. Suppose that we
 --   have an <a>ExtVar</a> with type <a>String</a>:
 --   
+--   <pre>
 --   extVar @String "host.address.com" "extVar:0"
+--   </pre>
 --   
 --   However, suppose that a client tries to take an <a>ExtVar</a> with the
 --   same address and name, but the wrong type:
 --   
 --   <pre>
---   &gt;&gt;&gt; takeExtVarIO $ @Int "host.address.com" "extVar:0"
+--   &gt;&gt;&gt; takeExtVarIO $ extVar @Int "host.address.com" "extVar:0"
 --   </pre>
 --   
 --   On the host, the <a>String</a> will be removed from the <a>MVar</a>,
