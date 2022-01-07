@@ -19,7 +19,7 @@
 -- For an example of using an 'ExtVar' as a client, look in the hosts
 -- logs for a line that looks like:
 --
--- > [Thu 01/06/22 13:04:17] Made ExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
+-- > [Thu 01/06/22 13:04:17] newExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
 --
 -- This shows that the host machine has made an ExtVar and it is ready
 -- to be accessed by a client.  Now in a GHCi session (possibly on a
@@ -68,8 +68,9 @@ import           Control.Distributed.Process (NodeId (..), Process, SendPort,
                                               register, sendChan, spawnLocal)
 import           Control.Monad               (void)
 import           Control.Monad.Catch         (bracket, mask, onException)
-import           Data.Binary                 (Binary)
+import           Data.Binary                 (Binary, decodeOrFail, encode)
 import           Data.ByteString             (ByteString)
+import           Data.Text                   (Text, pack)
 import           GHC.Generics                (Generic)
 import qualified Hyperion.Log                as Log
 import           Hyperion.Remote             (runProcessLocal)
@@ -91,9 +92,9 @@ instance Typeable a => Show (ExtVar a) where
 
 -- | 'ExtVar' from an address and a name. To see what arguments you
 -- should pass to 'extVar', it is best to look for the "Made ExtVar"
--- entry in the log o the host machine.
+-- entry in the log of the host machine.
 extVar
-  :: ByteString -- ^ End point address. 
+  :: ByteString -- ^ End point address.
   -> String     -- ^ Name of the ExtVar
   -> ExtVar a
 extVar address name = MkExtVar (NodeId $ EndPointAddress address) name
@@ -108,23 +109,43 @@ data ExtVarMessage a
   | Shutdown
   deriving (Generic, Binary)
 
-extVarServer :: (Typeable a, Binary a) => String -> MVar a -> Process ()
+-- [Note: expect] Due to a bug (?) in GHC/GHCi, when a datatype is
+-- defined in a library that is loaded in GHCi, then the TypeRep
+-- Fingerprint assigned to it is different in GHCi and a compiled
+-- Haskell program. This causes 'expect' not to work correctly because
+-- it cannot match Fingerprints of incoming messages. Instead, we
+-- 'expect' a 'ByteString' and decode it by hand, discarding cases
+-- where decoding fails.
+--
+extVarServer :: forall a . (Typeable a, Binary a) => String -> MVar a -> Process ()
 extVarServer name var = do
-  getSelfPid >>= register name
-  go
-  where
-    forClient :: (Typeable a, Binary a) => SendPort a -> IO a -> Process ()
-    forClient client run = do
+  pid <- getSelfPid
+  register name pid
+  let
+    -- Reconstruct the ExtVar for logging purposes
+    eVar = MkExtVar @a (processNodeId pid) name
+
+    forClient :: (Typeable b, Binary b) => Text -> SendPort b -> IO b -> Process ()
+    forClient cmd client run = do
+      Log.text $ cmd <> " (" <> pack (show eVar) <> ")"
       void $ spawnLocal $ liftIO run >>= sendChan client
       go
-    go = expect >>= \case
-      Take c            -> forClient c $ takeMVar var
-      TryTake c         -> forClient c $ tryTakeMVar var
-      Put contents c    -> forClient c $ putMVar var contents
-      TryPut contents c -> forClient c $ tryPutMVar var contents
-      Read c            -> forClient c $ readMVar var
-      TryRead c         -> forClient c $ tryReadMVar var
-      Shutdown          -> pure ()
+
+    go = do
+      -- We read the message encoded as a ByteString. See [Note:
+      -- expect] for an explanation.
+      encodedMsg <- expect
+      case decodeOrFail encodedMsg of
+        Right (_, _, cmd) -> case cmd of
+          Take c            -> forClient "takeExtVar"    c $ takeMVar var
+          TryTake c         -> forClient "tryTakeExtVar" c $ tryTakeMVar var
+          Put contents c    -> forClient "putExtVar"     c $ putMVar var contents
+          TryPut contents c -> forClient "tryPutExtVar"  c $ tryPutMVar var contents
+          Read c            -> forClient "readExtVar"    c $ readMVar var
+          TryRead c         -> forClient "tryReadExtVar" c $ tryReadMVar var
+          Shutdown            -> pure ()
+        Left (_, _, e) -> Log.warn "Couldn't decode ExtVar message" e
+  go
 
 -- | Make a new 'ExtVar' from an 'MVar', together with a name. The
 -- host program can continue to use the 'MVar' as usual. If the name
@@ -133,7 +154,7 @@ newExtVar :: (Binary a, Typeable a) => String -> MVar a -> Process (ExtVar a)
 newExtVar name var = do
   pid <- spawnLocal $ extVarServer name var
   let eVar = MkExtVar (processNodeId pid) name
-  Log.info "Made ExtVar" eVar
+  Log.text $ "newExtVar: " <> pack (show eVar)
   pure eVar
 
 -- | Kill the server underlying the 'ExtVar'. Subsequent calls from
@@ -148,7 +169,7 @@ withSelf
   -> Process b
 withSelf (MkExtVar nid name) mkMessage = do
   (sendSelf, recvSelf) <- newChan
-  nsendRemote nid name (mkMessage sendSelf)
+  nsendRemote nid name (encode (mkMessage sendSelf))
   receiveChan recvSelf
 
 -- | 'takeExtVar', etc. are analogous to 'takeMVar', etc. All
