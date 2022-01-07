@@ -209,7 +209,39 @@ withSelf (MkExtVar nid name) mkMessage = do
 
 -- | 'takeExtVar', etc. are analogous to 'takeMVar', etc. All
 -- functions block until they receive a response from the host.
-
+--
+-- [Note: Safety] The functions 'takeExtVar', 'tryTakeExtVar', and
+-- those that use them like 'withExtVar', 'modifyExtVar_', and
+-- 'modifyExtVar' (and all of their IO variants) must be used with
+-- care. On the host side, they cause data to be taken out of the
+-- underlying 'MVar'. If an exception occurs, that data will not be
+-- automatically replaced. Thus, the underlying 'MVar' could remain
+-- empty and the data that was in it may be lost.
+--
+-- Here is an example situation where that would occur. Suppose that
+-- we have an 'ExtVar' with type 'String':
+--
+-- extVar @String "host.address.com" "extVar:0"
+--
+-- However, suppose that a client tries to take an 'ExtVar' with the
+-- same address and name, but the wrong type:
+--
+-- >>> takeExtVarIO $ @Int "host.address.com" "extVar:0"
+--
+-- On the host, the 'String' will be removed from the 'MVar',
+-- serialized to 'ByteString', and sent to the client. (The 'host' no
+-- longer has the data.) The client will try to deserialize the
+-- 'ByteString' to an 'Int', which will fail (because 'Int' is the
+-- incorrect type) and throw an exception. As 'takeExtVar' is
+-- currently implemented, the data will never get sent back to the
+-- host.
+--
+-- It is the client's responsibility to make sure this doesn't
+-- happen. In a GHCi session, it is recommended that you use
+-- 'readExtVarIO' first to make sure your connection is good and you
+-- have the right 'ExtVar' *including its type*, before you use
+-- functions like 'takeExtVar'.
+--
 takeExtVar :: (Binary a, Typeable a) => ExtVar a -> Process a
 takeExtVar eVar = withSelf eVar Take
 
