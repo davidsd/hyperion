@@ -19,7 +19,7 @@
 -- For an example of using an 'ExtVar' as a client, look in the hosts
 -- logs for a line that looks like:
 --
--- > [Thu 01/06/22 13:04:17] newExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
+-- > [Thu 01/06/22 13:04:17] New ExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
 --
 -- This shows that the host machine has made an ExtVar and it is ready
 -- to be accessed by a client.  Now in a GHCi session (possibly on a
@@ -37,6 +37,8 @@ module Hyperion.ExtVar
   ( ExtVar
   , extVar
   , newExtVar
+  , newEmptyExtVar
+  , makeExtVar
   , killExtVar
   , takeExtVar
   , tryTakeExtVar
@@ -58,7 +60,8 @@ module Hyperion.ExtVar
   , modifyExtVarIO
   ) where
 
-import           Control.Concurrent.MVar     (MVar, putMVar, readMVar, takeMVar,
+import           Control.Concurrent.MVar     (MVar, newEmptyMVar, newMVar,
+                                              putMVar, readMVar, takeMVar,
                                               tryPutMVar, tryReadMVar,
                                               tryTakeMVar)
 import           Control.Distributed.Process (NodeId (..), Process, SendPort,
@@ -70,12 +73,16 @@ import           Control.Monad               (void)
 import           Control.Monad.Catch         (bracket, mask, onException)
 import           Data.Binary                 (Binary, decodeOrFail, encode)
 import           Data.ByteString             (ByteString)
+import           Data.IORef                  (IORef, atomicModifyIORef',
+                                              newIORef)
 import           Data.Text                   (Text, pack)
 import           GHC.Generics                (Generic)
 import qualified Hyperion.Log                as Log
 import           Hyperion.Remote             (runProcessLocal)
 import           Network.Transport           (EndPointAddress (..))
+import           System.IO.Unsafe            (unsafePerformIO)
 import           Type.Reflection             (Typeable, typeRep)
+
 
 data ExtVar a = MkExtVar NodeId String
   deriving (Eq, Ord, Generic, Binary)
@@ -147,15 +154,39 @@ extVarServer name var = do
         Left (_, _, e) -> Log.warn "Couldn't decode ExtVar message" e
   go
 
--- | Make a new 'ExtVar' from an 'MVar', together with a name. The
--- host program can continue to use the 'MVar' as usual. If the name
--- is not unique, a 'ProcessRegistrationException' will be thrown.
-newExtVar :: (Binary a, Typeable a) => String -> MVar a -> Process (ExtVar a)
-newExtVar name var = do
-  pid <- spawnLocal $ extVarServer name var
-  let eVar = MkExtVar (processNodeId pid) name
-  Log.text $ "newExtVar: " <> pack (show eVar)
-  pure eVar
+
+extVarCounter :: IORef Integer
+extVarCounter = unsafePerformIO (newIORef 0)
+{-# NOINLINE extVarCounter #-}
+
+newExtVarName :: IO String
+newExtVarName = fmap (("extVar:" <>) . show) $ atomicModifyIORef' extVarCounter $ \c -> (c+1,c)
+
+-- | Make a new 'ExtVar' containing 'x'. Return both the 'ExtVar' and
+-- its underlying 'MVar'.
+newExtVar :: (Binary a, Typeable a) => a -> Process (MVar a, ExtVar a)
+newExtVar x = do
+  m <- liftIO $ newMVar x
+  e <- makeExtVar m
+  pure (m, e)
+
+-- | Make a new empty 'ExtVar'. Return both the 'ExtVar' and its
+-- underlying 'MVar'.
+newEmptyExtVar :: (Binary a, Typeable a) => Process (MVar a, ExtVar a)
+newEmptyExtVar = do
+  m <- liftIO $ newEmptyMVar
+  e <- makeExtVar m
+  pure (m, e)
+
+-- | Make a new 'ExtVar' from an 'MVar'. The host program can continue
+-- to use the 'MVar' as usual.
+makeExtVar :: (Binary a, Typeable a) => MVar a -> Process (ExtVar a)
+makeExtVar m = do
+  name <- liftIO $ newExtVarName
+  pid <- spawnLocal $ extVarServer name m
+  let e = MkExtVar (processNodeId pid) name
+  Log.text $ "New ExtVar: " <> pack (show e)
+  pure e
 
 -- | Kill the server underlying the 'ExtVar'. Subsequent calls from
 -- clients may block indefinitely.
