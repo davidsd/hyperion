@@ -616,7 +616,7 @@ instance Control.Monad.Base.MonadBase Control.Distributed.Process.Internal.Types
 --   hosts logs for a line that looks like:
 --   
 --   <pre>
---   [Thu 01/06/22 13:04:17] Made ExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
+--   [Thu 01/06/22 13:04:17] New ExtVar: extVar @Int "login1.cm.cluster:39443:0" "test"
 --   </pre>
 --   
 --   This shows that the host machine has made an ExtVar and it is ready to
@@ -640,14 +640,20 @@ data ExtVar a
 
 -- | <a>ExtVar</a> from an address and a name. To see what arguments you
 --   should pass to <a>extVar</a>, it is best to look for the "Made ExtVar"
---   entry in the log o the host machine.
+--   entry in the log of the host machine.
 extVar :: ByteString -> String -> ExtVar a
 
--- | Make a new <a>ExtVar</a> from an <a>MVar</a>, together with a name.
---   The host program can continue to use the <a>MVar</a> as usual. If the
---   name is not unique, a <tt>ProcessRegistrationException</tt> will be
---   thrown.
-newExtVar :: (Binary a, Typeable a) => String -> MVar a -> Process (ExtVar a)
+-- | Make a new <a>ExtVar</a> containing <tt>x</tt>. Return both the
+--   <a>ExtVar</a> and its underlying <a>MVar</a>.
+newExtVar :: (Binary a, Typeable a) => a -> Process (MVar a, ExtVar a)
+
+-- | Make a new empty <a>ExtVar</a>. Return both the <a>ExtVar</a> and its
+--   underlying <a>MVar</a>.
+newEmptyExtVar :: (Binary a, Typeable a) => Process (MVar a, ExtVar a)
+
+-- | Make a new <a>ExtVar</a> from an <a>MVar</a>. The host program can
+--   continue to use the <a>MVar</a> as usual.
+makeExtVar :: (Binary a, Typeable a) => MVar a -> Process (ExtVar a)
 
 -- | Kill the server underlying the <a>ExtVar</a>. Subsequent calls from
 --   clients may block indefinitely.
@@ -655,6 +661,43 @@ killExtVar :: forall a. (Binary a, Typeable a) => ExtVar a -> Process ()
 
 -- | <a>takeExtVar</a>, etc. are analogous to <a>takeMVar</a>, etc. All
 --   functions block until they receive a response from the host.
+--   
+--   <ul>
+--   <li><i>Note: Safety</i> The functions <a>takeExtVar</a>,
+--   <a>tryTakeExtVar</a>, and those that use them like <a>withExtVar</a>,
+--   <a>modifyExtVar_</a>, and <a>modifyExtVar</a> (and all of their IO
+--   variants) must be used with care. On the host side, they cause data to
+--   be taken out of the underlying <a>MVar</a>. If an exception occurs,
+--   that data will not be automatically replaced. Thus, the underlying
+--   <a>MVar</a> could remain empty and the data that was in it may be
+--   lost.</li>
+--   </ul>
+--   
+--   Here is an example situation where that would occur. Suppose that we
+--   have an <a>ExtVar</a> with type <a>String</a>:
+--   
+--   extVar @String "host.address.com" "extVar:0"
+--   
+--   However, suppose that a client tries to take an <a>ExtVar</a> with the
+--   same address and name, but the wrong type:
+--   
+--   <pre>
+--   &gt;&gt;&gt; takeExtVarIO $ @Int "host.address.com" "extVar:0"
+--   </pre>
+--   
+--   On the host, the <a>String</a> will be removed from the <a>MVar</a>,
+--   serialized to <a>ByteString</a>, and sent to the client. (The
+--   <tt>host</tt> no longer has the data.) The client will try to
+--   deserialize the <a>ByteString</a> to an <a>Int</a>, which will fail
+--   (because <a>Int</a> is the incorrect type) and throw an exception. As
+--   <a>takeExtVar</a> is currently implemented, the data will never get
+--   sent back to the host.
+--   
+--   It is the client's responsibility to make sure this doesn't happen. In
+--   a GHCi session, it is recommended that you use <a>readExtVarIO</a>
+--   first to make sure your connection is good and you have the right
+--   <a>ExtVar</a> *including its type*, before you use functions like
+--   <a>takeExtVar</a>.
 takeExtVar :: (Binary a, Typeable a) => ExtVar a -> Process a
 tryTakeExtVar :: (Binary a, Typeable a) => ExtVar a -> Process (Maybe a)
 putExtVar :: (Binary a, Typeable a) => ExtVar a -> a -> Process ()
@@ -675,6 +718,13 @@ tryReadExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO (Maybe a)
 withExtVarIO :: (Binary a, Typeable a) => ExtVar a -> (a -> IO b) -> IO b
 modifyExtVarIO_ :: (Binary a, Typeable a) => ExtVar a -> (a -> IO a) -> IO ()
 modifyExtVarIO :: (Binary a, Typeable a) => ExtVar a -> (a -> IO (a, b)) -> IO b
+
+-- | Store the given list in an <a>ExtVar</a> and return an action that
+--   repeatedly pops the first element from the list until there are none
+--   left. An external client can freely modify the contents of the
+--   <a>ExtVar</a>, and in this way insert or delete elements by hand while
+--   the program is running.
+newExtVarStream :: (Binary a, Typeable a, MonadIO m, MonadBase Process n) => [a] -> n (ExtVar [a], m (Maybe a))
 instance forall k (a :: k). Data.Binary.Class.Binary (Hyperion.ExtVar.ExtVar a)
 instance forall k (a :: k). GHC.Generics.Generic (Hyperion.ExtVar.ExtVar a)
 instance forall k (a :: k). GHC.Classes.Ord (Hyperion.ExtVar.ExtVar a)

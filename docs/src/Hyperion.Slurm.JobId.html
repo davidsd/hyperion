@@ -7,7 +7,7 @@
 </span><span id="line-7"></span><span class="hs-comment">-- | Type for job id. A job can be idetified by id or by name, hence the two </span><span>
 </span><span id="line-8"></span><span class="hs-comment">-- construtors.</span><span>
 </span><span id="line-9"></span><span class="hs-keyword">data</span><span> </span><span id="JobId"><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier hs-var">JobId</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="JobId"><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobId"><span class="hs-identifier hs-var">JobId</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="JobName"><span class="annot"><a href="Hyperion.Slurm.JobId.html#JobName"><span class="hs-identifier hs-var">JobName</span></a></span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
-</span><span id="line-10"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679161431"><span id="local-6989586621679161433"><span id="local-6989586621679161435"><span class="annot"><span class="annottext">Int -&gt; JobId -&gt; ShowS
+</span><span id="line-10"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679161867"><span id="local-6989586621679161869"><span id="local-6989586621679161871"><span class="annot"><span class="annottext">Int -&gt; JobId -&gt; ShowS
 [JobId] -&gt; ShowS
 JobId -&gt; String
 (Int -&gt; JobId -&gt; ShowS)
@@ -20,14 +20,14 @@ show :: JobId -&gt; String
 $cshow :: JobId -&gt; String
 showsPrec :: Int -&gt; JobId -&gt; ShowS
 $cshowsPrec :: Int -&gt; JobId -&gt; ShowS
-</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679161426"><span id="local-6989586621679161428"><span class="annot"><span class="annottext">JobId -&gt; JobId -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679161862"><span id="local-6989586621679161864"><span class="annot"><span class="annottext">JobId -&gt; JobId -&gt; Bool
 (JobId -&gt; JobId -&gt; Bool) -&gt; (JobId -&gt; JobId -&gt; Bool) -&gt; Eq JobId
 forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
 /= :: JobId -&gt; JobId -&gt; Bool
 $c/= :: JobId -&gt; JobId -&gt; Bool
 == :: JobId -&gt; JobId -&gt; Bool
 $c== :: JobId -&gt; JobId -&gt; Bool
-</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679161410"><span id="local-6989586621679161412"><span id="local-6989586621679161414"><span id="local-6989586621679161416"><span id="local-6989586621679161418"><span id="local-6989586621679161420"><span id="local-6989586621679161422"><span class="annot"><span class="annottext">Eq JobId
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679161846"><span id="local-6989586621679161848"><span id="local-6989586621679161850"><span id="local-6989586621679161852"><span id="local-6989586621679161854"><span id="local-6989586621679161856"><span id="local-6989586621679161858"><span class="annot"><span class="annottext">Eq JobId
 Eq JobId
 -&gt; (JobId -&gt; JobId -&gt; Ordering)
 -&gt; (JobId -&gt; JobId -&gt; Bool)

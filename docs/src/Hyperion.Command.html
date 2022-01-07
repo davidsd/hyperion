@@ -21,7 +21,7 @@
 </span><a href="Hyperion.Command.html#workerService"><span class="hs-identifier hs-var hs-var">workerService</span></a></span></span><span>       </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Hyperion.Remote.html#ServiceId"><span class="hs-identifier hs-type">ServiceId</span></a></span><span>
 </span><span id="line-20"></span><span>  </span><span class="hs-special">,</span><span> </span><span id="workerLogFile"><span class="annot"><span class="annottext">Worker -&gt; FilePath
 </span><a href="Hyperion.Command.html#workerLogFile"><span class="hs-identifier hs-var hs-var">workerLogFile</span></a></span></span><span>       </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span>
-</span><span id="line-21"></span><span>  </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679163095"><span id="local-6989586621679163097"><span id="local-6989586621679163099"><span class="annot"><span class="annottext">Int -&gt; Worker -&gt; ShowS
+</span><span id="line-21"></span><span>  </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span id="local-6989586621679163601"><span id="local-6989586621679163603"><span id="local-6989586621679163605"><span class="annot"><span class="annottext">Int -&gt; Worker -&gt; ShowS
 [Worker] -&gt; ShowS
 Worker -&gt; FilePath
 (Int -&gt; Worker -&gt; ShowS)
@@ -40,8 +40,8 @@ $cshowsPrec :: Int -&gt; Worker -&gt; ShowS
 </span><span id="line-24"></span><span class="annot"><a href="Hyperion.Command.html#workerOpts"><span class="hs-identifier hs-type">workerOpts</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Parser</span></span><span> </span><span class="annot"><a href="Hyperion.Command.html#Worker"><span class="hs-identifier hs-type">Worker</span></a></span><span>
 </span><span id="line-25"></span><span id="workerOpts"><span class="annot"><span class="annottext">workerOpts :: Parser Worker
 </span><a href="Hyperion.Command.html#workerOpts"><span class="hs-identifier hs-var hs-var">workerOpts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
-</span><span id="line-26"></span><span>  </span><span id="local-6989586621679163092"><span class="annot"><span class="annottext">Text
-</span><a href="#local-6989586621679163092"><span class="hs-identifier hs-var">workerMasterAddress</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Text
+</span><span id="line-26"></span><span>  </span><span id="local-6989586621679163598"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679163598"><span class="hs-identifier hs-var">workerMasterAddress</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Text
 </span><span class="hs-identifier hs-var">T.pack</span></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Text) -&gt; Parser FilePath -&gt; Parser Text
 forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
 </span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span>
@@ -65,8 +65,8 @@ forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 forall (f :: * -&gt; *) a. FilePath -&gt; Mod f a
 </span><span class="hs-identifier hs-var">help</span></span><span> </span><span class="annot"><span class="annottext">FilePath
 </span><span class="hs-string">&quot;Address of the master process&quot;</span></span><span class="hs-special">)</span><span>
-</span><span id="line-30"></span><span>  </span><span id="local-6989586621679163085"><span class="annot"><span class="annottext">ServiceId
-</span><a href="#local-6989586621679163085"><span class="hs-identifier hs-var">workerService</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; ServiceId
+</span><span id="line-30"></span><span>  </span><span id="local-6989586621679163591"><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679163591"><span class="hs-identifier hs-var">workerService</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; ServiceId
 </span><a href="Hyperion.Remote.html#ServiceId"><span class="hs-identifier hs-var">ServiceId</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; ServiceId) -&gt; Parser FilePath -&gt; Parser ServiceId
 forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
 </span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span>
@@ -90,8 +90,8 @@ forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 forall (f :: * -&gt; *) a. FilePath -&gt; Mod f a
 </span><span class="hs-identifier hs-var">help</span></span><span> </span><span class="annot"><span class="annottext">FilePath
 </span><span class="hs-string">&quot;Name of service on master process&quot;</span></span><span class="hs-special">)</span><span>
-</span><span id="line-34"></span><span>  </span><span id="local-6989586621679163083"><span class="annot"><span class="annottext">FilePath
-</span><a href="#local-6989586621679163083"><span class="hs-identifier hs-var">workerLogFile</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-34"></span><span>  </span><span id="local-6989586621679163589"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679163589"><span class="hs-identifier hs-var">workerLogFile</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
 </span><span id="line-35"></span><span>    </span><span class="annot"><span class="annottext">Mod OptionFields FilePath -&gt; Parser FilePath
 forall s. IsString s =&gt; Mod OptionFields s -&gt; Parser s
 </span><span class="hs-identifier hs-var">strOption</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath -&gt; Mod OptionFields FilePath
@@ -122,38 +122,38 @@ workerMasterAddress :: Text
 workerLogFile :: FilePath
 workerService :: ServiceId
 workerMasterAddress :: Text
-</span><a href="#local-6989586621679163083"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span><span class="hs-special">}</span><span>
+</span><a href="#local-6989586621679163589"><span class="hs-glyph hs-var hs-var hs-var hs-var hs-var hs-var">..</span></a></span><span class="hs-special">}</span><span>
 </span><span id="line-39"></span><span>
 </span><span id="line-40"></span><span class="hs-comment">-- | Returns the @(command, [arguments])@ to run the worker process</span><span>
 </span><span id="line-41"></span><span class="annot"><a href="Hyperion.Command.html#hyperionWorkerCommand"><span class="hs-identifier hs-type">hyperionWorkerCommand</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">NodeId</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Hyperion.Remote.html#ServiceId"><span class="hs-identifier hs-type">ServiceId</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
 </span><span id="line-42"></span><span id="hyperionWorkerCommand"><span class="annot"><span class="annottext">hyperionWorkerCommand :: FilePath
 -&gt; NodeId -&gt; ServiceId -&gt; FilePath -&gt; (FilePath, [FilePath])
-</span><a href="Hyperion.Command.html#hyperionWorkerCommand"><span class="hs-identifier hs-var hs-var">hyperionWorkerCommand</span></a></span></span><span> </span><span id="local-6989586621679163080"><span class="annot"><span class="annottext">FilePath
-</span><a href="#local-6989586621679163080"><span class="hs-identifier hs-var">hyperionExecutable</span></a></span></span><span> </span><span id="local-6989586621679163079"><span class="annot"><span class="annottext">NodeId
-</span><a href="#local-6989586621679163079"><span class="hs-identifier hs-var">masterNode</span></a></span></span><span> </span><span id="local-6989586621679163078"><span class="annot"><span class="annottext">ServiceId
-</span><a href="#local-6989586621679163078"><span class="hs-identifier hs-var">masterService</span></a></span></span><span> </span><span id="local-6989586621679163077"><span class="annot"><span class="annottext">FilePath
-</span><a href="#local-6989586621679163077"><span class="hs-identifier hs-var">logFile</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Hyperion.Command.html#hyperionWorkerCommand"><span class="hs-identifier hs-var hs-var">hyperionWorkerCommand</span></a></span></span><span> </span><span id="local-6989586621679163586"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679163586"><span class="hs-identifier hs-var">hyperionExecutable</span></a></span></span><span> </span><span id="local-6989586621679163585"><span class="annot"><span class="annottext">NodeId
+</span><a href="#local-6989586621679163585"><span class="hs-identifier hs-var">masterNode</span></a></span></span><span> </span><span id="local-6989586621679163584"><span class="annot"><span class="annottext">ServiceId
+</span><a href="#local-6989586621679163584"><span class="hs-identifier hs-var">masterService</span></a></span></span><span> </span><span id="local-6989586621679163583"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679163583"><span class="hs-identifier hs-var">logFile</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-43"></span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
-</span><a href="#local-6989586621679163080"><span class="hs-identifier hs-var">hyperionExecutable</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; FilePath) -&gt; [Text] -&gt; [FilePath]
+</span><a href="#local-6989586621679163586"><span class="hs-identifier hs-var">hyperionExecutable</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; FilePath) -&gt; [Text] -&gt; [FilePath]
 forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
 </span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; FilePath
 </span><span class="hs-identifier hs-var">T.unpack</span></span><span> </span><span class="annot"><span class="annottext">[Text]
-</span><a href="#local-6989586621679163075"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621679163581"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-44"></span><span>  </span><span class="hs-keyword">where</span><span>
-</span><span id="line-45"></span><span>    </span><span id="local-6989586621679163075"><span class="annot"><span class="annottext">args :: [Text]
-</span><a href="#local-6989586621679163075"><span class="hs-identifier hs-var hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span id="line-45"></span><span>    </span><span id="local-6989586621679163581"><span class="annot"><span class="annottext">args :: [Text]
+</span><a href="#local-6989586621679163581"><span class="hs-identifier hs-var hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;worker&quot;</span></span><span>
 </span><span id="line-46"></span><span>           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;--address&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">NodeId -&gt; Text
 </span><a href="Hyperion.Remote.html#nodeIdToAddress"><span class="hs-identifier hs-var">nodeIdToAddress</span></a></span><span> </span><span class="annot"><span class="annottext">NodeId
-</span><a href="#local-6989586621679163079"><span class="hs-identifier hs-var">masterNode</span></a></span><span>
+</span><a href="#local-6989586621679163585"><span class="hs-identifier hs-var">masterNode</span></a></span><span>
 </span><span id="line-47"></span><span>           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;--service&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ServiceId -&gt; Text
 </span><a href="Hyperion.Remote.html#serviceIdToText"><span class="hs-identifier hs-var">serviceIdToText</span></a></span><span> </span><span class="annot"><span class="annottext">ServiceId
-</span><a href="#local-6989586621679163078"><span class="hs-identifier hs-var">masterService</span></a></span><span>
+</span><a href="#local-6989586621679163584"><span class="hs-identifier hs-var">masterService</span></a></span><span>
 </span><span id="line-48"></span><span>           </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;--logFile&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Text
 </span><span class="hs-identifier hs-var">T.pack</span></span><span> </span><span class="annot"><span class="annottext">FilePath
-</span><a href="#local-6989586621679163077"><span class="hs-identifier hs-var">logFile</span></a></span><span>
+</span><a href="#local-6989586621679163583"><span class="hs-identifier hs-var">logFile</span></a></span><span>
 </span><span id="line-49"></span><span>           </span><span class="hs-special">]</span><span>
 </span><span id="line-50"></span></pre></body></html>
