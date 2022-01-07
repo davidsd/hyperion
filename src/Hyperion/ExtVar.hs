@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass      #-}
 {-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE PolyKinds           #-}
@@ -58,9 +59,12 @@ module Hyperion.ExtVar
   , withExtVarIO
   , modifyExtVarIO_
   , modifyExtVarIO
+  , newExtVarStream
   ) where
 
-import           Control.Concurrent.MVar     (MVar, newEmptyMVar, newMVar,
+import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.Base (MonadBase, liftBase)
+import           Control.Concurrent.MVar     (MVar, newEmptyMVar, newMVar, modifyMVar,
                                               putMVar, readMVar, takeMVar,
                                               tryPutMVar, tryReadMVar,
                                               tryTakeMVar)
@@ -268,3 +272,20 @@ modifyExtVarIO_ eVar go = runProcessLocal $ modifyExtVar_ eVar (liftIO . go)
 
 modifyExtVarIO :: (Binary a, Typeable a) => ExtVar a -> (a -> IO (a,b)) -> IO b
 modifyExtVarIO eVar go = runProcessLocal $ modifyExtVar eVar (liftIO . go)
+
+-- | Store the given list in an 'ExtVar' and return an action that
+-- repeatedly pops the first element from the list until there are
+-- none left. An external client can freely modify the contents of the
+-- 'ExtVar', and in this way insert or delete elements by hand while
+-- the program is running.
+newExtVarStream
+  :: (Binary a, Typeable a, MonadIO m, MonadBase Process n)
+  => [a]
+  -> n (ExtVar [a], m (Maybe a))
+newExtVarStream vs = liftBase $ do
+  (mVar, eVar) <- newExtVar vs
+  let pop = 
+        liftIO $ modifyMVar mVar $ pure . \case
+        []     -> ([], Nothing)
+        u : us -> (us, Just u)
+  pure (eVar, pop)
