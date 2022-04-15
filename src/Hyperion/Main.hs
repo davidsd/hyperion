@@ -7,6 +7,7 @@
 module Hyperion.Main where
 
 import           Control.Monad             (unless)
+import           Control.Monad.Catch       (SomeException, try)
 import           Data.Maybe                (isJust)
 import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
                                             ProgramInfo (..), runCluster,
@@ -14,7 +15,7 @@ import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
 import           Hyperion.Command          (Worker (..), workerOpts)
 import           Hyperion.Config           (HyperionConfig (..), newClusterEnv)
 import qualified Hyperion.Database         as DB
-import           Hyperion.HoldServer       (withHoldServer, newHoldMap)
+import           Hyperion.HoldServer       (newHoldMap, withHoldServer)
 import qualified Hyperion.Log              as Log
 import           Hyperion.Remote           (addressToNodeId,
                                             initWorkerRemoteTable,
@@ -25,6 +26,8 @@ import           System.Directory          (removeFile)
 import           System.Environment        (getEnvironment)
 import           System.FilePath.Posix     ((<.>))
 import           System.Posix.Process      (getProcessID)
+import           System.Posix.Signals      (Handler (..), installHandler,
+                                            raiseSignal, sigINT, sigTERM)
 
 -- | The type for command-line options to 'hyperionMain'. Here @a@ is
 -- the type for program-specific options.  In practice we want @a@ to
@@ -101,6 +104,16 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
       (worker masterNid workerService)
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args
+
+    -- If we recieve a SIGTERM or SIGINT signal, log it once and
+    -- re-raise it (causing the program to exit)
+    let
+      handleSignal name s = CatchOnce $ do
+        Log.info "Received signal" (name :: String)
+        raiseSignal s
+    installHandler sigTERM (handleSignal "SIGTERM" sigTERM) Nothing
+    installHandler sigINT  (handleSignal "SIGINT"  sigINT)  Nothing
+
     holdMap <- newHoldMap
     withHoldServer holdMap $ \holdPort -> do
       (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig holdMap holdPort
@@ -120,8 +133,10 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
       Log.redirectToFile masterLogFile
       logMasterInfo
       runDBWithProgramInfo clusterProgramInfo DB.setupKeyValTable
-      runCluster clusterEnv (clusterProgram args)
-      unless (isJust (hyperionCommand hyperionConfig)) $
-        removeFile hyperionExecutable
-      Log.info "Finished" progId
+      try (runCluster clusterEnv (clusterProgram args)) >>= \case
+        Left (e :: SomeException) -> Log.throw e
+        Right () -> do
+          unless (isJust (hyperionCommand hyperionConfig)) $
+            removeFile hyperionExecutable
+          Log.info "Finished" progId
 

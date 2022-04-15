@@ -24,8 +24,9 @@ import           Control.Distributed.Static          (registerStatic,
                                                       staticLabel)
 import           Control.Monad.Catch                 (Exception, SomeException,
                                                       bracket, catch, throwM,
-                                                      try)
+                                                      try, MonadCatch)
 import           Control.Monad.Extra                 (whenM)
+import Control.Monad.IO.Class (MonadIO)
 import           Control.Monad.Trans.Maybe           (MaybeT (..))
 import           Data.Binary                         (Binary)
 import           Data.Constraint                     (Dict (..))
@@ -319,7 +320,7 @@ withRemoteRunProcess workerLauncher go =
 -- | Catch any exception, log it, and return as a string. In this
 -- way, errors will be logged by the worker where they occurred,
 -- and also sent up the tree.
-tryLogException :: Process b -> Process (Either String b)
+tryLogException :: (MonadCatch m, MonadIO m) => m b -> m (Either String b)
 tryLogException go = try go >>= \case
   Left (e :: SomeException) -> do
     Log.err e
