@@ -149,7 +149,7 @@ lookup kvMap key = withConnectionRetry $ \conn -> do
       \limit 1"
 
 -- | Returns the list of all kev-value pairs for a given map. Again
--- only keeps the latest versino of the value accroding to the
+-- only keeps the latest version of the value according to the
 -- convention.
 --
 -- If fails, retries using 'withConnectionRetry'
