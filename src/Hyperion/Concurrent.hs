@@ -180,7 +180,7 @@ instance (Functor m, Alternative (Concurrently m)) => Alternative (Concurrently 
 instance (Applicative (Concurrently m), Semigroup a) => Semigroup (Concurrently m a) where
   (<>) = liftA2 (<>)
 
-instance (Applicative (Concurrently m), Semigroup a, Monoid a) => Monoid (Concurrently m a) where
+instance (Applicative (Concurrently m), Monoid a) => Monoid (Concurrently m a) where
   mempty = pure mempty
   mappend = (<>)
 
