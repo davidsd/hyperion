@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE DeriveAnyClass      #-}
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE FlexibleContexts    #-}
@@ -22,11 +23,11 @@ import           Control.Distributed.Process.Closure (SerializableDict (..))
 import qualified Control.Distributed.Process.Node    as Node
 import           Control.Distributed.Static          (registerStatic,
                                                       staticLabel)
-import           Control.Monad.Catch                 (Exception, SomeException,
-                                                      bracket, catch, throwM,
-                                                      try, MonadCatch)
+import           Control.Monad.Catch                 (Exception, MonadCatch,
+                                                      SomeException, bracket,
+                                                      catch, throwM, try)
 import           Control.Monad.Extra                 (whenM)
-import Control.Monad.IO.Class (MonadIO)
+import           Control.Monad.IO.Class              (MonadIO)
 import           Control.Monad.Trans.Maybe           (MaybeT (..))
 import           Data.Binary                         (Binary)
 import           Data.Constraint                     (Dict (..))
@@ -40,8 +41,8 @@ import           GHC.Generics                        (Generic)
 import           Hyperion.CallClosure                (call')
 import qualified Hyperion.Log                        as Log
 import           Hyperion.Static                     (Serializable, ptrAp)
-import           Hyperion.Util                       (nominalDiffTimeToMicroseconds,
-                                                      newUnique)
+import           Hyperion.Util                       (newUnique,
+                                                      nominalDiffTimeToMicroseconds)
 import           Network.BSD                         (HostEntry (..),
                                                       getHostEntries,
                                                       getHostName)
@@ -120,13 +121,20 @@ runProcessLocalWithRT rt process = do
 -- the given 'Process' on it. Waits for the process to finish.
 --
 -- Binds to the first available port by specifying port 0.
+--
+-- NOTE: Some clusters, for example XSEDE's expanse cluster, cannot
+-- communicate between nodes using the output of 'getHostName'. In
+-- such cases, one can try building with the flag
+-- 'USE_EXTERNAL_HOSTNAME' which returns a different address.
 runProcessLocalWithRT_ :: RemoteTable -> Process () -> IO ()
 runProcessLocalWithRT_ rtable process = do
-  -- This doesn't work on expanse. Comment this line out on expanse:
+#if defined(USE_EXTERNAL_HOSTNAME)
+  -- works on expanse, but not elsewhere
+  host <- getExternalHostName
+#else
+  -- works on most other clusters
   host <- getHostName
-  -- This does work on expanse, but not anywhere else. Uncomment this
-  -- line on expanse:
-  --host <- getExternalHostName
+#endif
   NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
     Left e -> Log.throw e
     Right t -> do

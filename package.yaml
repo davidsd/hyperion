@@ -1,13 +1,21 @@
 name: hyperion
-version: '0.1.0.0'
+version: '0.1.0.1'
 author: David Simmons-Duffin
 maintainer: davidsd@gmail.com
 license: MIT
 
 ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
 
+flags:
+  use-external-hostname:
+    default: false
+    manual: true
+
 library:
   source-dirs: src
+  when:
+    - condition: (flag(use-external-hostname))
+      cpp-options: -DUSE_EXTERNAL_HOSTNAME
   dependencies:
     - base
     - process
@@ -29,7 +37,6 @@ library:
     - binary
     - transformers
     - stm
-    - ghc-prim
     - directory
     - aeson
     - containers
@@ -45,7 +52,6 @@ library:
     - resource-pool
     - transformers-base
     - optparse-applicative
-    - servant
     - servant-server
     - wai
     - warp
@@ -64,8 +70,6 @@ executables:
       - base
       - hyperion
       - optparse-applicative
-#      - filepath
-#      - distributed-process
       - text
 
   example-lock-map:
@@ -75,7 +79,6 @@ executables:
       - base
       - hyperion
       - optparse-applicative
-#      - filepath
       - distributed-process
       - mtl
       - text
@@ -86,12 +89,7 @@ executables:
     dependencies:
       - base
       - hyperion
-#      - optparse-applicative
-#      - filepath
-#      - monad-control
       - distributed-process
-#      - mtl
-#      - directory
       - text
       - constraints
       - binary
@@ -106,8 +104,5 @@ executables:
       - hyperion
       - optparse-applicative
       - filepath
-#      - monad-control
       - distributed-process
       - mtl
-#      - directory
-#      - text
