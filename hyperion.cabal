@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 2fb8333c18968695b515ca0c9fc72196830d7e0ba232d993a854ea400cb8dd98
+-- hash: 1b06dfee2f72c72c381e9db5930ddf6f07318b0fcca101cefbaf9a9ffd229934
 
 name:           hyperion
-version:        0.1.0.1
+version:        0.1.0.2
 author:         David Simmons-Duffin
 maintainer:     davidsd@gmail.com
 license:        MIT
@@ -139,7 +139,6 @@ executable example-polymorphic-remote
   build-depends:
       base
     , binary
-    , constraints
     , containers
     , distributed-process
     , hyperion
