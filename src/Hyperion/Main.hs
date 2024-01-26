@@ -2,33 +2,30 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module Hyperion.Main where
 
-import           Control.Monad             (unless)
-import           Control.Monad.Catch       (SomeException, try)
-import           Data.Maybe                (isJust)
-import           Hyperion.Cluster          (Cluster, ClusterEnv (..),
-                                            ProgramInfo (..), runCluster,
-                                            runDBWithProgramInfo)
-import           Hyperion.Command          (Worker (..), workerOpts)
-import           Hyperion.Config           (HyperionConfig (..), newClusterEnv)
-import qualified Hyperion.Database         as DB
-import           Hyperion.HoldServer       (newHoldMap, withHoldServer)
-import qualified Hyperion.Log              as Log
-import           Hyperion.Remote           (addressToNodeId,
-                                            initWorkerRemoteTable,
-                                            runProcessLocalWithRT, worker)
-import           Options.Applicative
-import           System.Console.Concurrent (withConcurrentOutput)
-import           System.Directory          (removeFile)
-import           System.Environment        (getEnvironment)
-import           System.FilePath.Posix     ((<.>))
-import           System.Posix.Process      (getProcessID)
-import           System.Posix.Signals      (Handler (..), installHandler,
-                                            raiseSignal, sigINT, sigTERM)
-import qualified System.RUsage as RUsage
+import Control.Monad             (unless)
+import Control.Monad.Catch       (SomeException, try)
+import Data.Maybe                (isJust)
+import Hyperion.Cluster          (Cluster, ClusterEnv (..), ProgramInfo (..),
+                                  runCluster, runDBWithProgramInfo)
+import Hyperion.Command          (Worker (..), workerOpts)
+import Hyperion.Config           (HyperionConfig (..), newClusterEnv)
+import Hyperion.Database         qualified as DB
+import Hyperion.HoldServer       (newHoldMap, withHoldServer)
+import Hyperion.Log              qualified as Log
+import Hyperion.Remote           (addressToNodeId, initWorkerRemoteTable,
+                                  runProcessLocalWithRT, worker)
+import Hyperion.Util             (logMemoryUsage)
+import Options.Applicative
+import System.Console.Concurrent (withConcurrentOutput)
+import System.Directory          (removeFile)
+import System.Environment        (getEnvironment)
+import System.FilePath.Posix     ((<.>))
+import System.Posix.Process      (getProcessID)
+import System.Posix.Signals      (Handler (..), installHandler, raiseSignal,
+                                  sigINT, sigTERM)
 
 -- | The type for command-line options to 'hyperionMain'. Here @a@ is
 -- the type for program-specific options.  In practice we want @a@ to
@@ -103,7 +100,7 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
     runProcessLocalWithRT
       (initWorkerRemoteTable (Just masterNid))
       (worker masterNid workerService)
-    RUsage.get RUsage.Self >>= Log.info "Resource usage"
+    logMemoryUsage
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args
 
@@ -141,5 +138,4 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
           unless (isJust (hyperionCommand hyperionConfig)) $
             removeFile hyperionExecutable
           Log.info "Finished" progId
-    RUsage.get RUsage.Self >>= Log.info "Resource usage"
-
+    logMemoryUsage

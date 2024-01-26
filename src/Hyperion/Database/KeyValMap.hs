@@ -1,8 +1,8 @@
 {-# LANGUAGE DeriveAnyClass      #-}
 {-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DerivingStrategies       #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module Hyperion.Database.KeyValMap where
 
@@ -60,7 +60,8 @@ import           Prelude                          hiding (lookup)
 -- | Type for 'KeyValMap' holds the types of key and value, but only
 -- contains 'kvMapName' the name of the map
 newtype KeyValMap a b = KeyValMap { kvMapName :: Text }
-  deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
+  deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass (Binary, FromJSON, ToJSON)
 
 -- | 'KeyValMap' is an instance of 'ToField' in order to use with Sqlite
 instance Sql.ToField (KeyValMap a b) where

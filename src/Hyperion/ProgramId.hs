@@ -1,17 +1,19 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric  #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 module Hyperion.ProgramId where
 
-import           Data.Aeson                     (FromJSON, ToJSON)
-import           Data.Binary                    (Binary)
-import           Data.Text                      (Text, pack)
-import qualified Database.SQLite.Simple.ToField as Sql
-import           GHC.Generics                   (Generic)
-import           Hyperion.Util                  (randomString)
+import Data.Aeson                     (FromJSON, ToJSON)
+import Data.Binary                    (Binary)
+import Data.Text                      (Text, pack)
+import Database.SQLite.Simple.ToField qualified as Sql
+import GHC.Generics                   (Generic)
+import Hyperion.Util                  (randomString)
 
 newtype ProgramId = ProgramId Text
-  deriving (Show, Eq, Ord, Generic, Binary, FromJSON, ToJSON)
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass (Binary, FromJSON, ToJSON)
 
 instance Sql.ToField ProgramId where
   toField = Sql.toField . programIdToText

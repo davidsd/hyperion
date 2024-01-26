@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 16d8624268190aac88bbf2d2ea03ca8ce090c98ea77c7fdda927509cbb18ad3d
+-- hash: 00b3239c71dbe147740efe2f1694dac54ec01598fda4306852f7775630d1b058
 
 name:           hyperion
-version:        0.1.0.2
+version:        0.1.0.4
 author:         David Simmons-Duffin
 maintainer:     davidsd@gmail.com
 license:        MIT
@@ -96,7 +96,7 @@ library
     , vector
     , wai
     , warp
-  default-language: Haskell2010
+  default-language: GHC2021
   if (flag(use-external-hostname))
     cpp-options: -DUSE_EXTERNAL_HOSTNAME
 
@@ -112,7 +112,7 @@ executable example-hello-world
     , hyperion
     , optparse-applicative
     , text
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable example-lock-map
   main-is: Main.hs
@@ -128,7 +128,7 @@ executable example-lock-map
     , mtl
     , optparse-applicative
     , text
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable example-polymorphic-remote
   main-is: Main.hs
@@ -145,7 +145,7 @@ executable example-polymorphic-remote
     , hyperion
     , hyperion-static
     , text
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable example-root-search
   main-is: Main.hs
@@ -161,4 +161,4 @@ executable example-root-search
     , hyperion
     , mtl
     , optparse-applicative
-  default-language: Haskell2010
+  default-language: GHC2021

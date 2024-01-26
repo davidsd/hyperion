@@ -1,8 +1,9 @@
 name: hyperion
-version: '0.1.0.3'
+version: '0.1.0.4'
 author: David Simmons-Duffin
 maintainer: davidsd@gmail.com
 license: MIT
+language: GHC2021
 
 ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
 

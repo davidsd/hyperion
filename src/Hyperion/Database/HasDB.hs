@@ -1,20 +1,17 @@
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Hyperion.Database.HasDB where
 
-import           Control.Lens           (Lens', views)
-import           Control.Monad.Catch    (MonadCatch, try)
-import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Control.Monad.Reader   (MonadReader)
-import qualified Data.Pool              as Pool
-import qualified Database.SQLite.Simple as Sql
-import qualified Hyperion.Log           as Log
-import           Hyperion.ProgramId     (ProgramId)
-import           Hyperion.Util          (retryExponential)
-import           Prelude                hiding (lookup)
+import Control.Lens           (Lens', views)
+import Control.Monad.Catch    (MonadCatch, try)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Reader   (MonadReader)
+import Data.Pool              qualified as Pool
+import Database.SQLite.Simple qualified as Sql
+import Hyperion.Log           qualified as Log
+import Hyperion.ProgramId     (ProgramId)
+import Hyperion.Util          (retryExponential)
+import Prelude                hiding (lookup)
 
 -- * General comments
 -- $
@@ -63,7 +60,9 @@ newDefaultPool dbPath = do
     stripes = 1
     connectionTime = 5
     poolSize = 1
-  Pool.createPool (Sql.open dbPath) Sql.close stripes connectionTime poolSize
+  Pool.newPool $
+    Pool.setNumStripes (Just stripes) $
+    Pool.defaultPoolConfig (Sql.open dbPath) Sql.close connectionTime (stripes * poolSize)
 
 -- | Extracts the connection pool from the environment of our monad, gets a
 -- connection and runs the supplied function with it

@@ -1,34 +1,32 @@
-{-# LANGUAGE ConstraintKinds   #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PolyKinds         #-}
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE TypeOperators       #-}
 
 module Hyperion.Util where
 
-import           Control.Concurrent
-import           Control.Monad
-import           Control.Monad.Except
-import           Data.BinaryHash       (hashBase64Safe)
-import qualified Data.ByteString.Char8 as B
-import           Data.Constraint       (Constraint, Dict (..))
-import           Data.IORef            (IORef, atomicModifyIORef', newIORef)
-import           Data.Text             (Text)
-import qualified Data.Text             as Text
-import qualified Data.Text.Lazy        as LazyText
-import           Data.Time.Clock       (NominalDiffTime)
-import qualified Data.Vector           as V
-import qualified Hyperion.Log          as Log
-import           Network.Mail.Mime     (Address (..), renderSendMail,
-                                        simpleMail')
-import           Numeric               (showIntAtBase)
-import           System.Directory
-import           System.FilePath.Posix (replaceDirectory)
-import           System.IO.Unsafe      (unsafePerformIO)
-import           System.Posix.Files    (readSymbolicLink)
-import           System.Random         (randomRIO)
-import qualified Text.ShellEscape      as Esc
+import Control.Concurrent
+import Control.Monad
+import Control.Monad.Except
+import Data.BinaryHash       (hashBase64Safe)
+import Data.ByteString.Char8 qualified as B
+import Data.Constraint       (Constraint, Dict (..))
+import Data.IORef            (IORef, atomicModifyIORef', newIORef)
+import Data.Text             (Text)
+import Data.Text             qualified as Text
+import Data.Text.Lazy        qualified as LazyText
+import Data.Time.Clock       (NominalDiffTime)
+import Data.Vector           qualified as V
+import Hyperion.Log          qualified as Log
+import Network.Mail.Mime     (Address (..), renderSendMail, simpleMail')
+import Numeric               (showIntAtBase)
+import System.Directory
+import System.FilePath.Posix (replaceDirectory)
+import System.IO.Unsafe      (unsafePerformIO)
+import System.Posix.Files    (readSymbolicLink)
+import System.Random         (randomRIO)
+import System.RUsage         qualified as RUsage
+import Text.ShellEscape      qualified as Esc
 
 -- | An opaque type representing a unique object. Only guaranteed to
 -- be unique in one instance of a running program. For example, if we
@@ -199,3 +197,17 @@ hashTruncateFileName = hashTruncateString 230
 withDict :: forall (c :: Constraint) r . (c => r) -> Dict c -> r
 withDict r Dict = r
 
+----------------- Memory ----------------------
+
+logMemoryUsage :: IO ()
+logMemoryUsage = do
+  rSelf     <- RUsage.get RUsage.Self
+  rChildren <- RUsage.get RUsage.Children
+  let toGB m = fromIntegral @_ @Double m / 1000 / 1000
+  Log.text $ mconcat
+    [ "Max resident set size: self: "
+    , Log.showText (toGB rSelf.maxResidentSetSize)
+    , " GB, children: "
+    , Log.showText (toGB rChildren.maxResidentSetSize)
+    , " GB"
+    ]
