@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.2.
+-- This file has been generated from package.yaml by hpack version 0.36.0.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1b06dfee2f72c72c381e9db5930ddf6f07318b0fcca101cefbaf9a9ffd229934
+-- hash: 16d8624268190aac88bbf2d2ea03ca8ce090c98ea77c7fdda927509cbb18ad3d
 
 name:           hyperion
 version:        0.1.0.2
@@ -83,6 +83,7 @@ library
     , random
     , rank1dynamic
     , resource-pool
+    , rusage
     , servant-server
     , shell-escape
     , sqlite-simple

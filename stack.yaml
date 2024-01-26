@@ -12,6 +12,8 @@ extra-deps:
   commit: 2f65a2d472fccbd90636783c8a85ef553f8f9ea8
 - git: https://gitlab.com/davidsd/hyperion-static.git
   commit: 26d55bfa4c6019558ff05b97b29bff9990db31ca
+- git: https://gitlab.com/davidsd/rusage.git
+  commit: ca52101db66e736a01f4de1b4c32bd3f13fca048
 resolver: nightly-2023-05-02
 build:
   haddock-arguments:
