@@ -57,6 +57,8 @@ data SbatchOptions = SbatchOptions
   , account       :: Maybe Text
   -- | (\"--qos")
   , qos           :: Maybe Text
+  -- | (\"--no-requeue")
+  , noRequeue     :: Bool
   } deriving (Show)
 
 -- | Default 'SbatchOptions'. Request 1 task on 1 node for 24 hrs, everything else
@@ -76,6 +78,7 @@ defaultSbatchOptions = SbatchOptions
   , constraint      = Nothing
   , account         = Nothing
   , qos             = Nothing
+  , noRequeue       = True
   }
 
 -- | Convert 'SbatchOptions' to a string of options for @sbatch@
@@ -99,6 +102,7 @@ sBatchOptionString SbatchOptions{..} =
       , ("--constraint",      fmap T.unpack constraint)
       , ("--account",         fmap T.unpack account)
       , ("--qos",             fmap T.unpack qos)
+      , ("--no-requeue",      if noRequeue then Just "" else Nothing)
       ]
 
 sbatchOutputParser :: Parser JobId
