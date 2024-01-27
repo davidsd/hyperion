@@ -19,7 +19,7 @@ import Data.Time.Clock       (NominalDiffTime)
 import Data.Vector           qualified as V
 import Hyperion.Log          qualified as Log
 import Network.Mail.Mime     (Address (..), renderSendMail, simpleMail')
-import Numeric               (showIntAtBase)
+import Numeric               (showFFloat, showIntAtBase)
 import System.Directory
 import System.FilePath.Posix (replaceDirectory)
 import System.IO.Unsafe      (unsafePerformIO)
@@ -203,11 +203,13 @@ logMemoryUsage :: IO ()
 logMemoryUsage = do
   rSelf     <- RUsage.get RUsage.Self
   rChildren <- RUsage.get RUsage.Children
-  let toGB m = fromIntegral @_ @Double m / 1000 / 1000
+  let
+    toGB m = fromIntegral @_ @Double m / 1000 / 1000
+    showMem m = Text.pack $ showFFloat (Just 3) (toGB m) ""
   Log.text $ mconcat
     [ "Max resident set size: self: "
-    , Log.showText (toGB rSelf.maxResidentSetSize)
+    , showMem rSelf.maxResidentSetSize
     , " GB, children: "
-    , Log.showText (toGB rChildren.maxResidentSetSize)
+    , showMem rChildren.maxResidentSetSize
     , " GB"
     ]
