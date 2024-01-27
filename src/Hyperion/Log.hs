@@ -84,7 +84,9 @@ getLogFile = liftIO (readIORef currentLogFile)
 redirectToFile :: FilePath -> IO ()
 redirectToFile logFile = do
   createDirectoryIfMissing True (takeDirectory logFile)
-  h <- openFile logFile WriteMode
+  -- Use AppendMode so that if the program is accidentally run twice
+  -- with the same arguments, we don't overwrite previous log files.
+  h <- openFile logFile AppendMode
   writeIORef currentLogFile (Just logFile)
   hDuplicateTo h stdout
   hDuplicateTo h stderr

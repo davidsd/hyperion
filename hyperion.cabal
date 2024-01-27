@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 879d990d06d0a54c514e5b4846d0d3a7f8ce4bff026fdf9b7499d274c8438f4e
+-- hash: da860f1a02b0e2c2b9575a6372a8e0c3392a4eea711b41c472b346d542b4a8a3
 
 name:           hyperion
-version:        0.1.0.5
+version:        0.1.0.6
 author:         David Simmons-Duffin
 maintainer:     davidsd@gmail.com
 license:        MIT
