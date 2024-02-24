@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4982910a7ab70697e6ee65f4ea1ac5cacb3a39bf5065423c32f6d41a67c7e2fe
+-- hash: 5928312ae3987c66b497188763bd931d345850eaaf4f7b69eb385c97e63c171e
 
 name:           hyperion
 version:        0.1.0.7
@@ -74,6 +74,7 @@ library
     , mtl
     , network
     , network-bsd
+    , network-info
     , network-transport
     , network-transport-tcp
     , optparse-applicative

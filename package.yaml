@@ -34,6 +34,7 @@ library:
     - network-transport-tcp
     - network
     - network-bsd
+    - network-info
     - unix
     - binary
     - transformers
