@@ -183,6 +183,7 @@ remoteToolRunCmd addr (SSH sshCmd) (cmd, args) =
     -- update SSHCommand haddock if changing this default.
     defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"])
 remoteToolRunCmd addr (SRun srunCmd) (cmd, args) = do
+  Log.info "Invoking srun:" (srun, srunArgs) 
   _ <- spawnProcess srun srunArgs
   return ()
   where
