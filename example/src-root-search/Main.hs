@@ -164,7 +164,7 @@ mkHyperionConfig ProgramOptions{..} =
     initialDatabase       = Nothing
     emailAddr             = Nothing
     maxSlurmJobs          = Nothing
-    sshRunCommand         = Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
+    remoteTool         = SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
   in HyperionConfig{..}
 
 main :: IO ()

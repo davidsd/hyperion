@@ -39,7 +39,7 @@ import qualified Hyperion.Slurm              as Slurm
 import           Hyperion.Static             (Closure, Static (..), cAp, cPtr,
                                               cPure, ptrAp)
 import           Hyperion.Util               (myExecutable)
-import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHCommand,
+import           Hyperion.WorkerCpuPool      (NumCPUs (..), RemoteTool,
                                               SSHError, WorkerAddr)
 import qualified Hyperion.WorkerCpuPool      as WCP
 import           System.FilePath.Posix       (dropExtension, (<.>), (</>))
@@ -97,8 +97,8 @@ data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
     nodeLogDir :: FilePath
-    -- | The command used to run @ssh@. See 'SSHCommand' for description.
-  , nodeSshCmd :: SSHCommand
+    -- | The command used to run shell commands on remote nodes. See 'RemoteTool' for description.
+  , nodeRemoteTool :: RemoteTool
   }
 
 -- | Make 'JobEnv' an instance of 'DB.HasDB'.
@@ -145,7 +145,7 @@ runJobSlurm programInfo go = do
           -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
           Nothing      -> programLogDir programInfo </> "workers" </> "workers"
-      , nodeSshCmd = programSSHCommand programInfo
+      , nodeRemoteTool = programRemoteTool programInfo
       }
   withPoolLauncher nodeLauncherConfig nodes $ \poolLauncher -> do
     let cfg = JobEnv
@@ -204,7 +204,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 
 -- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the continuation
 -- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher'
--- 'JobId')@.  Passing 'Nothing' repersents @ssh@ failure.
+-- 'JobId')@.  Passing 'Nothing' repersents a remote tool failure.
 --
 -- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher'
 -- launches workers on the node at 'WorkerAddr'. The launcher is
@@ -221,7 +221,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 -- messages like \"Running command ...\".
 --
 -- The reason that utility workers are used on each Job node is to
--- minimize the number of calls to @ssh@ or @srun@. The naive way to
+-- minimize the number of calls to the remote tool (@ssh@ or @srun@). The naive way to
 -- launch workers in the 'Job' monad would be to determine what node
 -- they should be run on, and run the hyperion worker command via
 -- @ssh@. Unfortunately, many clusters have flakey @ssh@
@@ -230,11 +230,11 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 -- authentication. Experience shows that @srun@ is also not a good
 -- solution to this problem, since @srun@ talks to @SLURM@ to manage
 -- resources and this can take a long time, affecting
--- performance. Instead, we @ssh@ exactly once to each node in the Job
+-- performance. Instead, we the remote tool exactly once to each node in the Job
 -- (besides the head node), and start utility workers there. These
 -- workers can then communicate with the head node via the usual
 -- machinery of @hyperion@ --- effectively, we keep a connection open
--- to each node so that we no longer have to use @ssh@.
+-- to each node so that we no longer have to use the remote tool.
 withNodeLauncher
   :: NodeLauncherConfig
   -> WorkerAddr
@@ -242,9 +242,9 @@ withNodeLauncher
   -> Process a
 withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
   WCP.RemoteAddr addr -> do
-    sshLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.sshRunCmd addr nodeSshCmd)
+    remoteToolLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.remoteToolRunCmd addr nodeRemoteTool)
     eitherResult <- try @Process @SSHError $ do
-      withRemoteRunProcess sshLauncher $ \remoteRunNode ->
+      withRemoteRunProcess remoteToolLauncher $ \remoteRunNode ->
         let
           runCmdOnNode cmd = do
             scp <- mkSerializableClosureProcess closureDict $ pure $

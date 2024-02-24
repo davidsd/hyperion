@@ -13,7 +13,7 @@ import qualified Hyperion.Log           as Log
 import           Hyperion.ProgramId
 import qualified Hyperion.Slurm         as Slurm
 import           Hyperion.Util          (savedExecutable)
-import           Hyperion.WorkerCpuPool (SSHCommand)
+import           Hyperion.WorkerCpuPool (RemoteTool(..))
 import           Hyperion.TokenPool     (newTokenPool)
 import           System.Directory       (copyFile, createDirectoryIfMissing)
 import           System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>),
@@ -40,9 +40,9 @@ data HyperionConfig = HyperionConfig
   , hyperionCommand      :: Maybe FilePath
     -- | The database from which to initiate the program database
   , initialDatabase      :: Maybe FilePath
-    -- | The command used to run @ssh@ on nodes. Usually can be safely set to
-    -- 'Nothing'. See 'SSHCommand' for details.
-  , sshRunCommand        :: SSHCommand
+    -- | The command used to run shell commands on remtoe nodes in a job. Usually can be safely set to
+    -- 'SSH Nothing'. See 'RemoteTool' for details.
+  , remoteTool        :: RemoteTool
     -- | Email address for cluster notifications from
     -- hyperion. Nothing means no emails will be sent. Note that this
     -- setting can be different from the one in defaultSbatchOptions,
@@ -63,7 +63,7 @@ defaultHyperionConfig baseDirectory = HyperionConfig
   , jobDir               = baseDirectory </> "jobs"
   , hyperionCommand      = Nothing
   , initialDatabase      = Nothing
-  , sshRunCommand        = Nothing
+  , remoteTool        = SSH Nothing
   , emailAddr            = Nothing
   }
 
@@ -94,7 +94,7 @@ newClusterEnv HyperionConfig{..} holdMap holdPort = do
   programDataDir <- timedProgramDir dataDir programId
   sbatchTokenPool <- newTokenPool maxSlurmJobs
   let clusterJobOptions = defaultSbatchOptions { Slurm.chdir = Just jobDir }
-      programSSHCommand = sshRunCommand
+      programRemoteTool = remoteTool
       clusterProgramInfo = ProgramInfo {..}
       clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool
       clusterDatabaseRetries = defaultDBRetries

@@ -23,7 +23,10 @@ import qualified Hyperion.Slurm              as Slurm
 import           Hyperion.Util               (retryRepeated, shellEsc)
 import           System.Exit                 (ExitCode (..))
 import           System.Process              (readCreateProcessWithExitCode
-                                             , proc)
+                                             , proc, spawnProcess)
+import Data.Binary (Binary)
+import GHC.Generics (Generic)
+import           Data.Aeson                       (FromJSON, ToJSON)
 
 -- * General comments
 -- $
@@ -42,7 +45,7 @@ import           System.Process              (readCreateProcessWithExitCode
 -- runs a user function with the address of that node. The allocation mechanism
 -- is very simple and allocates CPU's on the worker which has the most idle CPUs.
 -- 
--- We also provide 'sshRunCmd' for running commands on the nodes via @ssh@.
+-- We also provide 'remoteToolRunCmd' for running commands on the nodes via @ssh@ or @srun@.
 
 -- * 'WorkerCpuPool' documentation
 -- $
@@ -113,24 +116,25 @@ withWorkerAddr WorkerCpuPool{..} cpus go =
         -- add back the requested cpus to the worker's total
         modifyTVar cpuMap (Map.adjust (+cpus) addr)
 
--- * 'sshRunCmd' documentation
+-- * 'remoteToolRunCmd' documentation
 -- $
 
 -- Type for @ssh@ errors. The 'String's are 'stdout' and 'stderr' of @ssh@.
 data SSHError = SSHError String (ExitCode, String, String)
   deriving (Show, Exception)
 
--- | The type for the command used to run @ssh@. If a 'Just' value, then 
--- the first 'String' gives the name of @ssh@ executable, e.g. @\"ssh\"@, and the
--- list of 'String's gives the options to pass to @ssh@. For example, with
--- 'SSHCommand' given by @(\"XX\", [\"-a\", \"-b\"])@, @ssh@ is run as
+-- | The type for the command used as the remote tool. Can be @ssh$ or @srun$ with c
+-- custom or default arguments. If a 'Just' value, then 
+-- the first 'String' gives the name of @ssh@ or@srun@ executable, e.g. @\"ssh\"@, and the
+-- list of 'String's gives the options to pass to the tool. For example, with
+-- 'RemoteTool' given by @SSH $ Just (\"XX\", [\"-a\", \"-b\"])@, @ssh@ is run as
 --
 -- > XX -a -b <addr> <command>
 --
 -- where @\<addr\>@ is the remote address and @\<command\>@ is the command we need
 -- to run there.
 --
--- The value of 'Nothing' is equivalent to using
+-- For @ssh@, the value of 'Nothing' is equivalent to using
 -- 
 -- > ssh -f -o "UserKnownHostsFile /dev/null" <addr> <command>
 -- 
@@ -140,10 +144,13 @@ data SSHError = SSHError String (ExitCode, String, String)
 --
 -- Note that @\"UserKnownHostsFile \/dev\/null\"@ doesn't seem to work on Helios. 
 -- Using instead @\"StrictHostKeyChecking=no\"@ seems to work. 
-type SSHCommand = Maybe (String, [String])
+--
+-- TODO: add @srun@ documentation
+data RemoteTool = SSH (Maybe (String, [String])) | SRun (Maybe (String, [String]))
+  deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 -- | Runs a given command on remote host (with address given by the first 'String') with the
--- given arguments via @ssh@ using the 'SSHCommand'. Makes at most 10 attempts via 'retryRepeated'.
+-- given arguments via @ssh@ using the 'RemoteTool'. Makes at most 10 attempts via 'retryRepeated'.
 -- If fails, propagates 'SSHError' outside.
 --
 -- @ssh@ needs to be able to authenticate on the remote
@@ -152,8 +159,31 @@ type SSHCommand = Maybe (String, [String])
 --
 -- @ssh@ is invoked to run @sh@ that calls @nohup@ to run the supplied command
 -- in background.
-sshRunCmd :: String -> SSHCommand -> (String, [String]) -> IO ()
-sshRunCmd addr sshCmd (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
+-- remoteToolRunCmd :: String -> RemoteTool -> (String, [String]) -> IO ()
+-- remoteToolRunCmd addr sshCmd (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
+--   result@(exit, _, _) <- readCreateProcessWithExitCode (proc runCmd runArgs) ""
+--   case exit of
+--     ExitSuccess -> return ()
+--     _           -> Log.throw (SSHError addr result)
+--   where
+--     (runCmd, runArgs) = case sshCmd of 
+--       SSH shellCmd -> makeSSHCommand shellCmd
+--       SRun shellCmd -> makeSRunCommand shellCmd
+--     makeSSHCommand shellCmd = (sshCmd', sshOpts' ++ [ addr
+--                          , shellEsc "sh"
+--                            [ "-c"
+--                            , shellEsc "nohup" (cmd : args)
+--                              ++ " &"
+--                            ]
+--                          ])
+--       where
+--         (sshCmd', sshOpts') = fromMaybe defaultSSHCmd shellCmd
+--     makeSRunCommand = undefined
+--     -- update SSHCommand haddock if changing this default.
+--     defaultSSHCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"]) 
+
+remoteToolRunCmd :: String -> RemoteTool -> (String, [String]) -> IO ()
+remoteToolRunCmd addr (SSH sshCmd) (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
   result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
   case exit of
     ExitSuccess -> return ()
@@ -169,3 +199,28 @@ sshRunCmd addr sshCmd (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
                          ]
     -- update SSHCommand haddock if changing this default.
     defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"]) 
+remoteToolRunCmd addr (SRun srunCmd) (cmd, args) = do
+  _ <- spawnProcess srun srunArgs
+  return ()
+  where
+    (srun, srunOpts) = fromMaybe defaultCmd srunCmd
+    srunArgs = srunOpts ++ [ "--nodelist", addr, 
+                            shellEsc cmd args
+                           ]
+    defaultCmd = ("srun", ["--external-launcher", "--nodes=1", "--ntasks=1", "--immediate"])
+  -- retryRepeated 10 (try @IO @SSHError) $ do
+  -- result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
+  -- case exit of
+  --   ExitSuccess -> return ()
+  --   _           -> Log.throw (SSHError addr result)
+  -- where
+  --   (ssh, sshOpts) = fromMaybe defaultCmd srunCmd
+  --   sshArgs = sshOpts ++ [ addr
+  --                        , shellEsc "sh"
+  --                          [ "-c"
+  --                          , shellEsc "nohup" (cmd : args)
+  --                            ++ " &"
+  --                          ]
+  --                        ]
+  --   -- update SSHCommand haddock if changing this default.
+  --   defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"]) 

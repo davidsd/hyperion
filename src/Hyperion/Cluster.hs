@@ -47,7 +47,7 @@ import           Hyperion.Slurm                   (JobId (..), SbatchError,
 import           Hyperion.TokenPool               (TokenPool, withToken)
 import           Hyperion.Static                  (Static (..), cPtr)
 import           Hyperion.Util                    (emailError, retryExponential)
-import           Hyperion.WorkerCpuPool           (SSHCommand)
+import           Hyperion.WorkerCpuPool           (RemoteTool)
 import           System.Directory                 (createDirectoryIfMissing)
 import           System.FilePath.Posix            ((<.>), (</>))
 
@@ -128,7 +128,7 @@ data ProgramInfo = ProgramInfo
   , programDatabase   :: FilePath
   , programLogDir     :: FilePath
   , programDataDir    :: FilePath
-  , programSSHCommand :: SSHCommand
+  , programRemoteTool :: RemoteTool
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 instance Static (Binary ProgramInfo) where closureDict = cPtr (static Dict)
