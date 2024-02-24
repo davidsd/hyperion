@@ -14,26 +14,27 @@ import           Control.Exception           (Exception)
 import           Control.Monad               (when)
 import           Control.Monad.Catch         (MonadMask, bracket, try)
 import           Control.Monad.IO.Class      (MonadIO, liftIO)
+import           Data.Aeson                  (FromJSON, ToJSON)
+import           Data.Binary                 (Binary)
 import           Data.List.Extra             (maximumOn)
 import           Data.Map.Strict             (Map)
-import           Data.Maybe                  (fromMaybe)
 import qualified Data.Map.Strict             as Map
+import           Data.Maybe                  (fromMaybe)
+import           GHC.Generics                (Generic)
 import qualified Hyperion.Log                as Log
 import qualified Hyperion.Slurm              as Slurm
 import           Hyperion.Util               (retryRepeated, shellEsc)
 import           System.Exit                 (ExitCode (..))
-import           System.Process              (readCreateProcessWithExitCode
-                                             , proc, spawnProcess)
-import Data.Binary (Binary)
-import GHC.Generics (Generic)
-import           Data.Aeson                       (FromJSON, ToJSON)
+import           System.Process              (proc,
+                                              readCreateProcessWithExitCode,
+                                              spawnProcess)
 
 -- * General comments
 -- $
 -- This module defines 'WorkerCpuPool', a datatype that provides a mechanism
 -- for @hyperion@ to manage the resources allocated to it by @SLURM@. The only
 -- resource that is managed are the CPU's on the allocated nodes. This module
--- works under the assumption that the same number of CPU's has been allocated 
+-- works under the assumption that the same number of CPU's has been allocated
 -- on all the nodes allocated to the job.
 --
 -- A 'WorkerCpuPool' is essentially a 'TVar' containing the 'Map' that maps
@@ -41,21 +42,22 @@ import           Data.Aeson                       (FromJSON, ToJSON)
 -- be a remote node or the local node on which 'WorkerCpuPool' is hosted.
 --
 -- The most important function defined in this module is 'withWorkerAddr' which
--- allocates the requested number of CPUs from the pull on a single node and 
+-- allocates the requested number of CPUs from the pull on a single node and
 -- runs a user function with the address of that node. The allocation mechanism
 -- is very simple and allocates CPU's on the worker which has the most idle CPUs.
--- 
+--
 -- We also provide 'remoteToolRunCmd' for running commands on the nodes via @ssh@ or @srun@.
-
 -- * 'WorkerCpuPool' documentation
 -- $
-
 -- | A newtype for the number of available CPUs
-newtype NumCPUs = NumCPUs Int
+newtype NumCPUs =
+  NumCPUs Int
   deriving newtype (Eq, Ord, Num)
 
 -- | The 'WorkerCpuPool' type, contaning a map of available CPU resources
-data WorkerCpuPool = WorkerCpuPool { cpuMap :: TVar (Map WorkerAddr NumCPUs) }
+data WorkerCpuPool = WorkerCpuPool
+  { cpuMap :: TVar (Map WorkerAddr NumCPUs)
+  }
 
 -- | 'newWorkerCpuPool' creates a new 'WorkerCpuPool' from a 'Map'.
 newWorkerCpuPool :: Map WorkerAddr NumCPUs -> IO WorkerCpuPool
@@ -63,13 +65,15 @@ newWorkerCpuPool cpus = WorkerCpuPool <$> newTVarIO cpus
 
 -- | Gets a list of all 'WorkerAddr' registered in 'WorkerCpuPool'
 getAddrs :: WorkerCpuPool -> IO [WorkerAddr]
-getAddrs WorkerCpuPool{..} = fmap Map.keys (readTVarIO cpuMap)
+getAddrs WorkerCpuPool {..} = fmap Map.keys (readTVarIO cpuMap)
 
 -- | A 'WorkerAddr' representing a node address. Can be a remote node or the local node
-data WorkerAddr = LocalHost String | RemoteAddr String
+data WorkerAddr
+  = LocalHost String
+  | RemoteAddr String
   deriving (Eq, Ord, Show)
 
--- | Reads the system environment to obtain the list of nodes allocated to the job. 
+-- | Reads the system environment to obtain the list of nodes allocated to the job.
 -- If the local node is in the list, then records it too, as 'LocalHost'.
 getSlurmAddrs :: IO [WorkerAddr]
 getSlurmAddrs = do
@@ -79,8 +83,8 @@ getSlurmAddrs = do
   where
     toAddr mh n =
       if mh == Just n
-      then LocalHost n
-      else RemoteAddr n
+        then LocalHost n
+        else RemoteAddr n
 
 -- | Reads the system environment to determine the number of CPUs available on
 -- each node (the same number on each node), and creates a new 'WorkerCpuPool'
@@ -94,37 +98,40 @@ newJobPool nodes = do
 -- | Finds the worker with the most available CPUs and runs the given
 -- routine with the address of that worker. Blocks if the number of
 -- available CPUs is less than the number requested.
-withWorkerAddr
-  :: (MonadIO m, MonadMask m)
+withWorkerAddr ::
+     (MonadIO m, MonadMask m)
   => WorkerCpuPool
   -> NumCPUs
   -> (WorkerAddr -> m a)
   -> m a
-withWorkerAddr WorkerCpuPool{..} cpus go =
+withWorkerAddr WorkerCpuPool {..} cpus go =
   bracket (liftIO getWorkerAddr) (liftIO . replaceWorkerAddr) go
   where
-    getWorkerAddr = atomically $ do
-      workers <- readTVar cpuMap
+    getWorkerAddr =
+      atomically $ do
+        workers <- readTVar cpuMap
       -- find the worker with the largest number of cpus
-      let (addr, availCpus) = maximumOn snd $ Map.toList workers
+        let (addr, availCpus) = maximumOn snd $ Map.toList workers
       -- If not enough cpus are available, retry
-      check (availCpus >= cpus)
+        check (availCpus >= cpus)
       -- subtract the requested cpus from the worker's total
-      modifyTVar cpuMap (Map.adjust (subtract cpus) addr)
-      return addr
-    replaceWorkerAddr addr = atomically $
+        modifyTVar cpuMap (Map.adjust (subtract cpus) addr)
+        return addr
+    replaceWorkerAddr addr =
+      atomically
+        $
         -- add back the requested cpus to the worker's total
-        modifyTVar cpuMap (Map.adjust (+cpus) addr)
+         modifyTVar cpuMap (Map.adjust (+ cpus) addr)
 
 -- * 'remoteToolRunCmd' documentation
 -- $
-
 -- Type for @ssh@ errors. The 'String's are 'stdout' and 'stderr' of @ssh@.
-data SSHError = SSHError String (ExitCode, String, String)
+data SSHError =
+  SSHError String (ExitCode, String, String)
   deriving (Show, Exception)
 
 -- | The type for the command used as the remote tool. Can be @ssh$ or @srun$ with c
--- custom or default arguments. If a 'Just' value, then 
+-- custom or default arguments. If a 'Just' value, then
 -- the first 'String' gives the name of @ssh@ or@srun@ executable, e.g. @\"ssh\"@, and the
 -- list of 'String's gives the options to pass to the tool. For example, with
 -- 'RemoteTool' given by @SSH $ Just (\"XX\", [\"-a\", \"-b\"])@, @ssh@ is run as
@@ -135,18 +142,20 @@ data SSHError = SSHError String (ExitCode, String, String)
 -- to run there.
 --
 -- For @ssh@, the value of 'Nothing' is equivalent to using
--- 
+--
 -- > ssh -f -o "UserKnownHostsFile /dev/null" <addr> <command>
--- 
+--
 -- We need @-o \"...\"@ option to deal with host key verification
 -- failures. We use @-f@ to force @ssh@ to go to the background before executing
 -- the @sh@ call. This allows for a faster return from 'readCreateProcessWithExitCode'.
 --
--- Note that @\"UserKnownHostsFile \/dev\/null\"@ doesn't seem to work on Helios. 
--- Using instead @\"StrictHostKeyChecking=no\"@ seems to work. 
+-- Note that @\"UserKnownHostsFile \/dev\/null\"@ doesn't seem to work on Helios.
+-- Using instead @\"StrictHostKeyChecking=no\"@ seems to work.
 --
 -- TODO: add @srun@ documentation
-data RemoteTool = SSH (Maybe (String, [String])) | SRun (Maybe (String, [String]))
+data RemoteTool
+  = SSH (Maybe (String, [String]))
+  | SRun (Maybe (String, [String]))
   deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 -- | Runs a given command on remote host (with address given by the first 'String') with the
@@ -155,72 +164,30 @@ data RemoteTool = SSH (Maybe (String, [String])) | SRun (Maybe (String, [String]
 --
 -- @ssh@ needs to be able to authenticate on the remote
 -- node without a password. In practice you will probably need to set up public
--- key authentiticaion. 
+-- key authentiticaion.
 --
 -- @ssh@ is invoked to run @sh@ that calls @nohup@ to run the supplied command
 -- in background.
--- remoteToolRunCmd :: String -> RemoteTool -> (String, [String]) -> IO ()
--- remoteToolRunCmd addr sshCmd (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
---   result@(exit, _, _) <- readCreateProcessWithExitCode (proc runCmd runArgs) ""
---   case exit of
---     ExitSuccess -> return ()
---     _           -> Log.throw (SSHError addr result)
---   where
---     (runCmd, runArgs) = case sshCmd of 
---       SSH shellCmd -> makeSSHCommand shellCmd
---       SRun shellCmd -> makeSRunCommand shellCmd
---     makeSSHCommand shellCmd = (sshCmd', sshOpts' ++ [ addr
---                          , shellEsc "sh"
---                            [ "-c"
---                            , shellEsc "nohup" (cmd : args)
---                              ++ " &"
---                            ]
---                          ])
---       where
---         (sshCmd', sshOpts') = fromMaybe defaultSSHCmd shellCmd
---     makeSRunCommand = undefined
---     -- update SSHCommand haddock if changing this default.
---     defaultSSHCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"]) 
-
 remoteToolRunCmd :: String -> RemoteTool -> (String, [String]) -> IO ()
-remoteToolRunCmd addr (SSH sshCmd) (cmd, args) = retryRepeated 10 (try @IO @SSHError) $ do
-  result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
-  case exit of
-    ExitSuccess -> return ()
-    _           -> Log.throw (SSHError addr result)
+remoteToolRunCmd addr (SSH sshCmd) (cmd, args) =
+  retryRepeated 10 (try @IO @SSHError) $ do
+    result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
+    case exit of
+      ExitSuccess -> return ()
+      _           -> Log.throw (SSHError addr result)
   where
     (ssh, sshOpts) = fromMaybe defaultCmd sshCmd
-    sshArgs = sshOpts ++ [ addr
-                         , shellEsc "sh"
-                           [ "-c"
-                           , shellEsc "nohup" (cmd : args)
-                             ++ " &"
-                           ]
-                         ]
+    sshArgs =
+      sshOpts
+        ++ [addr, shellEsc "sh" ["-c", shellEsc "nohup" (cmd : args) ++ " &"]]
     -- update SSHCommand haddock if changing this default.
-    defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"]) 
+    defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"])
 remoteToolRunCmd addr (SRun srunCmd) (cmd, args) = do
   _ <- spawnProcess srun srunArgs
   return ()
   where
     (srun, srunOpts) = fromMaybe defaultCmd srunCmd
-    srunArgs = srunOpts ++ [ "--nodelist", addr, 
-                            shellEsc cmd args
-                           ]
-    defaultCmd = ("srun", ["--external-launcher", "--nodes=1", "--ntasks=1", "--immediate"])
-  -- retryRepeated 10 (try @IO @SSHError) $ do
-  -- result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
-  -- case exit of
-  --   ExitSuccess -> return ()
-  --   _           -> Log.throw (SSHError addr result)
-  -- where
-  --   (ssh, sshOpts) = fromMaybe defaultCmd srunCmd
-  --   sshArgs = sshOpts ++ [ addr
-  --                        , shellEsc "sh"
-  --                          [ "-c"
-  --                          , shellEsc "nohup" (cmd : args)
-  --                            ++ " &"
-  --                          ]
-  --                        ]
-  --   -- update SSHCommand haddock if changing this default.
-  --   defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"]) 
+    srunArgs = srunOpts ++ ["--nodelist", addr, shellEsc cmd args]
+    defaultCmd =
+      ( "srun"
+      , ["--external-launcher", "--nodes=1", "--ntasks=1", "--immediate"])
