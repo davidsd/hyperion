@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5928312ae3987c66b497188763bd931d345850eaaf4f7b69eb385c97e63c171e
+-- hash: ea9fa7b66391ac1ede032e4b69db448484ceab90382ebddebef19f5d798c9e62
 
 name:           hyperion
 version:        0.1.0.7
@@ -107,7 +107,7 @@ executable example-hello-world
       Paths_hyperion
   hs-source-dirs:
       example/src-hello-world
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
     , hyperion
@@ -121,7 +121,7 @@ executable example-lock-map
       Paths_hyperion
   hs-source-dirs:
       example/src-lock-map
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
     , distributed-process
@@ -137,7 +137,7 @@ executable example-polymorphic-remote
       Paths_hyperion
   hs-source-dirs:
       example/src-polymorphic-remote
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
     , binary
@@ -154,7 +154,7 @@ executable example-root-search
       Paths_hyperion
   hs-source-dirs:
       example/src-root-search
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
     , distributed-process
