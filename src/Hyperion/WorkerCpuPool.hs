@@ -44,7 +44,7 @@ import System.Process              (proc, readCreateProcessWithExitCode)
 -- runs a user function with the address of that node. The allocation mechanism
 -- is very simple and allocates CPU's on the worker which has the most idle CPUs.
 --
--- We also provide 'remoteToolRunCmd' for running commands on the nodes via @ssh@ or @srun@.
+-- We also provide 'remoteRunCmd' for running commands on the nodes via @ssh@ or @srun@.
 -- * 'WorkerCpuPool' documentation
 -- $
 -- | A newtype for the number of available CPUs
@@ -121,7 +121,7 @@ withWorkerAddr WorkerCpuPool {..} cpus go =
         -- add back the requested cpus to the worker's total
          modifyTVar cpuMap (Map.adjust (+ cpus) addr)
 
--- * 'remoteToolRunCmd' documentation
+-- * 'remoteRunCmd' documentation
 -- $
 -- Type for @ssh@ errors. The 'String's are 'stdout' and 'stderr' of @ssh@.
 data SSHError =
@@ -132,7 +132,7 @@ data SSHError =
 -- custom or default arguments. If a 'Just' value, then
 -- the first 'String' gives the name of @ssh@ or@srun@ executable, e.g. @\"ssh\"@, and the
 -- list of 'String's gives the options to pass to the tool. For example, with
--- 'RemoteTool' given by @SSH $ Just (\"XX\", [\"-a\", \"-b\"])@, @ssh@ is run as
+-- 'CommandTransport' given by @SSH $ Just (\"XX\", [\"-a\", \"-b\"])@, @ssh@ is run as
 --
 -- > XX -a -b <addr> <command>
 --
@@ -151,13 +151,18 @@ data SSHError =
 -- Using instead @\"StrictHostKeyChecking=no\"@ seems to work.
 --
 -- TODO: add @srun@ documentation
-data RemoteTool
+data CommandTransport
   = SSH (Maybe (String, [String]))
   | SRun (Maybe (String, [String]))
   deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
+-- | Default CommandTransport. Uses SSH as
+-- > ssh -f -o "UserKnownHostsFile /dev/null" <addr> <command>
+defaultCommandTransport :: CommandTransport
+defaultCommandTransport = SSH Nothing
+
 -- | Runs a given command on remote host (with address given by the first 'String') with the
--- given arguments via @ssh@ using the 'RemoteTool'. Makes at most 10 attempts via 'retryRepeated'.
+-- given arguments via @ssh@ using the 'CommandTransport'. Makes at most 10 attempts via 'retryRepeated'.
 -- If fails, propagates 'SSHError' outside.
 --
 -- @ssh@ needs to be able to authenticate on the remote
@@ -166,8 +171,8 @@ data RemoteTool
 --
 -- @ssh@ is invoked to run @sh@ that calls @nohup@ to run the supplied command
 -- in background.
-remoteToolRunCmd :: String -> RemoteTool -> (String, [String]) -> IO ()
-remoteToolRunCmd addr (SSH sshCmd) (cmd, args) =
+remoteRunCmd :: String -> CommandTransport -> (String, [String]) -> IO ()
+remoteRunCmd addr (SSH sshCmd) (cmd, args) =
   retryRepeated 10 (try @IO @SSHError) $ do
     result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
     case exit of
@@ -178,12 +183,13 @@ remoteToolRunCmd addr (SSH sshCmd) (cmd, args) =
     sshArgs =
       sshOpts
         ++ [addr, shellEsc "sh" ["-c", shellEsc "nohup" (cmd : args) ++ " &"]]
-    -- update SSHCommand haddock if changing this default.
+    -- update the haddock above if changing this default.
     defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"])
-remoteToolRunCmd addr (SRun srunCmd) (cmd, args) = runCmdLocalAsync (srun, srunArgs)
+remoteRunCmd addr (SRun srunCmd) (cmd, args) = runCmdLocalAsync (srun, srunArgs)
   where
     (srun, srunOpts) = fromMaybe defaultCmd srunCmd
     srunArgs = srunOpts ++ ["--nodelist", addr, cmd] ++ args
+    -- update the haddock above if changing this default.
     defaultCmd =
       ( "srun"
       , ["--external-launcher", "--nodes=1", "--ntasks=1", "--immediate"])

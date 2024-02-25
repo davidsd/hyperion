@@ -129,5 +129,5 @@ main = runJobLocal pInfo $ do
       , programDatabase   = "/central/home/dssimmon/projects/petr/hyperion-projects/test/test.sqlite"
       , programLogDir     = "/central/home/dssimmon/projects/petr/hyperion-projects/test"
       , programDataDir    = "/central/home/dssimmon/projects/petr/hyperion-projects/test"
-      , programRemoteTool = SSH Nothing
+      , programCommandTransport = SSH Nothing
       }

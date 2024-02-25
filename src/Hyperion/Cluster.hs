@@ -12,44 +12,41 @@
 
 module Hyperion.Cluster where
 
-import           Control.Distributed.Process      (NodeId, Process)
-import           Control.Distributed.Process.Node (initRemoteTable)
-import           Control.Lens                     (lens)
-import           Control.Monad.Catch              (try, MonadCatch)
-import           Control.Monad.IO.Class           (MonadIO, liftIO)
-import           Control.Monad.Reader             (ReaderT, asks, runReaderT, MonadReader)
-import           Data.Aeson                       (FromJSON, ToJSON)
-import           Data.Binary                      (Binary)
-import           Data.Constraint                  (Dict (..))
-import           Data.Text                        (Text)
-import qualified Data.Text                        as Text
-import           Data.Time.Clock                  (NominalDiffTime)
-import           Data.Typeable                    (Typeable)
-import           GHC.Generics                     (Generic)
-import           Hyperion.Command                 (hyperionWorkerCommand)
-import qualified Hyperion.Database                as DB
-import           Hyperion.HasWorkers              (HasWorkerLauncher (..))
-import           Hyperion.HoldServer              (HoldMap, blockUntilRetried)
-import           Hyperion.LockMap                 (LockMap, registerLockMap)
-import qualified Hyperion.Log                     as Log
-import           Hyperion.ObjectId                (getObjectId,
-                                                   objectIdToString)
-import           Hyperion.ProgramId               (ProgramId, programIdToText)
-import           Hyperion.Remote                  (RemoteError (..), ServiceId,
-                                                   WorkerLauncher (..),
-                                                   registerMasterNodeId,
-                                                   runProcessLocalWithRT,
-                                                   serviceIdToString,
-                                                   serviceIdToText)
-import           Hyperion.Slurm                   (JobId (..), SbatchError,
-                                                   SbatchOptions (..),
-                                                   sbatchCommand)
-import           Hyperion.TokenPool               (TokenPool, withToken)
-import           Hyperion.Static                  (Static (..), cPtr)
-import           Hyperion.Util                    (emailError, retryExponential)
-import           Hyperion.WorkerCpuPool           (RemoteTool)
-import           System.Directory                 (createDirectoryIfMissing)
-import           System.FilePath.Posix            ((<.>), (</>))
+import Control.Distributed.Process      (NodeId, Process)
+import Control.Distributed.Process.Node (initRemoteTable)
+import Control.Lens                     (lens)
+import Control.Monad.Catch              (MonadCatch, try)
+import Control.Monad.IO.Class           (MonadIO, liftIO)
+import Control.Monad.Reader             (MonadReader, ReaderT, asks, runReaderT)
+import Data.Aeson                       (FromJSON, ToJSON)
+import Data.Binary                      (Binary)
+import Data.Constraint                  (Dict (..))
+import Data.Text                        (Text)
+import Data.Text                        qualified as Text
+import Data.Time.Clock                  (NominalDiffTime)
+import Data.Typeable                    (Typeable)
+import GHC.Generics                     (Generic)
+import Hyperion.Command                 (hyperionWorkerCommand)
+import Hyperion.Database                qualified as DB
+import Hyperion.HasWorkers              (HasWorkerLauncher (..))
+import Hyperion.HoldServer              (HoldMap, blockUntilRetried)
+import Hyperion.LockMap                 (LockMap, registerLockMap)
+import Hyperion.Log                     qualified as Log
+import Hyperion.ObjectId                (getObjectId, objectIdToString)
+import Hyperion.ProgramId               (ProgramId, programIdToText)
+import Hyperion.Remote                  (RemoteError (..), ServiceId,
+                                         WorkerLauncher (..),
+                                         registerMasterNodeId,
+                                         runProcessLocalWithRT,
+                                         serviceIdToString, serviceIdToText)
+import Hyperion.Slurm                   (JobId (..), SbatchError,
+                                         SbatchOptions (..), sbatchCommand)
+import Hyperion.Static                  (Static (..), cPtr)
+import Hyperion.TokenPool               (TokenPool, withToken)
+import Hyperion.Util                    (emailError, retryExponential)
+import Hyperion.WorkerCpuPool           (CommandTransport)
+import System.Directory                 (createDirectoryIfMissing)
+import System.FilePath.Posix            ((<.>), (</>))
 
 -- * General comments
 -- $
@@ -124,11 +121,11 @@ import           System.FilePath.Posix            ((<.>), (</>))
 
 -- | Type containing information about our program
 data ProgramInfo = ProgramInfo
-  { programId         :: ProgramId
-  , programDatabase   :: FilePath
-  , programLogDir     :: FilePath
-  , programDataDir    :: FilePath
-  , programRemoteTool :: RemoteTool
+  { programId               :: ProgramId
+  , programDatabase         :: FilePath
+  , programLogDir           :: FilePath
+  , programDataDir          :: FilePath
+  , programCommandTransport :: CommandTransport
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 instance Static (Binary ProgramInfo) where closureDict = cPtr (static Dict)

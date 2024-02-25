@@ -38,7 +38,7 @@ import Hyperion.Static             (Closure, Static (..), cAp, cPtr, cPure,
                                     ptrAp)
 import Hyperion.Util               (myExecutable, runCmdLocalAsync,
                                     runCmdLocalLog)
-import Hyperion.WorkerCpuPool      (NumCPUs (..), RemoteTool, SSHError,
+import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
                                     WorkerAddr)
 import Hyperion.WorkerCpuPool      qualified as WCP
 import System.FilePath.Posix       (dropExtension, (<.>), (</>))
@@ -94,9 +94,9 @@ instance HasProgramInfo JobEnv where
 data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
-    nodeLogDir     :: FilePath
-    -- | The command used to run shell commands on remote nodes. See 'RemoteTool' for description.
-  , nodeRemoteTool :: RemoteTool
+    nodeLogDir           :: FilePath
+    -- | The command used to run shell commands on remote nodes. See 'CommandTransport' for description.
+  , nodeCommandTransport :: CommandTransport
   }
 
 -- | Make 'JobEnv' an instance of 'DB.HasDB'.
@@ -143,7 +143,7 @@ runJobSlurm programInfo go = do
           -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
           Nothing      -> programLogDir programInfo </> "workers" </> "workers"
-      , nodeRemoteTool = programRemoteTool programInfo
+      , nodeCommandTransport = programCommandTransport programInfo
       }
   withPoolLauncher nodeLauncherConfig nodes $ \poolLauncher -> do
     let cfg = JobEnv
@@ -240,9 +240,9 @@ withNodeLauncher
   -> Process a
 withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
   WCP.RemoteAddr addr -> do
-    remoteToolLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.remoteToolRunCmd addr nodeRemoteTool)
+    remoteLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.remoteRunCmd addr nodeCommandTransport)
     eitherResult <- try @Process @SSHError $ do
-      withRemoteRunProcess remoteToolLauncher $ \remoteRunNode ->
+      withRemoteRunProcess remoteLauncher $ \remoteRunNode ->
         let
           runCmdOnNode cmd = do
             scp <- mkSerializableClosureProcess closureDict $ pure $
