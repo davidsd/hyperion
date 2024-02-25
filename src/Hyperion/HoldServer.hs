@@ -7,21 +7,19 @@
 
 module Hyperion.HoldServer where
 
-import           Control.Concurrent.MVar     (MVar, newEmptyMVar,
-                                              readMVar, tryPutMVar)
-import           Control.Concurrent.STM      (atomically)
-import           Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO,
-                                              readTVarIO)
-import           Control.Monad               (when)
-import           Control.Monad.IO.Class      (MonadIO, liftIO)
-import           Data.Map                    (Map)
-import qualified Data.Map                    as Map
-import           Data.Maybe                  (catMaybes)
-import qualified Data.Text                   as T
-import qualified Hyperion.Log                as Log
-import           Network.Wai                 ()
-import qualified Network.Wai.Handler.Warp    as Warp
-import           Servant
+import Control.Concurrent.MVar     (MVar, newEmptyMVar, readMVar, tryPutMVar)
+import Control.Concurrent.STM      (atomically)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO, readTVarIO)
+import Control.Monad               (when)
+import Control.Monad.IO.Class      (MonadIO, liftIO)
+import Data.Map                    (Map)
+import Data.Map                    qualified as Map
+import Data.Maybe                  (catMaybes)
+import Data.Text                   qualified as T
+import Hyperion.Log                qualified as Log
+import Network.Wai                 ()
+import Network.Wai.Handler.Warp    qualified as Warp
+import Servant
 
 type HoldApi =
        "retry" :> Capture "service" T.Text :> Get '[JSON] (Maybe T.Text)
@@ -65,6 +63,6 @@ blockUntilRetried (HoldMap holdMap) service = liftIO $ do
 -- finishes.
 --
 withHoldServer :: HoldMap -> (Int -> IO a) -> IO a
-withHoldServer holdMap = Warp.withApplication (pure app) 
+withHoldServer holdMap = Warp.withApplication (pure app)
   where
     app = serve (Proxy @HoldApi) (server holdMap)

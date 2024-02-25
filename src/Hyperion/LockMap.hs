@@ -13,30 +13,26 @@ module Hyperion.LockMap
   )
 where
 
-import qualified Control.Concurrent.STM                   as STM
-import           Control.Distributed.Process              (DiedReason (..),
-                                                           Process, ProcessId,
-                                                           ProcessLinkException (..),
-                                                           RemoteTable, call,
-                                                           closure, getSelfPid,
-                                                           liftIO, link,
-                                                           spawnLocal, unStatic)
-import           Control.Distributed.Process.Serializable (SerializableDict (..))
-import           Control.Distributed.Static               (Static,
-                                                           registerStatic,
-                                                           staticLabel,
-                                                           staticPtr)
-import           Control.Monad                            (void)
-import           Control.Monad.Catch                      (catch, bracket)
-import           Control.Monad.Extra                      (unless)
-import           Data.Binary                              (Binary, decode,
-                                                           encode)
-import           Data.ByteString.Lazy                     (ByteString)
-import qualified Data.Map.Strict                          as Map
-import           Data.Rank1Dynamic                        (toDynamic)
-import           Data.Typeable                            (Typeable, typeOf)
-import qualified Hyperion.Log                             as Log
-import           Hyperion.Remote                          (getMasterNodeId)
+import Control.Concurrent.STM                   qualified as STM
+import Control.Distributed.Process              (DiedReason (..), Process,
+                                                 ProcessId,
+                                                 ProcessLinkException (..),
+                                                 RemoteTable, call, closure,
+                                                 getSelfPid, liftIO, link,
+                                                 spawnLocal, unStatic)
+import Control.Distributed.Process.Serializable (SerializableDict (..))
+import Control.Distributed.Static               (Static, registerStatic,
+                                                 staticLabel, staticPtr)
+import Control.Monad                            (void)
+import Control.Monad.Catch                      (bracket, catch)
+import Control.Monad.Extra                      (unless)
+import Data.Binary                              (Binary, decode, encode)
+import Data.ByteString.Lazy                     (ByteString)
+import Data.Map.Strict                          qualified as Map
+import Data.Rank1Dynamic                        (toDynamic)
+import Data.Typeable                            (Typeable, typeOf)
+import Hyperion.Log                             qualified as Log
+import Hyperion.Remote                          (getMasterNodeId)
 
 -- Presence of a pid value indicates that the lock is locked by the process with the given ProcessId
 type Lock = STM.TMVar ProcessId

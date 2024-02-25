@@ -5,26 +5,26 @@
 
 module Hyperion.Slurm.Sbatch where
 
-import           Control.Monad.Catch   (Exception)
-import           Data.Attoparsec.Text  (Parser, parseOnly, takeWhile1)
-import           Data.Char             (isSpace)
-import           Data.Maybe            (catMaybes)
-import           Data.Text             (Text)
-import qualified Data.Text             as T
-import           Data.Time.Clock       (NominalDiffTime)
-import qualified Hyperion.Log          as Log
-import           Hyperion.Slurm.JobId  (JobId (..))
-import           Hyperion.Util         (hour)
-import           System.Directory      (createDirectoryIfMissing)
-import           System.Exit           (ExitCode (..))
-import           System.FilePath.Posix (takeDirectory)
-import           System.Process        (readCreateProcessWithExitCode, shell)
+import Control.Monad.Catch   (Exception)
+import Data.Attoparsec.Text  (Parser, parseOnly, takeWhile1)
+import Data.Char             (isSpace)
+import Data.Maybe            (catMaybes)
+import Data.Text             (Text)
+import Data.Text             qualified as T
+import Data.Time.Clock       (NominalDiffTime)
+import Hyperion.Log          qualified as Log
+import Hyperion.Slurm.JobId  (JobId (..))
+import Hyperion.Util         (hour)
+import System.Directory      (createDirectoryIfMissing)
+import System.Exit           (ExitCode (..))
+import System.FilePath.Posix (takeDirectory)
+import System.Process        (readCreateProcessWithExitCode, shell)
 
 -- | Error from running @sbatch@. The 'String's are the contents of 'stdout'
 -- and 'stderr' from @sbatch@.
 data SbatchError = SbatchError
   { exitCodeStdinStderr :: (ExitCode, String, String)
-  , input :: String
+  , input               :: String
   } deriving (Show, Exception)
 
 -- | Type representing possible options for @sbatch@. Map 1-to-1 to @sbatch@

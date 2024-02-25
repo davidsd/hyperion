@@ -40,15 +40,15 @@
 --
 module Main where
 
-import           Control.Distributed.Process (Process)
-import           Control.Monad.Reader        (local)
-import           Hyperion
-import           Hyperion.Database.KeyValMap (KeyValMap (..), memoizeWithMap)
-import qualified Hyperion.Log                as Log
-import qualified Hyperion.Slurm              as Slurm
-import           Options.Applicative         (Parser, auto, help, long, metavar,
-                                              option, str)
-import           System.FilePath.Posix       ((</>))
+import Control.Distributed.Process (Process)
+import Control.Monad.Reader        (local)
+import Hyperion
+import Hyperion.Database.KeyValMap (KeyValMap (..), memoizeWithMap)
+import Hyperion.Log                qualified as Log
+import Hyperion.Slurm              qualified as Slurm
+import Options.Applicative         (Parser, auto, help, long, metavar, option,
+                                    str)
+import System.FilePath.Posix       ((</>))
 
 -- | lower and upper bounds for some quantity
 type Bracket = (Double, Double)

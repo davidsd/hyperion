@@ -2,20 +2,17 @@
 
 module Hyperion.CallClosure where
 
-import           Control.Distributed.Process
-import           Control.Distributed.Process.Closure                  (SerializableDict,
-                                                                       bindCP,
-                                                                       returnCP,
-                                                                       sdictUnit,
-                                                                       seqCP)
-import           Control.Distributed.Process.Internal.Closure.BuiltIn (cpDelayed)
-import           Control.Distributed.Static                           (closureApply,
-                                                                       staticClosure,
-                                                                       staticLabel)
-import           Data.Binary                                          (Binary,
-                                                                       encode)
-import           Data.ByteString.Lazy                                 (ByteString)
-import           Data.Typeable                                        (Typeable)
+import Control.Distributed.Process
+import Control.Distributed.Process.Closure                  (SerializableDict,
+                                                             bindCP, returnCP,
+                                                             sdictUnit, seqCP)
+import Control.Distributed.Process.Internal.Closure.BuiltIn (cpDelayed)
+import Control.Distributed.Static                           (closureApply,
+                                                             staticClosure,
+                                                             staticLabel)
+import Data.Binary                                          (Binary, encode)
+import Data.ByteString.Lazy                                 (ByteString)
+import Data.Typeable                                        (Typeable)
 
 -- | The purpose of this module is to generalize 'call' from
 -- 'Control.Distributed.Process' so that it takes a 'Closure

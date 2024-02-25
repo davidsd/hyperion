@@ -9,46 +9,40 @@
 
 module Hyperion.Remote where
 
-import           Control.Concurrent.MVar             (MVar, isEmptyMVar,
-                                                      newEmptyMVar, putMVar,
-                                                      readMVar, takeMVar)
-import           Control.Distributed.Process         hiding (bracket, catch,
-                                                      try)
-import           Control.Distributed.Process.Async   (AsyncResult (..), async,
-                                                      task, wait)
-import           Control.Distributed.Process.Closure (SerializableDict (..))
-import qualified Control.Distributed.Process.Node    as Node
-import           Control.Distributed.Static          (registerStatic,
-                                                      staticLabel)
-import           Control.Monad.Catch                 (Exception, MonadCatch,
-                                                      SomeException, bracket,
-                                                      catch, throwM, try)
-import           Control.Monad.Extra                 (whenM)
-import           Control.Monad.IO.Class              (MonadIO)
-import           Control.Monad.Trans.Maybe           (MaybeT (..))
-import           Data.Binary                         (Binary)
-import           Data.Constraint                     (Dict (..))
-import           Data.Data                           (Typeable)
-import           Data.Foldable                       (asum)
-import           Data.Rank1Dynamic                   (toDynamic)
-import           Data.Text                           (Text, pack)
-import qualified Data.Text.Encoding                  as E
-import           Data.Time.Clock                     (NominalDiffTime)
-import           GHC.Generics                        (Generic)
-import           Hyperion.CallClosure                (call')
-import qualified Hyperion.Log                        as Log
-import           Hyperion.Static                     (Serializable, ptrAp)
-import           Hyperion.Util                       (newUnique,
-                                                      nominalDiffTimeToMicroseconds)
-import           Network.BSD                         (HostEntry (..),
-                                                      getHostEntries,
-                                                      getHostName)
-import           Network.Info                        (IPv4 (..),
-                                                      NetworkInterface (..),
-                                                      getNetworkInterfaces)
-import           Network.Socket                      (hostAddressToTuple)
-import           Network.Transport                   (EndPointAddress (..))
-import qualified Network.Transport.TCP               as NT
+import Control.Concurrent.MVar             (MVar, isEmptyMVar, newEmptyMVar,
+                                            putMVar, readMVar, takeMVar)
+import Control.Distributed.Process         hiding (bracket, catch, try)
+import Control.Distributed.Process.Async   (AsyncResult (..), async, task, wait)
+import Control.Distributed.Process.Closure (SerializableDict (..))
+import Control.Distributed.Process.Node    qualified as Node
+import Control.Distributed.Static          (registerStatic, staticLabel)
+import Control.Monad.Catch                 (Exception, MonadCatch,
+                                            SomeException, bracket, catch,
+                                            throwM, try)
+import Control.Monad.Extra                 (whenM)
+import Control.Monad.IO.Class              (MonadIO)
+import Control.Monad.Trans.Maybe           (MaybeT (..))
+import Data.Binary                         (Binary)
+import Data.Constraint                     (Dict (..))
+import Data.Data                           (Typeable)
+import Data.Foldable                       (asum)
+import Data.Rank1Dynamic                   (toDynamic)
+import Data.Text                           (Text, pack)
+import Data.Text.Encoding                  qualified as E
+import Data.Time.Clock                     (NominalDiffTime)
+import GHC.Generics                        (Generic)
+import Hyperion.CallClosure                (call')
+import Hyperion.Log                        qualified as Log
+import Hyperion.Static                     (Serializable, ptrAp)
+import Hyperion.Util                       (newUnique,
+                                            nominalDiffTimeToMicroseconds)
+import Network.BSD                         (HostEntry (..), getHostEntries,
+                                            getHostName)
+import Network.Info                        (IPv4 (..), NetworkInterface (..),
+                                            getNetworkInterfaces)
+import Network.Socket                      (hostAddressToTuple)
+import Network.Transport                   (EndPointAddress (..))
+import Network.Transport.TCP               qualified as NT
 
 -- * Types
 
@@ -169,7 +163,7 @@ getExternalAddress = do
   where
     isGoodIPv4 a = case a of
       (10,  211, _, _) -> True
-      _              -> False
+      _                -> False
     ipString (a, b, c, d) = (show a) ++ "." ++ (show b) ++ "." ++ (show c) ++ "." ++ (show d)
 
 

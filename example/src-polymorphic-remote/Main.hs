@@ -17,19 +17,19 @@
 
 module Main where
 
-import           Control.Distributed.Process (Process)
-import           Control.Monad               ((>=>))
-import           Data.Binary                 (Binary)
-import           Data.Proxy                  (Proxy (..))
-import qualified Data.Set                    as Set
-import           Data.Text                   (Text)
-import           Data.Typeable               (Typeable)
-import           GHC.Generics                (Generic)
-import           GHC.TypeNats                (KnownNat, natVal)
-import           Hyperion
-import qualified Hyperion.Log                as Log
-import           Hyperion.Util               (withDict)
-import           Hyperion.Static.Reflection (withClosureDict)
+import Control.Distributed.Process (Process)
+import Control.Monad               ((>=>))
+import Data.Binary                 (Binary)
+import Data.Proxy                  (Proxy (..))
+import Data.Set                    qualified as Set
+import Data.Text                   (Text)
+import Data.Typeable               (Typeable)
+import GHC.Generics                (Generic)
+import GHC.TypeNats                (KnownNat, natVal)
+import Hyperion
+import Hyperion.Log                qualified as Log
+import Hyperion.Static.Reflection  (withClosureDict)
+import Hyperion.Util               (withDict)
 
 -- | A polymorphic function with a Show constraint
 sayHello :: Show a => a -> Process String

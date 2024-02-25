@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveAnyClass      #-}
 {-# LANGUAGE DeriveGeneric       #-}
-{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE PolyKinds           #-}
@@ -62,30 +62,27 @@ module Hyperion.ExtVar
   , newExtVarStream
   ) where
 
-import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Base (MonadBase, liftBase)
-import           Control.Concurrent.MVar     (MVar, newEmptyMVar, newMVar, modifyMVar,
-                                              putMVar, readMVar, takeMVar,
-                                              tryPutMVar, tryReadMVar,
-                                              tryTakeMVar)
-import           Control.Distributed.Process (NodeId (..), Process, SendPort,
-                                              expect, getSelfPid, liftIO,
-                                              newChan, nsendRemote,
-                                              processNodeId, receiveChan,
-                                              register, sendChan, spawnLocal)
-import           Control.Monad               (void)
-import           Control.Monad.Catch         (bracket, mask, onException)
-import           Data.Binary                 (Binary, decodeOrFail, encode)
-import           Data.ByteString             (ByteString)
-import           Data.IORef                  (IORef, atomicModifyIORef',
-                                              newIORef)
-import           Data.Text                   (Text, pack)
-import           GHC.Generics                (Generic)
-import qualified Hyperion.Log                as Log
-import           Hyperion.Remote             (runProcessLocal)
-import           Network.Transport           (EndPointAddress (..))
-import           System.IO.Unsafe            (unsafePerformIO)
-import           Type.Reflection             (Typeable, typeRep)
+import Control.Concurrent.MVar     (MVar, modifyMVar, newEmptyMVar, newMVar,
+                                    putMVar, readMVar, takeMVar, tryPutMVar,
+                                    tryReadMVar, tryTakeMVar)
+import Control.Distributed.Process (NodeId (..), Process, SendPort, expect,
+                                    getSelfPid, liftIO, newChan, nsendRemote,
+                                    processNodeId, receiveChan, register,
+                                    sendChan, spawnLocal)
+import Control.Monad               (void)
+import Control.Monad.Base          (MonadBase, liftBase)
+import Control.Monad.Catch         (bracket, mask, onException)
+import Control.Monad.IO.Class      (MonadIO)
+import Data.Binary                 (Binary, decodeOrFail, encode)
+import Data.ByteString             (ByteString)
+import Data.IORef                  (IORef, atomicModifyIORef', newIORef)
+import Data.Text                   (Text, pack)
+import GHC.Generics                (Generic)
+import Hyperion.Log                qualified as Log
+import Hyperion.Remote             (runProcessLocal)
+import Network.Transport           (EndPointAddress (..))
+import System.IO.Unsafe            (unsafePerformIO)
+import Type.Reflection             (Typeable, typeRep)
 
 
 data ExtVar a = MkExtVar NodeId String
@@ -316,7 +313,7 @@ newExtVarStream
   -> n (ExtVar [a], m (Maybe a))
 newExtVarStream vs = liftBase $ do
   (mVar, eVar) <- newExtVar vs
-  let pop = 
+  let pop =
         liftIO $ modifyMVar mVar $ pure . \case
         []     -> ([], Nothing)
         u : us -> (us, Just u)

@@ -4,11 +4,11 @@
 
 module Hyperion.Command where
 
-import           Control.Distributed.Process
-import           Data.Text                   (Text)
-import qualified Data.Text                   as T
-import           Hyperion.Remote
-import           Options.Applicative
+import Control.Distributed.Process
+import Data.Text                   (Text)
+import Data.Text                   qualified as T
+import Hyperion.Remote
+import Options.Applicative
 
 -- Note: The argument list in hyperionWorkerCommand and the workerOpts
 -- parser must be kept in sync.
