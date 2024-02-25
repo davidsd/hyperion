@@ -89,7 +89,7 @@ binarySearchJob n points eps = do
   -- | Concurrently compute 'runSearchMemoized n p' for all p in
   -- points. New computations are automatically started as cores
   -- become available.
-  result <- mapConcurrently (runSearchMemoized n) points
+  result <- mapConcurrently (runSearch n) points
   Log.info "Computed brackets" (zip points result)
   return result
   where
@@ -164,8 +164,8 @@ mkHyperionConfig ProgramOptions{..} =
     initialDatabase       = Nothing
     emailAddr             = Nothing
     maxSlurmJobs          = Nothing
-    remoteTool         = SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
+    remoteTool         = SRun Nothing -- SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
   in HyperionConfig{..}
 
 main :: IO ()
-main = hyperionMain programOpts mkHyperionConfig clusterComputation
+main = hyperionMain programOpts mkHyperionConfig clusterComputation --
