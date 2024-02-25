@@ -134,7 +134,7 @@ runProcessLocalWithRT_ rtable process = do
   host <- getExternalHostName
 #else
   -- works on most other clusters
-  host <- getHostName
+  host <- getExternalAddress -- getHostName
 #endif
   NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
     Left e -> Log.throw e
@@ -168,8 +168,7 @@ getExternalAddress = do
     []    -> Log.throwError $ "Cannot find a matching network address among host entries: " ++ show addrTuples
   where
     isGoodIPv4 a = case a of
-      (127, _, _, _) -> True
-      (10,  _, _, _) -> True
+      (10,  211, _, _) -> True
       _              -> False
     ipString (a, b, c, d) = (show a) ++ "." ++ (show b) ++ "." ++ (show c) ++ "." ++ (show d)
 
