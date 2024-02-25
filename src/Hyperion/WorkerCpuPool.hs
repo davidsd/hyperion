@@ -188,7 +188,7 @@ remoteToolRunCmd addr (SRun srunCmd) (cmd, args) = do
   return ()
   where
     (srun, srunOpts) = fromMaybe defaultCmd srunCmd
-    srunArgs = srunOpts ++ ["--nodelist", addr, shellEsc cmd args]
+    srunArgs = srunOpts ++ ["--nodelist", addr, cmd] ++ args
     defaultCmd =
       ( "srun"
       , ["--external-launcher", "--nodes=1", "--ntasks=1", "--immediate"])
