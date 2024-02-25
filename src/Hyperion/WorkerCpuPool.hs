@@ -7,27 +7,25 @@
 
 module Hyperion.WorkerCpuPool where
 
-import           Control.Concurrent.STM      (atomically, check)
-import           Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO,
-                                              readTVar, readTVarIO)
-import           Control.Exception           (Exception)
-import           Control.Monad               (when)
-import           Control.Monad.Catch         (MonadMask, bracket, try)
-import           Control.Monad.IO.Class      (MonadIO, liftIO)
-import           Data.Aeson                  (FromJSON, ToJSON)
-import           Data.Binary                 (Binary)
-import           Data.List.Extra             (maximumOn)
-import           Data.Map.Strict             (Map)
-import qualified Data.Map.Strict             as Map
-import           Data.Maybe                  (fromMaybe)
-import           GHC.Generics                (Generic)
-import qualified Hyperion.Log                as Log
-import qualified Hyperion.Slurm              as Slurm
-import           Hyperion.Util               (retryRepeated, shellEsc)
-import           System.Exit                 (ExitCode (..))
-import           System.Process              (proc,
-                                              readCreateProcessWithExitCode,
-                                              spawnProcess)
+import Control.Concurrent.STM      (atomically, check)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO, readTVar,
+                                    readTVarIO)
+import Control.Exception           (Exception)
+import Control.Monad               (when)
+import Control.Monad.Catch         (MonadMask, bracket, try)
+import Control.Monad.IO.Class      (MonadIO, liftIO)
+import Data.Aeson                  (FromJSON, ToJSON)
+import Data.Binary                 (Binary)
+import Data.List.Extra             (maximumOn)
+import Data.Map.Strict             (Map)
+import Data.Map.Strict             qualified as Map
+import Data.Maybe                  (fromMaybe)
+import GHC.Generics                (Generic)
+import Hyperion.Log                qualified as Log
+import Hyperion.Slurm              qualified as Slurm
+import Hyperion.Util               (retryRepeated, runCmdLocalAsync, shellEsc)
+import System.Exit                 (ExitCode (..))
+import System.Process              (proc, readCreateProcessWithExitCode)
 
 -- * General comments
 -- $
@@ -182,10 +180,7 @@ remoteToolRunCmd addr (SSH sshCmd) (cmd, args) =
         ++ [addr, shellEsc "sh" ["-c", shellEsc "nohup" (cmd : args) ++ " &"]]
     -- update SSHCommand haddock if changing this default.
     defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"])
-remoteToolRunCmd addr (SRun srunCmd) (cmd, args) = do
-  Log.info "Invoking srun:" (srun, srunArgs) 
-  _ <- spawnProcess srun srunArgs
-  return ()
+remoteToolRunCmd addr (SRun srunCmd) (cmd, args) = runCmdLocalAsync (srun, srunArgs)
   where
     (srun, srunOpts) = fromMaybe defaultCmd srunCmd
     srunArgs = srunOpts ++ ["--nodelist", addr, cmd] ++ args

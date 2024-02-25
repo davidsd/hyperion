@@ -15,35 +15,33 @@
 
 module Hyperion.Job where
 
-import qualified Control.Concurrent.Async    as Async
-import           Control.Distributed.Process (NodeId, Process, spawnLocal)
-import           Control.Lens                (lens)
-import           Control.Monad.Catch         (throwM, try)
-import           Control.Monad.Except
-import           Control.Monad.Reader
-import           Control.Monad.Trans.Cont    (ContT (..), evalContT)
-import           Data.Binary                 (Binary)
-import qualified Data.Map                    as Map
-import           Data.Maybe                  (catMaybes)
-import qualified Data.Text                   as T
-import           Data.Typeable               (Typeable)
-import           Hyperion.Cluster
-import           Hyperion.Command            (hyperionWorkerCommand)
-import qualified Hyperion.Database           as DB
-import           Hyperion.HasWorkers         (HasWorkerLauncher (..),
-                                              remoteEvalM)
-import qualified Hyperion.Log                as Log
-import           Hyperion.Remote
-import           Hyperion.Slurm              (JobId (..))
-import qualified Hyperion.Slurm              as Slurm
-import           Hyperion.Static             (Closure, Static (..), cAp, cPtr,
-                                              cPure, ptrAp)
-import           Hyperion.Util               (myExecutable)
-import           Hyperion.WorkerCpuPool      (NumCPUs (..), RemoteTool,
-                                              SSHError, WorkerAddr)
-import qualified Hyperion.WorkerCpuPool      as WCP
-import           System.FilePath.Posix       (dropExtension, (<.>), (</>))
-import           System.Process              (callProcess)
+import Control.Distributed.Process (NodeId, Process, spawnLocal)
+import Control.Lens                (lens)
+import Control.Monad.Catch         (throwM, try)
+import Control.Monad.Except
+import Control.Monad.Reader
+import Control.Monad.Trans.Cont    (ContT (..), evalContT)
+import Data.Binary                 (Binary)
+import Data.Map                    qualified as Map
+import Data.Maybe                  (catMaybes)
+import Data.Text                   qualified as T
+import Data.Typeable               (Typeable)
+import Hyperion.Cluster
+import Hyperion.Command            (hyperionWorkerCommand)
+import Hyperion.Database           qualified as DB
+import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEvalM)
+import Hyperion.Log                qualified as Log
+import Hyperion.Remote
+import Hyperion.Slurm              (JobId (..))
+import Hyperion.Slurm              qualified as Slurm
+import Hyperion.Static             (Closure, Static (..), cAp, cPtr, cPure,
+                                    ptrAp)
+import Hyperion.Util               (myExecutable, runCmdLocalAsync,
+                                    runCmdLocalLog)
+import Hyperion.WorkerCpuPool      (NumCPUs (..), RemoteTool, SSHError,
+                                    WorkerAddr)
+import Hyperion.WorkerCpuPool      qualified as WCP
+import System.FilePath.Posix       (dropExtension, (<.>), (</>))
 
 -- * General comments
 -- $
@@ -96,7 +94,7 @@ instance HasProgramInfo JobEnv where
 data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
-    nodeLogDir :: FilePath
+    nodeLogDir     :: FilePath
     -- | The command used to run shell commands on remote nodes. See 'RemoteTool' for description.
   , nodeRemoteTool :: RemoteTool
   }
@@ -262,23 +260,6 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
     workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
     go (Just (addr', launcher))
 
--- | Run the given command in a child thread. Async.link ensures
--- that exceptions from the child are propagated to the parent.
---
--- NB: Previously, this function used 'System.Process.createProcess'
--- and discarded the resulting 'ProcessHandle'. This could result in
--- "insufficient resource" errors for OS threads. Hopefully the
--- current implementation avoids this problem.
-runCmdLocalAsync :: (String, [String]) -> IO ()
-runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
-
--- | Run the given command and log the command. This is suitable
--- for running on remote machines so we can keep track of what is
--- being run where.
-runCmdLocalLog :: (String, [String]) -> IO ()
-runCmdLocalLog c = do
-  Log.info "Running command" c
-  runCmdLocalAsync c
 
 -- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to
 -- start \"worker-launcher\" workers on these addresses (see

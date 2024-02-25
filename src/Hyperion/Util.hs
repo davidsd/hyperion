@@ -6,27 +6,29 @@
 module Hyperion.Util where
 
 import Control.Concurrent
+import Control.Concurrent.Async qualified as Async
 import Control.Monad
 import Control.Monad.Except
-import Data.BinaryHash       (hashBase64Safe)
-import Data.ByteString.Char8 qualified as B
-import Data.Constraint       (Constraint, Dict (..))
-import Data.IORef            (IORef, atomicModifyIORef', newIORef)
-import Data.Text             (Text)
-import Data.Text             qualified as Text
-import Data.Text.Lazy        qualified as LazyText
-import Data.Time.Clock       (NominalDiffTime)
-import Data.Vector           qualified as V
-import Hyperion.Log          qualified as Log
-import Network.Mail.Mime     (Address (..), renderSendMail, simpleMail')
-import Numeric               (showFFloat, showIntAtBase)
+import Data.BinaryHash          (hashBase64Safe)
+import Data.ByteString.Char8    qualified as B
+import Data.Constraint          (Constraint, Dict (..))
+import Data.IORef               (IORef, atomicModifyIORef', newIORef)
+import Data.Text                (Text)
+import Data.Text                qualified as Text
+import Data.Text.Lazy           qualified as LazyText
+import Data.Time.Clock          (NominalDiffTime)
+import Data.Vector              qualified as V
+import Hyperion.Log             qualified as Log
+import Network.Mail.Mime        (Address (..), renderSendMail, simpleMail')
+import Numeric                  (showFFloat, showIntAtBase)
 import System.Directory
-import System.FilePath.Posix (replaceDirectory)
-import System.IO.Unsafe      (unsafePerformIO)
-import System.Posix.Files    (readSymbolicLink)
-import System.Random         (randomRIO)
-import System.RUsage         qualified as RUsage
-import Text.ShellEscape      qualified as Esc
+import System.FilePath.Posix    (replaceDirectory)
+import System.IO.Unsafe         (unsafePerformIO)
+import System.Posix.Files       (readSymbolicLink)
+import System.Process           (callProcess)
+import System.Random            (randomRIO)
+import System.RUsage            qualified as RUsage
+import Text.ShellEscape         qualified as Esc
 
 -- | An opaque type representing a unique object. Only guaranteed to
 -- be unique in one instance of a running program. For example, if we
@@ -196,6 +198,26 @@ hashTruncateFileName = hashTruncateString 230
 -- explicit dictionary
 withDict :: forall (c :: Constraint) r . (c => r) -> Dict c -> r
 withDict r Dict = r
+
+----------- Running local commands ------------
+
+-- | Run the given command in a child thread. Async.link ensures
+-- that exceptions from the child are propagated to the parent.
+--
+-- NB: Previously, this function used 'System.Process.createProcess'
+-- and discarded the resulting 'ProcessHandle'. This could result in
+-- "insufficient resource" errors for OS threads. Hopefully the
+-- current implementation avoids this problem.
+runCmdLocalAsync :: (String, [String]) -> IO ()
+runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
+
+-- | Run the given command and log the command. This is suitable
+-- for running on remote machines so we can keep track of what is
+-- being run where.
+runCmdLocalLog :: (String, [String]) -> IO ()
+runCmdLocalLog c = do
+  Log.info "Running command" c
+  runCmdLocalAsync c
 
 ----------------- Memory ----------------------
 
