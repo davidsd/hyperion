@@ -43,7 +43,7 @@ import           Hyperion.WorkerCpuPool      (NumCPUs (..), RemoteTool,
                                               SSHError, WorkerAddr)
 import qualified Hyperion.WorkerCpuPool      as WCP
 import           System.FilePath.Posix       (dropExtension, (<.>), (</>))
-import           System.Process              (callProcess, spawnProcess)
+import           System.Process              (callProcess)
 
 -- * General comments
 -- $
@@ -270,10 +270,7 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
 -- "insufficient resource" errors for OS threads. Hopefully the
 -- current implementation avoids this problem.
 runCmdLocalAsync :: (String, [String]) -> IO ()
--- runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
-runCmdLocalAsync (c, a) = do 
-  _ <- spawnProcess c a
-  return () -- Async.async (uncurry callProcess c) >>= Async.link
+runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
 
 -- | Run the given command and log the command. This is suitable
 -- for running on remote machines so we can keep track of what is
