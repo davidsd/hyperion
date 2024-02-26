@@ -1,17 +1,10 @@
-{-# LANGUAGE DeriveAnyClass             #-}
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE StaticPointers             #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase         #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE StaticPointers     #-}
+{-# LANGUAGE TypeFamilies       #-}
 
 module Hyperion.Job where
 
@@ -39,11 +32,11 @@ import Hyperion.Static             (Closure, Static (..), cAp, cPtr, cPure,
                                     ptrAp)
 import Hyperion.Util               (myExecutable, runCmdLocalAsync,
                                     runCmdLocalLog)
+import Hyperion.Worker             (getWorkerStaticConfig, worker)
 import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
                                     WorkerAddr)
 import Hyperion.WorkerCpuPool      qualified as WCP
 import System.FilePath.Posix       (dropExtension, (<.>), (</>))
-import Hyperion.Worker (getWorkerStaticConfig, worker)
 
 -- * General comments
 -- $
@@ -135,7 +128,7 @@ setTaskCpus n cfg = cfg { jobTaskCpus = n }
 -- . The log directory for the node is obtained by dropping
 -- the .log extension: \"\/a\/b\/c\/progid\/serviceid\"
 -- We are assuming that the remote table for 'Process' contains
--- the static configuration as initialized by 'initWorkerRemoteTable' 
+-- the static configuration as initialized by 'initWorkerRemoteTable'
 runJobSlurm :: ProgramInfo -> Job a -> Process a
 runJobSlurm programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
@@ -209,9 +202,10 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
     onRemoteError e _ = throwM e
   return WorkerLauncher{..}
 
--- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the continuation
--- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher'
--- 'JobId')@.  Passing 'Nothing' repersents a remote tool failure.
+-- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the
+-- continuation 'Maybe' passing it a pair @('WorkerAddr',
+-- 'WorkerLauncher' 'JobId')@.  Passing 'Nothing' repersents a
+-- command transport failure.
 --
 -- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher'
 -- launches workers on the node at 'WorkerAddr'. The launcher is
@@ -228,20 +222,21 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 -- messages like \"Running command ...\".
 --
 -- The reason that utility workers are used on each Job node is to
--- minimize the number of calls to the remote tool (@ssh@ or @srun@). The naive way to
--- launch workers in the 'Job' monad would be to determine what node
--- they should be run on, and run the hyperion worker command via
--- @ssh@. Unfortunately, many clusters have flakey @ssh@
--- configurations that start throwing errors if @ssh@ is called too
--- many times in quick succession. @ssh@ also has to perform
--- authentication. Experience shows that @srun@ is also not a good
--- solution to this problem, since @srun@ talks to @SLURM@ to manage
--- resources and this can take a long time, affecting
--- performance. Instead, we the remote tool exactly once to each node in the Job
--- (besides the head node), and start utility workers there. These
--- workers can then communicate with the head node via the usual
--- machinery of @hyperion@ --- effectively, we keep a connection open
--- to each node so that we no longer have to use the remote tool.
+-- minimize the number of calls to the command transport (@ssh@ or
+-- @srun@). The naive way to launch workers in the 'Job' monad would
+-- be to determine what node they should be run on, and run the
+-- hyperion worker command via the command transport. Unfortunately,
+-- many clusters have flakey configurations that start throwing errors
+-- if e.g. @ssh@ is called too many times in quick succession. @ssh@
+-- also has to perform authentication. Experience shows that @srun@ is
+-- also not a good solution to this problem, since @srun@ talks to
+-- @SLURM@ to manage resources and this can take a long time,
+-- affecting performance. Instead, we use the command transport
+-- exactly once to each node in the Job (besides the head node), and
+-- start utility workers there. These workers can then communicate
+-- with the head node via the usual machinery of @hyperion@ ---
+-- effectively, we keep a connection open to each node so that we no
+-- longer have to use the command transport.
 withNodeLauncher
   :: NodeLauncherConfig
   -> WorkerAddr

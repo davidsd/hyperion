@@ -89,7 +89,7 @@ binarySearchJob n points eps = do
   -- | Concurrently compute 'runSearchMemoized n p' for all p in
   -- points. New computations are automatically started as cores
   -- become available.
-  result <- mapConcurrently (runSearch n) points
+  result <- mapConcurrently (runSearchMemoized n) points
   Log.info "Computed brackets" (zip points result)
   return result
   where

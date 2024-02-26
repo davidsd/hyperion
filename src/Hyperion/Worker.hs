@@ -9,15 +9,15 @@
 
 module Hyperion.Worker where
 
-import Control.Distributed.Process         hiding (bracket, catch, try)
-import Control.Distributed.Process.Node    qualified as Node
-import Control.Distributed.Static          (registerStatic, staticLabel)
-import Control.Monad.Trans.Maybe           (MaybeT (..))
-import Data.Foldable                       (asum)
-import Data.Rank1Dynamic                   (toDynamic)
-import Hyperion.Config                     (HyperionStaticConfig)
-import Hyperion.Log                        qualified as Log
-import Hyperion.Remote                     (ServiceId (..), WorkerMessage (..))
+import Control.Distributed.Process      hiding (bracket, catch, try)
+import Control.Distributed.Process.Node qualified as Node
+import Control.Distributed.Static       (registerStatic, staticLabel)
+import Control.Monad.Trans.Maybe        (MaybeT (..))
+import Data.Foldable                    (asum)
+import Data.Rank1Dynamic                (toDynamic)
+import Hyperion.Config                  (HyperionStaticConfig)
+import Hyperion.Log                     qualified as Log
+import Hyperion.Remote                  (ServiceId (..), WorkerMessage (..))
 
 masterNodeIdLabel :: String
 masterNodeIdLabel = "masterNodeIdLabel"
@@ -41,10 +41,14 @@ getWorkerStaticConfig :: Process HyperionStaticConfig
 getWorkerStaticConfig = unStatic workerStaticConfigStatic
 
 registerWorkerStaticConfig :: HyperionStaticConfig -> RemoteTable -> RemoteTable
-registerWorkerStaticConfig staticConfig = registerStatic workerStaticConfigLabel (toDynamic staticConfig)
+registerWorkerStaticConfig staticConfig =
+  registerStatic workerStaticConfigLabel (toDynamic staticConfig)
 
 initWorkerRemoteTable :: HyperionStaticConfig -> Maybe NodeId -> RemoteTable
-initWorkerRemoteTable staticConfig nid = registerWorkerStaticConfig staticConfig . registerMasterNodeId nid $ Node.initRemoteTable
+initWorkerRemoteTable staticConfig nid =
+  registerWorkerStaticConfig staticConfig .
+  registerMasterNodeId nid $
+  Node.initRemoteTable
 
 -- | The main worker process.
 --

@@ -1,6 +1,4 @@
-{-# LANGUAGE CPP                #-}
 {-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase         #-}
 {-# LANGUAGE OverloadedStrings  #-}
@@ -136,7 +134,10 @@ data HostInterfaceError = HostInterfaceError String [NetworkInterface]
 --   and will try to find one which is not of the type 127.*.*.* or 10.*.*.*.
 -- * 'InterfaceSelector' uses a user-provide function to select an interface from
 --   the list of all network interfaces.
-data HostNameStrategy = GetHostName | GetHostEntriesExternal | InterfaceSelector ([NetworkInterface] -> IO NetworkInterface)
+data HostNameStrategy
+  = GetHostName
+  | GetHostEntriesExternal
+  | InterfaceSelector ([NetworkInterface] -> IO NetworkInterface)
 
 -- | The default strategy is 'HostNameStrategy'
 defaultHostNameStrategy :: HostNameStrategy
