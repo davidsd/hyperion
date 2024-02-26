@@ -32,7 +32,7 @@ import Data.Map.Strict                          qualified as Map
 import Data.Rank1Dynamic                        (toDynamic)
 import Data.Typeable                            (Typeable, typeOf)
 import Hyperion.Log                             qualified as Log
-import Hyperion.Remote                          (getMasterNodeId)
+import Hyperion.Worker                          (getMasterNodeId)
 
 -- Presence of a pid value indicates that the lock is locked by the process with the given ProcessId
 type Lock = STM.TMVar ProcessId

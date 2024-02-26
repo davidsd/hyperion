@@ -104,5 +104,6 @@ helloOpts = HelloOptions
 
 main :: IO ()
 main = hyperionMain helloOpts (
-  \o -> (defaultHyperionConfig . workDir $ o) {commandTransport = SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])}
-  ) printGreetings
+  \o -> (defaultHyperionConfig . workDir $ o)
+  ) (defaultHyperionStaticConfig {commandTransport = SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])}) 
+  printGreetings

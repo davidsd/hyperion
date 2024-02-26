@@ -28,6 +28,7 @@ import Data.Text                   qualified as T
 import Data.Typeable               (Typeable)
 import Hyperion.Cluster
 import Hyperion.Command            (hyperionWorkerCommand)
+import Hyperion.Config             (HyperionStaticConfig (..))
 import Hyperion.Database           qualified as DB
 import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEvalM)
 import Hyperion.Log                qualified as Log
@@ -42,6 +43,7 @@ import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
                                     WorkerAddr)
 import Hyperion.WorkerCpuPool      qualified as WCP
 import System.FilePath.Posix       (dropExtension, (<.>), (</>))
+import Hyperion.Worker (getWorkerStaticConfig, worker)
 
 -- * General comments
 -- $
@@ -85,6 +87,8 @@ data JobEnv = JobEnv
   , jobProgramInfo    :: ProgramInfo
     -- | a 'WorkerLauncher' that runs workers with the given number of CPUs allocated
   , jobTaskLauncher   :: NumCPUs -> WorkerLauncher JobId
+    -- | The global static configuration
+  , jobStaticConfig   :: HyperionStaticConfig
   }
 
 instance HasProgramInfo JobEnv where
@@ -130,12 +134,15 @@ setTaskCpus n cfg = cfg { jobTaskCpus = n }
 -- The log file has the form \"\/a\/b\/c\/progid\/serviceid.log\"
 -- . The log directory for the node is obtained by dropping
 -- the .log extension: \"\/a\/b\/c\/progid\/serviceid\"
+-- We are assuming that the remote table for 'Process' contains
+-- the static configuration as initialized by 'initWorkerRemoteTable' 
 runJobSlurm :: ProgramInfo -> Job a -> Process a
 runJobSlurm programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   nodes <- liftIO WCP.getSlurmAddrs
   nodeCpus <- liftIO Slurm.getNTasksPerNode
   maybeLogFile <- Log.getLogFile
+  staticConfig <- getWorkerStaticConfig
   let
     nodeLauncherConfig = NodeLauncherConfig
       { nodeLogDir = case maybeLogFile of
@@ -143,7 +150,7 @@ runJobSlurm programInfo go = do
           -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
           Nothing      -> programLogDir programInfo </> "workers" </> "workers"
-      , nodeCommandTransport = programCommandTransport programInfo
+      , nodeCommandTransport = commandTransport staticConfig
       }
   withPoolLauncher nodeLauncherConfig nodes $ \poolLauncher -> do
     let cfg = JobEnv
@@ -152,14 +159,15 @@ runJobSlurm programInfo go = do
           , jobTaskCpus       = NumCPUs 1
           , jobTaskLauncher   = poolLauncher
           , jobProgramInfo    = programInfo
+          , jobStaticConfig   = staticConfig
           }
     runReaderT go cfg
 
 -- | Runs the 'Job' locally in IO without using any information from a
 -- SLURM environment, with some basic default settings. This function
 -- is provided primarily for testing.
-runJobLocal :: ProgramInfo -> Job a -> IO a
-runJobLocal programInfo go = runProcessLocal $ do
+runJobLocal :: HyperionStaticConfig -> ProgramInfo -> Job a -> IO a
+runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy staticConfig) $ do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   let
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
@@ -174,6 +182,7 @@ runJobLocal programInfo go = runProcessLocal $ do
     , jobTaskCpus       = NumCPUs 1
     , jobTaskLauncher   = const WorkerLauncher{..}
     , jobProgramInfo    = programInfo
+    , jobStaticConfig   = staticConfig
     }
 
 -- | 'WorkerLauncher' that uses the supplied command runner to launch
@@ -292,7 +301,7 @@ remoteEvalJobM
   => Cluster (Closure (Job b))
   -> Cluster b
 remoteEvalJobM mc = do
-  programInfo <- asks clusterProgramInfo
+  programInfo  <- asks clusterProgramInfo
   remoteEvalM $ do
     c <- mc
     pure $ cPtr (static runJobSlurm) `cAp` cPure programInfo `cAp` c

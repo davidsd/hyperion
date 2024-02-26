@@ -13,4 +13,4 @@ import Hyperion.ProgramId     as Exports
 import Hyperion.Remote        as Exports
 import Hyperion.Static        as Exports
 import Hyperion.WorkerCpuPool as Exports
-
+import Hyperion.Worker        as Exports

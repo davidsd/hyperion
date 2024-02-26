@@ -9,14 +9,15 @@ import Control.Monad             (unless)
 import Control.Monad.Catch       (SomeException, try)
 import Data.Maybe                (isJust)
 import Hyperion.Cluster          (Cluster, ClusterEnv (..), ProgramInfo (..),
-                                  runCluster, runDBWithProgramInfo)
+                                  runCluster, runDBWithProgramInfo, newClusterEnv)
 import Hyperion.Command          (Worker (..), workerOpts)
-import Hyperion.Config           (HyperionConfig (..), newClusterEnv)
+import Hyperion.Config           (HyperionConfig (..),
+                                  HyperionStaticConfig (..))
 import Hyperion.Database         qualified as DB
 import Hyperion.HoldServer       (newHoldMap, withHoldServer)
 import Hyperion.Log              qualified as Log
-import Hyperion.Remote           (addressToNodeId, initWorkerRemoteTable,
-                                  runProcessLocalWithRT, worker)
+import Hyperion.Remote           (addressToNodeId,
+                                  runProcessLocalWithRT)
 import Hyperion.Util             (logMemoryUsage)
 import Options.Applicative
 import System.Console.Concurrent (withConcurrentOutput)
@@ -26,6 +27,7 @@ import System.FilePath.Posix     ((<.>))
 import System.Posix.Process      (getProcessID)
 import System.Posix.Signals      (Handler (..), installHandler, raiseSignal,
                                   sigINT, sigTERM)
+import Hyperion.Worker (initWorkerRemoteTable, worker)
 
 -- | The type for command-line options to 'hyperionMain'. Here @a@ is
 -- the type for program-specific options.  In practice we want @a@ to
@@ -88,17 +90,18 @@ hyperionMain
   :: Show a
   => Parser a
   -> (a -> HyperionConfig)
+  -> HyperionStaticConfig
   -> (a -> Cluster ())
   -> IO ()
-hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput $
+hyperionMain programOpts mkHyperionConfig hyperionStaticConfig clusterProgram = withConcurrentOutput $
   execParser (opts programOpts) >>= \case
   HyperionWorker Worker{..} -> do
     Log.redirectToFile workerLogFile
     Log.info "Starting service" workerService
     Log.info "Environment" =<< getEnvironment
     let masterNid = addressToNodeId workerMasterAddress
-    runProcessLocalWithRT
-      (initWorkerRemoteTable (Just masterNid))
+    runProcessLocalWithRT (hostNameStrategy hyperionStaticConfig)
+      (initWorkerRemoteTable hyperionStaticConfig (Just masterNid))
       (worker masterNid workerService)
     logMemoryUsage
   HyperionMaster args -> do
@@ -115,7 +118,8 @@ hyperionMain programOpts mkHyperionConfig clusterProgram = withConcurrentOutput 
 
     holdMap <- newHoldMap
     withHoldServer holdMap $ \holdPort -> do
-      (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig holdMap holdPort
+      (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig 
+                                                            hyperionStaticConfig holdMap holdPort
       let progId = programId clusterProgramInfo
           masterLogFile = programLogDir clusterProgramInfo <.> "log"
       pid <- getProcessID

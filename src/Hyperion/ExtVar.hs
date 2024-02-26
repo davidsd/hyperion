@@ -79,7 +79,7 @@ import Data.IORef                  (IORef, atomicModifyIORef', newIORef)
 import Data.Text                   (Text, pack)
 import GHC.Generics                (Generic)
 import Hyperion.Log                qualified as Log
-import Hyperion.Remote             (runProcessLocal)
+import Hyperion.Remote             (runProcessLocal, HostNameStrategy)
 import Network.Transport           (EndPointAddress (..))
 import System.IO.Unsafe            (unsafePerformIO)
 import Type.Reflection             (Typeable, typeRep)
@@ -275,32 +275,32 @@ modifyExtVar eVar go = mask $ \restore -> do
 
 -- | 'IO' versions of 'ExtVar' functions, for convenience.
 
-takeExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO a
-takeExtVarIO = runProcessLocal . takeExtVar
+takeExtVarIO :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> IO a
+takeExtVarIO s = runProcessLocal s . takeExtVar
 
-tryTakeExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO (Maybe a)
-tryTakeExtVarIO = runProcessLocal . tryTakeExtVar
+tryTakeExtVarIO :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> IO (Maybe a)
+tryTakeExtVarIO s = runProcessLocal s . tryTakeExtVar
 
-putExtVarIO :: (Binary a, Typeable a) => ExtVar a -> a -> IO ()
-putExtVarIO eVar = runProcessLocal . putExtVar eVar
+putExtVarIO :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> a -> IO ()
+putExtVarIO s eVar = runProcessLocal s . putExtVar eVar
 
-tryPutExtVarIO :: (Binary a, Typeable a) => ExtVar a -> a -> IO Bool
-tryPutExtVarIO eVar = runProcessLocal . tryPutExtVar eVar
+tryPutExtVarIO :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> a -> IO Bool
+tryPutExtVarIO s eVar = runProcessLocal s . tryPutExtVar eVar
 
-readExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO a
-readExtVarIO = runProcessLocal . readExtVar
+readExtVarIO :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> IO a
+readExtVarIO s = runProcessLocal s . readExtVar
 
-tryReadExtVarIO :: (Binary a, Typeable a) => ExtVar a -> IO (Maybe a)
-tryReadExtVarIO = runProcessLocal . tryReadExtVar
+tryReadExtVarIO :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> IO (Maybe a)
+tryReadExtVarIO s = runProcessLocal s . tryReadExtVar
 
-withExtVarIO :: (Binary a, Typeable a) => ExtVar a -> (a -> IO b) -> IO b
-withExtVarIO eVar go = runProcessLocal $ withExtVar eVar (liftIO . go)
+withExtVarIO :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> (a -> IO b) -> IO b
+withExtVarIO s eVar go = runProcessLocal s $ withExtVar eVar (liftIO . go)
 
-modifyExtVarIO_ :: (Binary a, Typeable a) => ExtVar a -> (a -> IO a) -> IO ()
-modifyExtVarIO_ eVar go = runProcessLocal $ modifyExtVar_ eVar (liftIO . go)
+modifyExtVarIO_ :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> (a -> IO a) -> IO ()
+modifyExtVarIO_ s eVar go = runProcessLocal s $ modifyExtVar_ eVar (liftIO . go)
 
-modifyExtVarIO :: (Binary a, Typeable a) => ExtVar a -> (a -> IO (a,b)) -> IO b
-modifyExtVarIO eVar go = runProcessLocal $ modifyExtVar eVar (liftIO . go)
+modifyExtVarIO :: (Binary a, Typeable a) => HostNameStrategy -> ExtVar a -> (a -> IO (a,b)) -> IO b
+modifyExtVarIO s eVar go = runProcessLocal s $ modifyExtVar eVar (liftIO . go)
 
 -- | Store the given list in an 'ExtVar' and return an action that
 -- repeatedly pops the first element from the list until there are

@@ -116,7 +116,7 @@ remoteNubOrd xs = remoteEval $
     nubOrd Dict = pure . Set.toList . Set.fromList
 
 main :: IO ()
-main = runJobLocal pInfo $ do
+main = runJobLocal defaultHyperionStaticConfig pInfo $ do
   Log.info "helloBar" =<< sayHelloRemote MkBar
   Log.info "helloFoo" =<< sayHelloRemoteFoo MkFoo
   Log.info "helloData" =<< sayHelloRemote ([MkBar, MkBar], 1 :: Integer, 'c', Just ("cool, huh?" :: Text))
@@ -129,5 +129,4 @@ main = runJobLocal pInfo $ do
       , programDatabase   = "/central/home/dssimmon/projects/petr/hyperion-projects/test/test.sqlite"
       , programLogDir     = "/central/home/dssimmon/projects/petr/hyperion-projects/test"
       , programDataDir    = "/central/home/dssimmon/projects/petr/hyperion-projects/test"
-      , programCommandTransport = SSH Nothing
       }

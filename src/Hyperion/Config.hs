@@ -6,20 +6,15 @@ module Hyperion.Config where
 import Data.Text              qualified as T
 import Data.Time.Format       (defaultTimeLocale, formatTime)
 import Data.Time.LocalTime    (getZonedTime)
-import Hyperion.Cluster
-import Hyperion.Database      qualified as DB
-import Hyperion.HoldServer    (HoldMap)
-import Hyperion.LockMap       (newLockMap)
 import Hyperion.Log           qualified as Log
 import Hyperion.ProgramId
+import Hyperion.Remote        (HostNameStrategy, defaultHostNameStrategy)
 import Hyperion.Slurm         qualified as Slurm
-import Hyperion.TokenPool     (newTokenPool)
-import Hyperion.Util          (savedExecutable)
 import Hyperion.WorkerCpuPool (CommandTransport, defaultCommandTransport)
 import System.Directory       (copyFile, createDirectoryIfMissing)
 import System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>), (</>))
 
--- | Global configuration for "Hyperion" cluster.
+-- | Global configuration
 data HyperionConfig = HyperionConfig
   { -- | Default options to use for @sbatch@ submissions
     defaultSbatchOptions :: Slurm.SbatchOptions
@@ -39,14 +34,21 @@ data HyperionConfig = HyperionConfig
   , hyperionCommand      :: Maybe FilePath
     -- | The database from which to initiate the program database
   , initialDatabase      :: Maybe FilePath
-    -- | The command used to run shell commands on remtoe nodes in a job. Usually can be safely set to
-    -- 'SSH Nothing'. See 'CommandTransport' for details.
-  , commandTransport     :: CommandTransport
     -- | Email address for cluster notifications from
     -- hyperion. Nothing means no emails will be sent. Note that this
     -- setting can be different from the one in defaultSbatchOptions,
     -- which controls notifications from SLURM.
   , emailAddr            :: Maybe T.Text
+  }
+
+-- | Global static (compile-time) configuration. This is directly accessible to the master and to the workers
+data HyperionStaticConfig = HyperionStaticConfig
+  {
+    -- | The command used to run shell commands on remtoe nodes in a job. Usually can be safely set to
+    -- 'SSH Nothing'. See 'CommandTransport' for details.
+    commandTransport :: CommandTransport
+    -- | The strategy for selecting our hostname. See 'HostNameStrategy' for details.
+  , hostNameStrategy :: HostNameStrategy
   }
 
 -- | Default configuration, with all paths built form a single
@@ -62,44 +64,15 @@ defaultHyperionConfig baseDirectory = HyperionConfig
   , jobDir               = baseDirectory </> "jobs"
   , hyperionCommand      = Nothing
   , initialDatabase      = Nothing
-  , commandTransport        = defaultCommandTransport
   , emailAddr            = Nothing
   }
 
--- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
--- and a new 'HoldMap.
---
--- Things to note:
---
---     * 'programId' is generated randomly.
---     * If 'hyperionCommand' is specified in 'HyperionConfig', then
---       'hyperionExec' == 'hyperionCommand'. Otherwise the running executable
---       is copied to 'execDir' with a unique name, and that is used as 'hyperionExec'.
---     * 'newDatabasePath' is used to determine 'programDatabase' from 'initialDatabase'
---       and 'databaseDir', 'programId'.
---     * 'timedProgramDir' is used to determine 'programLogDir' and 'programDataDir'
---       from the values in 'HyperionConfig' and 'programId'.
---     * 'slurmWorkerLauncher' is used for 'clusterWorkerLauncher'
---     * 'clusterDatabaseRetries' is set to 'defaultDBRetries'.
-newClusterEnv :: HyperionConfig -> HoldMap -> Int -> IO (ClusterEnv, FilePath)
-newClusterEnv HyperionConfig{..} holdMap holdPort = do
-  programId    <- newProgramId
-  hyperionExec <- maybe
-    (savedExecutable execDir (T.unpack (programIdToText programId)))
-    return
-    hyperionCommand
-  programDatabase <- newDatabasePath initialDatabase databaseDir programId
-  programLogDir <- timedProgramDir logDir programId
-  programDataDir <- timedProgramDir dataDir programId
-  sbatchTokenPool <- newTokenPool maxSlurmJobs
-  let clusterJobOptions = defaultSbatchOptions { Slurm.chdir = Just jobDir }
-      programCommandTransport = commandTransport
-      clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool
-      clusterDatabaseRetries = defaultDBRetries
-  clusterDatabasePool <- DB.newDefaultPool programDatabase
-  clusterLockMap <- newLockMap
-  return (ClusterEnv{..}, hyperionExec)
+defaultHyperionStaticConfig :: HyperionStaticConfig
+defaultHyperionStaticConfig = HyperionStaticConfig
+  { commandTransport        = defaultCommandTransport
+  , hostNameStrategy        = defaultHostNameStrategy
+  }
+
 
 -- | Returns the path to a new database, given 'Maybe' inital database filepath
 -- and base directory

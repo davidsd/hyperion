@@ -15,21 +15,19 @@ import Control.Distributed.Process         hiding (bracket, catch, try)
 import Control.Distributed.Process.Async   (AsyncResult (..), async, task, wait)
 import Control.Distributed.Process.Closure (SerializableDict (..))
 import Control.Distributed.Process.Node    qualified as Node
-import Control.Distributed.Static          (registerStatic, staticLabel)
 import Control.Monad.Catch                 (Exception, MonadCatch,
                                             SomeException, bracket, catch,
                                             throwM, try)
 import Control.Monad.Extra                 (whenM)
 import Control.Monad.IO.Class              (MonadIO)
-import Control.Monad.Trans.Maybe           (MaybeT (..))
 import Data.Binary                         (Binary)
+import Data.Bits                           ((.&.))
 import Data.Constraint                     (Dict (..))
 import Data.Data                           (Typeable)
-import Data.Foldable                       (asum)
-import Data.Rank1Dynamic                   (toDynamic)
 import Data.Text                           (Text, pack)
 import Data.Text.Encoding                  qualified as E
 import Data.Time.Clock                     (NominalDiffTime)
+import Data.Word                           (Word8)
 import GHC.Generics                        (Generic)
 import Hyperion.CallClosure                (call')
 import Hyperion.Log                        qualified as Log
@@ -40,7 +38,8 @@ import Network.BSD                         (HostEntry (..), getHostEntries,
                                             getHostName)
 import Network.Info                        (IPv4 (..), NetworkInterface (..),
                                             getNetworkInterfaces)
-import Network.Socket                      (hostAddressToTuple)
+import Network.Socket                      (HostAddress, hostAddressToTuple,
+                                            tupleToHostAddress)
 import Network.Transport                   (EndPointAddress (..))
 import Network.Transport.TCP               qualified as NT
 
@@ -95,52 +94,87 @@ data WorkerLauncher j = WorkerLauncher
   , onRemoteError     :: forall b . RemoteError -> Process b -> Process b
   }
 
--- * Functions for running a worker
-
--- | Run a Process locally using the default
--- 'RemoteTable'. Additionally allows a return value for the
--- 'Process'.
-runProcessLocal :: Process a -> IO a
-runProcessLocal = runProcessLocalWithRT Node.initRemoteTable
-
--- | Run a Process locally using the specified
--- 'RemoteTable'. Additionally allows a return value for the
--- 'Process'.
-runProcessLocalWithRT :: RemoteTable -> Process a -> IO a
-runProcessLocalWithRT rt process = do
-  resultVar <- newEmptyMVar
-  runProcessLocalWithRT_ rt $ process >>= liftIO . putMVar resultVar
-  takeMVar resultVar
-
--- | Spawns a new local "Control.Distributed.Process.Node" and runs
--- the given 'Process' on it. Waits for the process to finish.
+-- * Host name strategies
+-- In order to start 'Process'es, we need to provide a hostname. Unfortunately,
+-- this hostname plays two roles: first, it is used to determine on which 
+-- network interface we will listen, but also determines the address for our 
+-- 'Node' that we can get from 'getSelfNode'.
 --
--- Binds to the first available port by specifying port 0.
+-- The simplest option would be to use the wildcard IPv4 0.0.0.0 which would
+-- make us listen on all network interfaces. However, this then makes our node
+-- address 0.0.0.0:... which we then advertise to workers, which doesn't work.
 --
--- NOTE: Some clusters, for example XSEDE's expanse cluster, cannot
--- communicate between nodes using the output of 'getHostName'. In
--- such cases, one can try building with the flag
--- 'USE_EXTERNAL_HOSTNAME' which returns a different address.
-runProcessLocalWithRT_ :: RemoteTable -> Process () -> IO ()
-runProcessLocalWithRT_ rtable process = do
-#if defined(USE_EXTERNAL_HOSTNAME)
-  -- works on expanse, but not elsewhere
-  host <- getExternalHostName
-#else
-  -- works on most other clusters
-  host <- getExternalAddress -- getHostName
-#endif
-  NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
-    Left e -> Log.throw e
-    Right t -> do
-      node <- Node.newLocalNode t rtable
-      Log.info "Running on node" (Node.localNodeId node)
-      Node.runProcess node process
+-- This means that we need a strategy for selecting a correct network interface.
+
+-- | A type synonim for IPv4 address
+type IPv4AsTuple = (Word8, Word8, Word8, Word8)
+
+-- | A basic subnet description -- a mask and an IPv4 address. An IPv4 address
+-- is considered to be in the subnet if it agrees with the subnet address in all
+-- bits which are set in the mask.
+data Subnet = Subnet
+  { -- using tuples since this is user-facing
+    subnetMask    :: IPv4AsTuple,
+    subnetAddress :: IPv4AsTuple
+  }
+
+isAddressInSubnet :: Subnet -> HostAddress -> Bool
+isAddressInSubnet Subnet{..} address = (bits .&. maskbits) == (address .&. maskbits)
+  where
+    bits = tupleToHostAddress subnetAddress
+    maskbits = tupleToHostAddress subnetMask
+
+data HostInterfaceError = HostInterfaceError String [NetworkInterface]
+  deriving (Show, Exception)
+
+-- | Datatype describing various strategies for selecting the hostname.
+-- 
+-- * 'GetHostName' will use 'getHostName' function. This works fine in most cases
+--   but relies on DNS lookup to give us the ip address for the correct network 
+--   interface.
+-- * 'GetHostEntriesExternal' will use 'getHostEntries' to obtain a list of hostnames
+--   and will try to find one which is not of the type 127.*.*.* or 10.*.*.*.
+-- * 'InterfaceSelector' uses a user-provide function to select an interface from
+--   the list of all network interfaces.
+data HostNameStrategy = GetHostName | GetHostEntriesExternal | InterfaceSelector ([NetworkInterface] -> IO NetworkInterface)
+
+-- | The default strategy is 'HostNameStrategy'
+defaultHostNameStrategy :: HostNameStrategy
+defaultHostNameStrategy = GetHostName
+
+-- | Returns the 'HostAddress' for a given network interface
+interfaceAddress :: NetworkInterface -> HostAddress
+interfaceAddress ni = toHostAddress $ ipv4 ni
+  where
+    toHostAddress (IPv4 n) = n
+
+-- | 'HostNameStrategy' which selects the first interface whose address satisfies
+-- a given filter function
+interfaceFilter :: (HostAddress -> Bool) -> HostNameStrategy
+interfaceFilter f = InterfaceSelector $ \interfaces -> case filter (f . interfaceAddress) interfaces of
+  ni:_ -> return ni
+  [] -> Log.throw (HostInterfaceError "Couldn't find a suitable network interface." $ interfaces)
+
+-- | 'HostNameStrategy' which selects the first interface whose address belongs to a given subnet
+useSubnet :: Subnet -> HostNameStrategy
+useSubnet subnet = interfaceFilter (isAddressInSubnet subnet)
+
+-- | Find a hostname based on the 'HostNameStrategy'. The result is a string representing
+-- either a hostname or an IPv4 address. Throws if a suitable interface cannot be found.
+findHostName :: HostNameStrategy -> IO String
+findHostName GetHostName            = getHostName
+findHostName GetHostEntriesExternal = getHostEntriesExternal
+findHostName (InterfaceSelector selector) = do
+  interfaces <- getNetworkInterfaces
+  interface <- selector interfaces
+  return . ipString . hostAddressToTuple $ interfaceAddress interface
+  where
+    ipString (a, b, c, d) = (show a) ++ "." ++ (show b) ++ "." ++ (show c) ++ "." ++ (show d)
 
 -- | Get a hostname for the current machine that does not correspond
--- to a local network address (127.* or 10.*)
-getExternalHostName :: IO String
-getExternalHostName = do
+-- to a local network address (127.* or 10.*). Uses 'getHostEntries'.
+getHostEntriesExternal :: IO String
+getHostEntriesExternal = do
   -- TODO: Here 'stayopen' is set to True. Is this an ok choice?
   entries <- getHostEntries True
   case filter (any (not . isLocal) . hostAddresses) entries of
@@ -152,19 +186,41 @@ getExternalHostName = do
       (10,  _, _, _) -> True
       _              -> False
 
-getExternalAddress :: IO String
-getExternalAddress = do
-  ipv4s <- map ((\(IPv4 n) -> n) . ipv4) <$> getNetworkInterfaces
-  let
-    addrTuples = hostAddressToTuple <$> ipv4s
-  case filter isGoodIPv4 addrTuples of
-    e : _ -> return $ ipString e
-    []    -> Log.throwError $ "Cannot find a matching network address among host entries: " ++ show addrTuples
-  where
-    isGoodIPv4 a = case a of
-      (10,  211, _, _) -> True
-      _                -> False
-    ipString (a, b, c, d) = (show a) ++ "." ++ (show b) ++ "." ++ (show c) ++ "." ++ (show d)
+-- * Functions for running a worker
+
+-- | Run a Process locally using the default
+-- 'RemoteTable'. Additionally allows a return value for the
+-- 'Process'.
+runProcessLocal :: HostNameStrategy -> Process a -> IO a
+runProcessLocal s = runProcessLocalWithRT s Node.initRemoteTable
+
+-- | Run a Process locally using the specified
+-- 'RemoteTable'. Additionally allows a return value for the
+-- 'Process'.
+runProcessLocalWithRT :: HostNameStrategy -> RemoteTable -> Process a -> IO a
+runProcessLocalWithRT s rt process = do
+  resultVar <- newEmptyMVar
+  runProcessLocalWithRT_ s rt $ process >>= liftIO . putMVar resultVar
+  takeMVar resultVar
+
+-- | Spawns a new local "Control.Distributed.Process.Node" and runs
+-- the given 'Process' on it. Waits for the process to finish.
+--
+-- Binds to the first available port by specifying port 0.
+--
+-- NOTE: Some clusters, for example XSEDE's expanse cluster, cannot
+-- communicate between nodes using the output of 'getHostName'. In
+-- such cases, one can try building with the flag
+-- 'USE_EXTERNAL_HOSTNAME' which returns a different address.
+runProcessLocalWithRT_ :: HostNameStrategy -> RemoteTable -> Process () -> IO ()
+runProcessLocalWithRT_ strategy rtable process = do
+  host <- findHostName strategy
+  NT.createTransport (NT.defaultTCPAddr host "0") NT.defaultTCPParameters >>= \case
+    Left e -> Log.throw e
+    Right t -> do
+      node <- Node.newLocalNode t rtable
+      Log.info "Running on node" (Node.localNodeId node)
+      Node.runProcess node process
 
 
 -- | Convert a 'Text' representation of 'EndPointAddress' to 'NodeId'.
@@ -175,51 +231,6 @@ addressToNodeId = NodeId . EndPointAddress . E.encodeUtf8
 -- | Inverse to 'addressToNodeId'
 nodeIdToAddress :: NodeId -> Text
 nodeIdToAddress (NodeId (EndPointAddress addr)) = E.decodeUtf8 addr
-
-masterNodeIdLabel :: String
-masterNodeIdLabel = "masterNodeIdLabel"
-
-masterNodeIdStatic :: Static (Maybe NodeId)
-masterNodeIdStatic = staticLabel masterNodeIdLabel
-
-getMasterNodeId :: Process (Maybe NodeId)
-getMasterNodeId = unStatic masterNodeIdStatic
-
-registerMasterNodeId :: Maybe NodeId -> RemoteTable -> RemoteTable
-registerMasterNodeId nid = registerStatic masterNodeIdLabel (toDynamic nid)
-
-initWorkerRemoteTable :: Maybe NodeId -> RemoteTable
-initWorkerRemoteTable nid = registerMasterNodeId nid Node.initRemoteTable
-
--- | The main worker process.
---
--- Repeatedly (at most 5 times) send our own 'ProcessId' and the send end of a typed channel
--- ('SendPort' 'WorkerMessage') to a master node until it replies
--- 'Connected' (timeout 10 seconds for each attempt).
--- Then 'expect' a 'ShutDown' signal.
---
--- While waiting, other processes will be run in a different thread,
--- invoked by master through our 'NodeId' (which it extracts from 'ProcessId')
-worker
-  :: NodeId     -- ^ 'NodeId' of the master node
-  -> ServiceId  -- ^ 'ServiceId' of master 'Process' (should be 'register'ed)
-  -> Process ()
-worker masterNode serviceId@(ServiceId masterService) = do
-  self <- getSelfPid
-  (sendPort, receivePort) <- newChan
-
-  let connectToMaster = MaybeT $ do
-        Log.info "Connecting to master" masterNode
-        nsendRemote masterNode masterService (self, serviceId, sendPort)
-        receiveChanTimeout (10*1000*1000) receivePort
-
-  runMaybeT (asum (replicate 5 connectToMaster)) >>= \case
-    Just Connected -> do
-      Log.text "Successfully connected to master."
-      expect >>= \case
-        Connected -> Log.throwError "Unexpected 'Connected' received."
-        ShutDown  -> Log.text "Shutting down."
-    _ -> Log.text "Couldn't connect to master" >> die ()
 
 -- | Registers ('register') the current process under a random 'ServiceId', then
 -- passes the 'ServiceId' to the given continuation.

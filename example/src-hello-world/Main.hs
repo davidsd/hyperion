@@ -40,4 +40,4 @@ helloOpts = HelloOptions
   <*> Opts.option Opts.str (Opts.long "workDir")
 
 main :: IO ()
-main = hyperionMain helloOpts (defaultHyperionConfig . workDir) printGreetings
+main = hyperionMain helloOpts (defaultHyperionConfig . workDir) defaultHyperionStaticConfig printGreetings

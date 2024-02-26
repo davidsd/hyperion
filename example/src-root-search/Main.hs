@@ -164,8 +164,12 @@ mkHyperionConfig ProgramOptions{..} =
     initialDatabase       = Nothing
     emailAddr             = Nothing
     maxSlurmJobs          = Nothing
-    commandTransport         = SRun Nothing -- SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
+    commandTransport      = SRun Nothing -- SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
   in HyperionConfig{..}
 
+hyperionStaticConfig = defaultHyperionStaticConfig { commandTransport = SRun Nothing
+                                                   , hostNameStrategy = useSubnet $ Subnet (255, 255, 0, 0) (10, 211, 0, 0)
+                                                   }
+
 main :: IO ()
-main = hyperionMain programOpts mkHyperionConfig clusterComputation --
+main = hyperionMain programOpts mkHyperionConfig defaultHyperionStaticConfig clusterComputation --
