@@ -1,15 +1,23 @@
-{-# LANGUAGE DeriveAnyClass             #-}
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE TypeApplications   #-}
 
-module Hyperion.WorkerCpuPool where
+module Hyperion.WorkerCpuPool
+  ( CommandTransport (..)
+  , defaultCommandTransport
+  , NumCPUs(..)
+  , SSHError
+  , WorkerAddr(..)
+  , withWorkerAddr
+  , getSlurmAddrs
+  , newJobPool
+  , remoteRunCmd
+  ) where
 
 import Control.Concurrent.STM      (atomically, check)
-import Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO, readTVar,
-                                    readTVarIO)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO, readTVar)
 import Control.Exception           (Exception)
 import Control.Monad               (when)
 import Control.Monad.Catch         (MonadMask, bracket, try)
@@ -60,10 +68,6 @@ data WorkerCpuPool = WorkerCpuPool
 -- | 'newWorkerCpuPool' creates a new 'WorkerCpuPool' from a 'Map'.
 newWorkerCpuPool :: Map WorkerAddr NumCPUs -> IO WorkerCpuPool
 newWorkerCpuPool cpus = WorkerCpuPool <$> newTVarIO cpus
-
--- | Gets a list of all 'WorkerAddr' registered in 'WorkerCpuPool'
-getAddrs :: WorkerCpuPool -> IO [WorkerAddr]
-getAddrs WorkerCpuPool {..} = fmap Map.keys (readTVarIO cpuMap)
 
 -- | A 'WorkerAddr' representing a node address. Can be a remote node or the local node
 data WorkerAddr

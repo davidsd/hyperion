@@ -5,10 +5,11 @@
 
 module Hyperion.Util where
 
-import Control.Concurrent
+import Control.Concurrent       (threadDelay)
 import Control.Concurrent.Async qualified as Async
-import Control.Monad
-import Control.Monad.Except
+import Control.Monad            (replicateM)
+import Control.Monad.Catch      (MonadCatch, SomeException, try)
+import Control.Monad.IO.Class   (MonadIO, liftIO)
 import Data.BinaryHash          (hashBase64Safe)
 import Data.ByteString.Char8    qualified as B
 import Data.Constraint          (Constraint, Dict (..))
@@ -21,7 +22,7 @@ import Data.Vector              qualified as V
 import Hyperion.Log             qualified as Log
 import Network.Mail.Mime        (Address (..), renderSendMail, simpleMail')
 import Numeric                  (showFFloat, showIntAtBase)
-import System.Directory
+import System.Directory         (copyFile, createDirectoryIfMissing)
 import System.FilePath.Posix    (replaceDirectory)
 import System.IO.Unsafe         (unsafePerformIO)
 import System.Posix.Files       (readSymbolicLink)
@@ -109,6 +110,17 @@ retryExponential doTry handleErr m = go 1
       t <- liftIO . fmap (* timeMultiplier) $ randomRIO (10, 20)
       handleErr (WaitRetry e t)
       liftIO $ threadDelay $ t*1000*1000
+
+-- | Catch any exception, log it, and return as a string. In this
+-- way, errors will be logged by the worker where they occurred,
+-- and also sent up the tree.
+tryLogException :: (MonadCatch m, MonadIO m) => m b -> m (Either String b)
+tryLogException go = try go >>= \case
+  Left (e :: SomeException) -> do
+    Log.err e
+    return (Left (show e))
+  Right b ->
+    return (Right b)
 
 -- | Send an email to 'toAddr' with the given 'subject' and 'body'.
 emailMessage
