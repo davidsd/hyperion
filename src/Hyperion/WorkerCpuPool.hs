@@ -128,11 +128,13 @@ data SSHError =
   SSHError String (ExitCode, String, String)
   deriving (Show, Exception)
 
--- | The type for the command used as the remote tool. Can be @ssh$ or @srun$ with c
--- custom or default arguments. If a 'Just' value, then
--- the first 'String' gives the name of @ssh@ or@srun@ executable, e.g. @\"ssh\"@, and the
--- list of 'String's gives the options to pass to the tool. For example, with
--- 'CommandTransport' given by @SSH $ Just (\"XX\", [\"-a\", \"-b\"])@, @ssh@ is run as
+-- | The type for the command used in order to run processes on
+-- another node. Can be @ssh$ or @srun$ with custom or default
+-- arguments. If a 'Just' value, then the first 'String' gives the
+-- name of @ssh@ or@srun@ executable, e.g. @\"ssh\"@, and the list of
+-- 'String's gives the options to pass to the executable. For example,
+-- with 'CommandTransport' given by @SSH $ Just (\"XX\", [\"-a\",
+-- \"-b\"])@, @ssh@ is run as
 --
 -- > XX -a -b <addr> <command>
 --
