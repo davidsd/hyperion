@@ -157,7 +157,9 @@ data CommandTransport
   deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 -- | Default CommandTransport. Uses SSH as
+--
 -- > ssh -f -o "UserKnownHostsFile /dev/null" <addr> <command>
+--
 defaultCommandTransport :: CommandTransport
 defaultCommandTransport = SSH Nothing
 
