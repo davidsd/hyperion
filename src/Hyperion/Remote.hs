@@ -142,12 +142,6 @@ data HostNameStrategy = GetHostName | GetHostEntriesExternal | InterfaceSelector
 defaultHostNameStrategy :: HostNameStrategy
 defaultHostNameStrategy = GetHostName
 
--- | Returns the 'HostAddress' for a given network interface
-interfaceAddress :: NetworkInterface -> HostAddress
-interfaceAddress ni = toHostAddress $ ipv4 ni
-  where
-    toHostAddress (IPv4 n) = n
-
 -- | 'HostNameStrategy' which selects the first interface whose address satisfies
 -- a given filter function
 interfaceFilter :: (HostAddress -> Bool) -> HostNameStrategy
@@ -158,6 +152,13 @@ interfaceFilter f = InterfaceSelector $ \interfaces -> case filter (f . interfac
 -- | 'HostNameStrategy' which selects the first interface whose address belongs to a given subnet
 useSubnet :: Subnet -> HostNameStrategy
 useSubnet subnet = interfaceFilter (isAddressInSubnet subnet)
+
+-- | Returns the 'HostAddress' for a given network interface
+interfaceAddress :: NetworkInterface -> HostAddress
+interfaceAddress ni = toHostAddress $ ipv4 ni
+  where
+    toHostAddress (IPv4 n) = n
+
 
 -- | Find a hostname based on the 'HostNameStrategy'. The result is a string representing
 -- either a hostname or an IPv4 address. Throws if a suitable interface cannot be found.
