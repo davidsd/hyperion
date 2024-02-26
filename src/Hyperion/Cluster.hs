@@ -1,14 +1,9 @@
-{-# LANGUAGE DeriveAnyClass        #-}
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE DerivingStrategies    #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE StaticPointers        #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE StaticPointers     #-}
+{-# LANGUAGE TypeFamilies       #-}
 
 module Hyperion.Cluster where
 
@@ -38,10 +33,7 @@ import Hyperion.Log                     qualified as Log
 import Hyperion.ObjectId                (getObjectId, objectIdToString)
 import Hyperion.ProgramId               (ProgramId, newProgramId,
                                          programIdToText)
-import Hyperion.Remote                  (RemoteError (..), ServiceId,
-                                         WorkerLauncher (..),
-                                         runProcessLocalWithRT,
-                                         serviceIdToString, serviceIdToText)
+import Hyperion.Remote                  (runProcessLocalWithRT)
 import Hyperion.Slurm                   (JobId (..), SbatchError,
                                          SbatchOptions (..), sbatchCommand)
 import Hyperion.Slurm                   qualified as Slurm
@@ -49,7 +41,10 @@ import Hyperion.Static                  (Static (..), cPtr)
 import Hyperion.TokenPool               (TokenPool, newTokenPool, withToken)
 import Hyperion.Util                    (emailError, retryExponential,
                                          savedExecutable)
-import Hyperion.Worker                  (registerMasterNodeId)
+import Hyperion.Worker                  (RemoteError (..), ServiceId,
+                                         WorkerLauncher (..),
+                                         registerMasterNodeId,
+                                         serviceIdToString, serviceIdToText)
 import System.Directory                 (createDirectoryIfMissing)
 import System.FilePath.Posix            ((<.>), (</>))
 

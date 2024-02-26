@@ -11,28 +11,35 @@ module Hyperion.Job where
 import Control.Distributed.Process (NodeId, Process, spawnLocal)
 import Control.Lens                (lens)
 import Control.Monad.Catch         (throwM, try)
-import Control.Monad.Except
-import Control.Monad.Reader
+import Control.Monad.IO.Class      (MonadIO, liftIO)
+import Control.Monad.Reader        (ReaderT, asks, runReaderT)
+import Control.Monad.Trans         (lift)
 import Control.Monad.Trans.Cont    (ContT (..), evalContT)
 import Data.Binary                 (Binary)
 import Data.Map                    qualified as Map
 import Data.Maybe                  (catMaybes)
 import Data.Text                   qualified as T
 import Data.Typeable               (Typeable)
-import Hyperion.Cluster
+import Hyperion.Cluster            (Cluster, ClusterEnv (..),
+                                    HasProgramInfo (..), ProgramInfo (..),
+                                    dbConfigFromProgramInfo)
 import Hyperion.Command            (hyperionWorkerCommand)
 import Hyperion.Config             (HyperionStaticConfig (..))
 import Hyperion.Database           qualified as DB
 import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEvalM)
 import Hyperion.Log                qualified as Log
-import Hyperion.Remote
+import Hyperion.Remote             (runProcessLocal)
 import Hyperion.Slurm              (JobId (..))
 import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Static             (Closure, Static (..), cAp, cPtr, cPure,
                                     ptrAp)
 import Hyperion.Util               (myExecutable, runCmdLocalAsync,
                                     runCmdLocalLog)
-import Hyperion.Worker             (getWorkerStaticConfig, worker)
+import Hyperion.Worker             (ServiceId, WorkerLauncher (..),
+                                    getWorkerStaticConfig,
+                                    mkSerializableClosureProcess,
+                                    serviceIdToText, withRemoteRunProcess,
+                                    worker)
 import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
                                     WorkerAddr)
 import Hyperion.WorkerCpuPool      qualified as WCP
