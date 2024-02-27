@@ -2,19 +2,7 @@ flags: {}
 packages:
 - '.'
 extra-deps:
-- distributed-static-0.3.9@sha256:f5e781867eddec660cb3b39805c849e3f096b7da245d43a07d8529e3c92b3a27
-- network-transport-tcp-0.8.1
-- git: https://github.com/haskell-distributed/distributed-process.git
-  commit: f45c9d986edfb79669c54c646501b9448fc800e8
-- git: https://github.com/davidsd/distributed-process-async.git
-  commit: bab06c5989db8dc32765c9b6c1795c020fa0ecf9
-- git: https://gitlab.com/pkravchuk/binaryhash.git
-  commit: 2f65a2d472fccbd90636783c8a85ef553f8f9ea8
-- git: https://gitlab.com/davidsd/hyperion-static.git
-  commit: 26d55bfa4c6019558ff05b97b29bff9990db31ca
-- git: https://gitlab.com/davidsd/rusage.git
-  commit: ca52101db66e736a01f4de1b4c32bd3f13fca048
-resolver: nightly-2023-05-02
+resolver: github:pkravchuk/hyperionage:snapshots/hyp-1.0.1.yaml
 build:
   haddock-arguments:
     haddock-args:
