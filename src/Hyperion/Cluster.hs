@@ -1,55 +1,52 @@
-{-# LANGUAGE DeriveAnyClass        #-}
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE DerivingStrategies    #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE StaticPointers        #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE StaticPointers     #-}
+{-# LANGUAGE TypeFamilies       #-}
 
 module Hyperion.Cluster where
 
-import           Control.Distributed.Process      (NodeId, Process)
-import           Control.Distributed.Process.Node (initRemoteTable)
-import           Control.Lens                     (lens)
-import           Control.Monad.Catch              (try, MonadCatch)
-import           Control.Monad.IO.Class           (MonadIO, liftIO)
-import           Control.Monad.Reader             (ReaderT, asks, runReaderT, MonadReader)
-import           Data.Aeson                       (FromJSON, ToJSON)
-import           Data.Binary                      (Binary)
-import           Data.Constraint                  (Dict (..))
-import           Data.Text                        (Text)
-import qualified Data.Text                        as Text
-import           Data.Time.Clock                  (NominalDiffTime)
-import           Data.Typeable                    (Typeable)
-import           GHC.Generics                     (Generic)
-import           Hyperion.Command                 (hyperionWorkerCommand)
-import qualified Hyperion.Database                as DB
-import           Hyperion.HasWorkers              (HasWorkerLauncher (..))
-import           Hyperion.HoldServer              (HoldMap, blockUntilRetried)
-import           Hyperion.LockMap                 (LockMap, registerLockMap)
-import qualified Hyperion.Log                     as Log
-import           Hyperion.ObjectId                (getObjectId,
-                                                   objectIdToString)
-import           Hyperion.ProgramId               (ProgramId, programIdToText)
-import           Hyperion.Remote                  (RemoteError (..), ServiceId,
-                                                   WorkerLauncher (..),
-                                                   registerMasterNodeId,
-                                                   runProcessLocalWithRT,
-                                                   serviceIdToString,
-                                                   serviceIdToText)
-import           Hyperion.Slurm                   (JobId (..), SbatchError,
-                                                   SbatchOptions (..),
-                                                   sbatchCommand)
-import           Hyperion.TokenPool               (TokenPool, withToken)
-import           Hyperion.Static                  (Static (..), cPtr)
-import           Hyperion.Util                    (emailError, retryExponential)
-import           Hyperion.WorkerCpuPool           (SSHCommand)
-import           System.Directory                 (createDirectoryIfMissing)
-import           System.FilePath.Posix            ((<.>), (</>))
+import Control.Distributed.Process      (NodeId, Process)
+import Control.Distributed.Process.Node (initRemoteTable)
+import Control.Lens                     (lens)
+import Control.Monad.Catch              (MonadCatch, try)
+import Control.Monad.IO.Class           (MonadIO, liftIO)
+import Control.Monad.Reader             (MonadReader, ReaderT, asks, runReaderT)
+import Data.Aeson                       (FromJSON, ToJSON)
+import Data.Binary                      (Binary)
+import Data.Constraint                  (Dict (..))
+import Data.Text                        (Text)
+import Data.Text                        qualified as Text
+import Data.Time.Clock                  (NominalDiffTime)
+import Data.Typeable                    (Typeable)
+import GHC.Generics                     (Generic)
+import Hyperion.Command                 (hyperionWorkerCommand)
+import Hyperion.Config                  (HyperionConfig (..),
+                                         HyperionStaticConfig (..),
+                                         newDatabasePath, timedProgramDir)
+import Hyperion.Database                qualified as DB
+import Hyperion.HasWorkers              (HasWorkerLauncher (..))
+import Hyperion.HoldServer              (HoldMap, blockUntilRetried)
+import Hyperion.LockMap                 (LockMap, newLockMap, registerLockMap)
+import Hyperion.Log                     qualified as Log
+import Hyperion.ObjectId                (getObjectId, objectIdToString)
+import Hyperion.ProgramId               (ProgramId, newProgramId,
+                                         programIdToText)
+import Hyperion.Remote                  (runProcessLocalWithRT)
+import Hyperion.Slurm                   (JobId (..), SbatchError,
+                                         SbatchOptions (..), sbatchCommand)
+import Hyperion.Slurm                   qualified as Slurm
+import Hyperion.Static                  (Static (..), cPtr)
+import Hyperion.TokenPool               (TokenPool, newTokenPool, withToken)
+import Hyperion.Util                    (emailError, retryExponential,
+                                         savedExecutable)
+import Hyperion.Worker                  (RemoteError (..), ServiceId,
+                                         WorkerLauncher (..),
+                                         registerMasterNodeId,
+                                         serviceIdToString, serviceIdToText)
+import System.Directory                 (createDirectoryIfMissing)
+import System.FilePath.Posix            ((<.>), (</>))
 
 -- * General comments
 -- $
@@ -124,11 +121,10 @@ import           System.FilePath.Posix            ((<.>), (</>))
 
 -- | Type containing information about our program
 data ProgramInfo = ProgramInfo
-  { programId         :: ProgramId
-  , programDatabase   :: FilePath
-  , programLogDir     :: FilePath
-  , programDataDir    :: FilePath
-  , programSSHCommand :: SSHCommand
+  { programId       :: ProgramId
+  , programDatabase :: FilePath
+  , programLogDir   :: FilePath
+  , programDataDir  :: FilePath
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 instance Static (Binary ProgramInfo) where closureDict = cPtr (static Dict)
@@ -141,6 +137,7 @@ data ClusterEnv = ClusterEnv
   , clusterDatabasePool    :: DB.Pool
   , clusterDatabaseRetries :: Int
   , clusterLockMap         :: LockMap
+  , clusterStaticConfig    :: HyperionStaticConfig
   }
 
 class HasProgramInfo a where
@@ -182,10 +179,11 @@ data MPIJob = MPIJob
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON, Typeable)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
-runCluster clusterEnv h = runProcessLocalWithRT rtable (runReaderT h clusterEnv)
+runCluster clusterEnv@ClusterEnv{..} h = runProcessLocalWithRT (hostNameStrategy clusterStaticConfig)
+                                                               rtable (runReaderT h clusterEnv)
   where
     rtable = registerMasterNodeId Nothing
-           $ registerLockMap (clusterLockMap clusterEnv) initRemoteTable
+           $ registerLockMap clusterLockMap initRemoteTable
 
 modifyJobOptions :: (SbatchOptions -> SbatchOptions) -> ClusterEnv -> ClusterEnv
 modifyJobOptions f cfg = cfg { clusterJobOptions = f (clusterJobOptions cfg) }
@@ -227,6 +225,40 @@ dbConfigFromProgramInfo pInfo = do
   let dbProgramId = programId pInfo
       dbRetries = defaultDBRetries
   return DB.DatabaseConfig{..}
+
+-- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
+-- and a new 'HoldMap.
+--
+-- Things to note:
+--
+--     * 'programId' is generated randomly.
+--     * If 'hyperionCommand' is specified in 'HyperionConfig', then
+--       'hyperionExec' == 'hyperionCommand'. Otherwise the running executable
+--       is copied to 'execDir' with a unique name, and that is used as 'hyperionExec'.
+--     * 'newDatabasePath' is used to determine 'programDatabase' from 'initialDatabase'
+--       and 'databaseDir', 'programId'.
+--     * 'timedProgramDir' is used to determine 'programLogDir' and 'programDataDir'
+--       from the values in 'HyperionConfig' and 'programId'.
+--     * 'slurmWorkerLauncher' is used for 'clusterWorkerLauncher'
+--     * 'clusterDatabaseRetries' is set to 'defaultDBRetries'.
+newClusterEnv :: HyperionConfig -> HyperionStaticConfig -> HoldMap -> Int -> IO (ClusterEnv, FilePath)
+newClusterEnv HyperionConfig{..} clusterStaticConfig holdMap holdPort = do
+  programId    <- newProgramId
+  hyperionExec <- maybe
+    (savedExecutable execDir (Text.unpack (programIdToText programId)))
+    return
+    hyperionCommand
+  programDatabase <- newDatabasePath initialDatabase databaseDir programId
+  programLogDir <- timedProgramDir logDir programId
+  programDataDir <- timedProgramDir dataDir programId
+  sbatchTokenPool <- newTokenPool maxSlurmJobs
+  let clusterJobOptions = defaultSbatchOptions { Slurm.chdir = Just jobDir }
+      clusterProgramInfo = ProgramInfo {..}
+      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool
+      clusterDatabaseRetries = defaultDBRetries
+  clusterDatabasePool <- DB.newDefaultPool programDatabase
+  clusterLockMap <- newLockMap
+  return (ClusterEnv{..}, hyperionExec)
 
 runDBWithProgramInfo :: ProgramInfo -> ReaderT DB.DatabaseConfig IO a -> IO a
 runDBWithProgramInfo pInfo m = do

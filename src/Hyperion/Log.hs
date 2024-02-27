@@ -2,23 +2,22 @@
 
 module Hyperion.Log where
 
-import           Control.Monad.Catch       (Exception, MonadThrow, throwM)
-import           Control.Monad.IO.Class    (MonadIO, liftIO)
-import           Data.IORef                (IORef, newIORef, readIORef, writeIORef)
-import           Data.Text                 (Text)
-import qualified Data.Text                 as T
-import           Data.Time.Format          (defaultTimeLocale, formatTime)
-import           Data.Time.LocalTime       (getZonedTime)
-import           GHC.IO.Handle             (hDuplicateTo)
-import           System.Console.Concurrent (errorConcurrent)
-import           System.Directory          (createDirectoryIfMissing)
-import           System.FilePath.Posix     (takeDirectory)
-import           System.IO                 (IOMode (..), hFlush, openFile,
-                                            stderr, stdout)
-import           System.IO.Unsafe          (unsafePerformIO)
-import           Text.PrettyPrint          ((<+>))
-import qualified Text.PrettyPrint          as PP (render, text)
-import           Text.Show.Pretty          (ppDoc)
+import Control.Monad.Catch       (Exception, MonadThrow, throwM)
+import Control.Monad.IO.Class    (MonadIO, liftIO)
+import Data.IORef                (IORef, newIORef, readIORef, writeIORef)
+import Data.Text                 (Text)
+import Data.Text                 qualified as T
+import Data.Time.Format          (defaultTimeLocale, formatTime)
+import Data.Time.LocalTime       (getZonedTime)
+import GHC.IO.Handle             (hDuplicateTo)
+import System.Console.Concurrent (errorConcurrent)
+import System.Directory          (createDirectoryIfMissing)
+import System.FilePath.Posix     (takeDirectory)
+import System.IO                 (IOMode (..), hFlush, openFile, stderr, stdout)
+import System.IO.Unsafe          (unsafePerformIO)
+import Text.PrettyPrint          qualified as PP (render, text)
+import Text.PrettyPrint          ((<+>))
+import Text.Show.Pretty          (ppDoc)
 
 -- * General comments
 -- $

@@ -2,12 +2,12 @@
 
 module Hyperion.Slurm.Environment where
 
-import           Control.Applicative       ((<|>))
-import           Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
-import           Data.Maybe                (fromMaybe)
-import           System.Environment        (lookupEnv)
-import           System.Process            (readCreateProcess, shell)
-import           Text.Read                 (readMaybe)
+import Control.Applicative       ((<|>))
+import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
+import Data.Maybe                (fromMaybe)
+import System.Environment        (lookupEnv)
+import System.Process            (readCreateProcess, shell)
+import Text.Read                 (readMaybe)
 
 -- | Returns number of tasks per node by reading system environment variables.
 -- If @SLURM_NTASKS_PER_NODE@ is defined, returns it. Otherwise, tries to compute

@@ -1,10 +1,9 @@
 module Hyperion.TokenPool where
 
-import           Control.Concurrent.STM      (atomically, check)
-import           Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO,
-                                              readTVar)
-import           Control.Monad.Catch         (MonadMask, bracket)
-import           Control.Monad.IO.Class      (MonadIO, liftIO)
+import Control.Concurrent.STM      (atomically, check)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar, newTVarIO, readTVar)
+import Control.Monad.Catch         (MonadMask, bracket)
+import Control.Monad.IO.Class      (MonadIO, liftIO)
 
 -- | A 'TokenPool' keeps track of the number of resources of some
 -- kind, represented by "tokens". 'TokenPool (Just var)' indicates a

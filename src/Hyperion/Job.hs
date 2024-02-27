@@ -1,49 +1,49 @@
-{-# LANGUAGE DeriveAnyClass             #-}
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE StaticPointers             #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase         #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE StaticPointers     #-}
+{-# LANGUAGE TypeFamilies       #-}
 
 module Hyperion.Job where
 
-import qualified Control.Concurrent.Async    as Async
-import           Control.Distributed.Process (NodeId, Process, spawnLocal)
-import           Control.Lens                (lens)
-import           Control.Monad.Catch         (throwM, try)
-import           Control.Monad.Except
-import           Control.Monad.Reader
-import           Control.Monad.Trans.Cont    (ContT (..), evalContT)
-import           Data.Binary                 (Binary)
-import qualified Data.Map                    as Map
-import           Data.Maybe                  (catMaybes)
-import qualified Data.Text                   as T
-import           Data.Typeable               (Typeable)
-import           Hyperion.Cluster
-import           Hyperion.Command            (hyperionWorkerCommand)
-import qualified Hyperion.Database           as DB
-import           Hyperion.HasWorkers         (HasWorkerLauncher (..),
-                                              remoteEvalM)
-import qualified Hyperion.Log                as Log
-import           Hyperion.Remote
-import           Hyperion.Slurm              (JobId (..))
-import qualified Hyperion.Slurm              as Slurm
-import           Hyperion.Static             (Closure, Static (..), cAp, cPtr,
-                                              cPure, ptrAp)
-import           Hyperion.Util               (myExecutable)
-import           Hyperion.WorkerCpuPool      (NumCPUs (..), SSHCommand,
-                                              SSHError, WorkerAddr)
-import qualified Hyperion.WorkerCpuPool      as WCP
-import           System.FilePath.Posix       (dropExtension, (<.>), (</>))
-import           System.Process              (callProcess)
+import Control.Distributed.Process (NodeId, Process, spawnLocal)
+import Control.Lens                (lens)
+import Control.Monad.Catch         (throwM, try)
+import Control.Monad.IO.Class      (MonadIO, liftIO)
+import Control.Monad.Reader        (ReaderT, asks, runReaderT)
+import Control.Monad.Trans         (lift)
+import Control.Monad.Trans.Cont    (ContT (..), evalContT)
+import Data.Binary                 (Binary)
+import Data.Map                    qualified as Map
+import Data.Maybe                  (catMaybes)
+import Data.Text                   qualified as T
+import Data.Typeable               (Typeable)
+import Hyperion.Cluster            (Cluster, ClusterEnv (..),
+                                    HasProgramInfo (..), ProgramInfo (..),
+                                    dbConfigFromProgramInfo)
+import Hyperion.Command            (hyperionWorkerCommand)
+import Hyperion.Config             (HyperionStaticConfig (..))
+import Hyperion.Database           qualified as DB
+import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEvalM)
+import Hyperion.Log                qualified as Log
+import Hyperion.Remote             (runProcessLocal)
+import Hyperion.Slurm              (JobId (..))
+import Hyperion.Slurm              qualified as Slurm
+import Hyperion.Static             (Closure, Static (..), cAp, cPtr, cPure,
+                                    ptrAp)
+import Hyperion.Util               (myExecutable, runCmdLocalAsync,
+                                    runCmdLocalLog)
+import Hyperion.Worker             (ServiceId, WorkerLauncher (..),
+                                    getWorkerStaticConfig,
+                                    mkSerializableClosureProcess,
+                                    serviceIdToText, withRemoteRunProcess,
+                                    worker)
+import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
+                                    WorkerAddr)
+import Hyperion.WorkerCpuPool      qualified as WCP
+import System.FilePath.Posix       (dropExtension, (<.>), (</>))
 
 -- * General comments
 -- $
@@ -87,6 +87,8 @@ data JobEnv = JobEnv
   , jobProgramInfo    :: ProgramInfo
     -- | a 'WorkerLauncher' that runs workers with the given number of CPUs allocated
   , jobTaskLauncher   :: NumCPUs -> WorkerLauncher JobId
+    -- | The global static configuration
+  , jobStaticConfig   :: HyperionStaticConfig
   }
 
 instance HasProgramInfo JobEnv where
@@ -96,9 +98,9 @@ instance HasProgramInfo JobEnv where
 data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
-    nodeLogDir :: FilePath
-    -- | The command used to run @ssh@. See 'SSHCommand' for description.
-  , nodeSshCmd :: SSHCommand
+    nodeLogDir           :: FilePath
+    -- | The command used to run shell commands on remote nodes. See 'CommandTransport' for description.
+  , nodeCommandTransport :: CommandTransport
   }
 
 -- | Make 'JobEnv' an instance of 'DB.HasDB'.
@@ -132,12 +134,15 @@ setTaskCpus n cfg = cfg { jobTaskCpus = n }
 -- The log file has the form \"\/a\/b\/c\/progid\/serviceid.log\"
 -- . The log directory for the node is obtained by dropping
 -- the .log extension: \"\/a\/b\/c\/progid\/serviceid\"
+-- We are assuming that the remote table for 'Process' contains
+-- the static configuration as initialized by 'initWorkerRemoteTable'
 runJobSlurm :: ProgramInfo -> Job a -> Process a
 runJobSlurm programInfo go = do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   nodes <- liftIO WCP.getSlurmAddrs
   nodeCpus <- liftIO Slurm.getNTasksPerNode
   maybeLogFile <- Log.getLogFile
+  staticConfig <- getWorkerStaticConfig
   let
     nodeLauncherConfig = NodeLauncherConfig
       { nodeLogDir = case maybeLogFile of
@@ -145,7 +150,7 @@ runJobSlurm programInfo go = do
           -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
           Nothing      -> programLogDir programInfo </> "workers" </> "workers"
-      , nodeSshCmd = programSSHCommand programInfo
+      , nodeCommandTransport = commandTransport staticConfig
       }
   withPoolLauncher nodeLauncherConfig nodes $ \poolLauncher -> do
     let cfg = JobEnv
@@ -154,14 +159,15 @@ runJobSlurm programInfo go = do
           , jobTaskCpus       = NumCPUs 1
           , jobTaskLauncher   = poolLauncher
           , jobProgramInfo    = programInfo
+          , jobStaticConfig   = staticConfig
           }
     runReaderT go cfg
 
 -- | Runs the 'Job' locally in IO without using any information from a
 -- SLURM environment, with some basic default settings. This function
 -- is provided primarily for testing.
-runJobLocal :: ProgramInfo -> Job a -> IO a
-runJobLocal programInfo go = runProcessLocal $ do
+runJobLocal :: HyperionStaticConfig -> ProgramInfo -> Job a -> IO a
+runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy staticConfig) $ do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   let
     withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
@@ -176,6 +182,7 @@ runJobLocal programInfo go = runProcessLocal $ do
     , jobTaskCpus       = NumCPUs 1
     , jobTaskLauncher   = const WorkerLauncher{..}
     , jobProgramInfo    = programInfo
+    , jobStaticConfig   = staticConfig
     }
 
 -- | 'WorkerLauncher' that uses the supplied command runner to launch
@@ -202,9 +209,10 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
     onRemoteError e _ = throwM e
   return WorkerLauncher{..}
 
--- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the continuation
--- 'Maybe' passing it a pair @('WorkerAddr', 'WorkerLauncher'
--- 'JobId')@.  Passing 'Nothing' repersents @ssh@ failure.
+-- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the
+-- continuation 'Maybe' passing it a pair @('WorkerAddr',
+-- 'WorkerLauncher' 'JobId')@.  Passing 'Nothing' repersents a
+-- command transport failure.
 --
 -- While 'WorkerAddr' is preserved, the passed 'WorkerLauncher'
 -- launches workers on the node at 'WorkerAddr'. The launcher is
@@ -221,20 +229,21 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 -- messages like \"Running command ...\".
 --
 -- The reason that utility workers are used on each Job node is to
--- minimize the number of calls to @ssh@ or @srun@. The naive way to
--- launch workers in the 'Job' monad would be to determine what node
--- they should be run on, and run the hyperion worker command via
--- @ssh@. Unfortunately, many clusters have flakey @ssh@
--- configurations that start throwing errors if @ssh@ is called too
--- many times in quick succession. @ssh@ also has to perform
--- authentication. Experience shows that @srun@ is also not a good
--- solution to this problem, since @srun@ talks to @SLURM@ to manage
--- resources and this can take a long time, affecting
--- performance. Instead, we @ssh@ exactly once to each node in the Job
--- (besides the head node), and start utility workers there. These
--- workers can then communicate with the head node via the usual
--- machinery of @hyperion@ --- effectively, we keep a connection open
--- to each node so that we no longer have to use @ssh@.
+-- minimize the number of calls to the command transport (@ssh@ or
+-- @srun@). The naive way to launch workers in the 'Job' monad would
+-- be to determine what node they should be run on, and run the
+-- hyperion worker command via the command transport. Unfortunately,
+-- many clusters have flakey configurations that start throwing errors
+-- if e.g. @ssh@ is called too many times in quick succession. @ssh@
+-- also has to perform authentication. Experience shows that @srun@ is
+-- also not a good solution to this problem, since @srun@ talks to
+-- @SLURM@ to manage resources and this can take a long time,
+-- affecting performance. Instead, we use the command transport
+-- exactly once to each node in the Job (besides the head node), and
+-- start utility workers there. These workers can then communicate
+-- with the head node via the usual machinery of @hyperion@ ---
+-- effectively, we keep a connection open to each node so that we no
+-- longer have to use the command transport.
 withNodeLauncher
   :: NodeLauncherConfig
   -> WorkerAddr
@@ -242,9 +251,9 @@ withNodeLauncher
   -> Process a
 withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
   WCP.RemoteAddr addr -> do
-    sshLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.sshRunCmd addr nodeSshCmd)
+    remoteLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.remoteRunCmd addr nodeCommandTransport)
     eitherResult <- try @Process @SSHError $ do
-      withRemoteRunProcess sshLauncher $ \remoteRunNode ->
+      withRemoteRunProcess remoteLauncher $ \remoteRunNode ->
         let
           runCmdOnNode cmd = do
             scp <- mkSerializableClosureProcess closureDict $ pure $
@@ -262,23 +271,6 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
     workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
     go (Just (addr', launcher))
 
--- | Run the given command in a child thread. Async.link ensures
--- that exceptions from the child are propagated to the parent.
---
--- NB: Previously, this function used 'System.Process.createProcess'
--- and discarded the resulting 'ProcessHandle'. This could result in
--- "insufficient resource" errors for OS threads. Hopefully the
--- current implementation avoids this problem.
-runCmdLocalAsync :: (String, [String]) -> IO ()
-runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
-
--- | Run the given command and log the command. This is suitable
--- for running on remote machines so we can keep track of what is
--- being run where.
-runCmdLocalLog :: (String, [String]) -> IO ()
-runCmdLocalLog c = do
-  Log.info "Running command" c
-  runCmdLocalAsync c
 
 -- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to
 -- start \"worker-launcher\" workers on these addresses (see
@@ -311,7 +303,7 @@ remoteEvalJobM
   => Cluster (Closure (Job b))
   -> Cluster b
 remoteEvalJobM mc = do
-  programInfo <- asks clusterProgramInfo
+  programInfo  <- asks clusterProgramInfo
   remoteEvalM $ do
     c <- mc
     pure $ cPtr (static runJobSlurm) `cAp` cPure programInfo `cAp` c

@@ -1,30 +1,30 @@
-{-# LANGUAGE DeriveAnyClass      #-}
-{-# LANGUAGE DeriveGeneric       #-}
-{-# LANGUAGE DerivingStrategies       #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase         #-}
+{-# LANGUAGE OverloadedStrings  #-}
 
 module Hyperion.Database.KeyValMap where
 
-import           Control.Lens                     (views)
-import           Control.Monad.Catch              (MonadCatch)
-import           Control.Monad.IO.Class           (MonadIO)
-import           Control.Monad.Reader             (MonadReader)
-import           Data.Aeson                       (FromJSON, ToJSON)
-import qualified Data.Aeson                       as Aeson
-import           Data.Binary                      (Binary)
-import qualified Data.ByteString.Lazy             as LBS
-import           Data.Data                        (Typeable)
-import           Data.Text                        (Text)
-import qualified Data.Text.Encoding               as T
-import           Data.Time.Clock                  (UTCTime)
-import qualified Database.SQLite.Simple           as Sql
-import qualified Database.SQLite.Simple.FromField as Sql
-import qualified Database.SQLite.Simple.Ok        as Sql
-import qualified Database.SQLite.Simple.ToField   as Sql
-import           GHC.Generics                     (Generic)
-import           Hyperion.Database.HasDB
-import           Prelude                          hiding (lookup)
+import Control.Lens                     (views)
+import Control.Monad.Catch              (MonadCatch)
+import Control.Monad.IO.Class           (MonadIO)
+import Control.Monad.Reader             (MonadReader)
+import Data.Aeson                       (FromJSON, ToJSON)
+import Data.Aeson                       qualified as Aeson
+import Data.Binary                      (Binary)
+import Data.ByteString.Lazy             qualified as LBS
+import Data.Data                        (Typeable)
+import Data.Text                        (Text)
+import Data.Text.Encoding               qualified as T
+import Data.Time.Clock                  (UTCTime)
+import Database.SQLite.Simple           qualified as Sql
+import Database.SQLite.Simple.FromField qualified as Sql
+import Database.SQLite.Simple.Ok        qualified as Sql
+import Database.SQLite.Simple.ToField   qualified as Sql
+import GHC.Generics                     (Generic)
+import Hyperion.Database.HasDB
+import Prelude                          hiding (lookup)
 
 -- * General comments
 -- $

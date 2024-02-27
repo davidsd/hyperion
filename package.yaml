@@ -34,6 +34,7 @@ library:
     - network-transport-tcp
     - network
     - network-bsd
+    - network-info
     - unix
     - binary
     - transformers
@@ -73,6 +74,7 @@ executables:
       - hyperion
       - optparse-applicative
       - text
+    ghc-options : -threaded
 
   example-lock-map:
     source-dirs: example/src-lock-map
@@ -84,6 +86,7 @@ executables:
       - distributed-process
       - mtl
       - text
+    ghc-options : -threaded
 
   example-polymorphic-remote:
     source-dirs: example/src-polymorphic-remote
@@ -96,6 +99,7 @@ executables:
       - binary
       - containers
       - hyperion-static
+    ghc-options : -threaded
 
   example-root-search:
     source-dirs: example/src-root-search
@@ -107,3 +111,4 @@ executables:
       - filepath
       - distributed-process
       - mtl
+    ghc-options : -threaded

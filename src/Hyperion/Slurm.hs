@@ -4,7 +4,7 @@ module Hyperion.Slurm
   , module Hyperion.Slurm.Environment
   ) where
 
+import Hyperion.Slurm.Environment
 import Hyperion.Slurm.JobId
 import Hyperion.Slurm.Sbatch
-import Hyperion.Slurm.Environment
 

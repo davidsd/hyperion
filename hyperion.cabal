@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4982910a7ab70697e6ee65f4ea1ac5cacb3a39bf5065423c32f6d41a67c7e2fe
+-- hash: ea51c1359e0337f553bc71978ef49a2027d516641244a993e7bc0321dd726146
 
 name:           hyperion
 version:        0.1.0.7
@@ -44,6 +44,7 @@ library
       Hyperion.Slurm.Sbatch
       Hyperion.TokenPool
       Hyperion.Util
+      Hyperion.Worker
       Hyperion.WorkerCpuPool
   other-modules:
       Paths_hyperion
@@ -74,6 +75,7 @@ library
     , mtl
     , network
     , network-bsd
+    , network-info
     , network-transport
     , network-transport-tcp
     , optparse-applicative
@@ -106,7 +108,7 @@ executable example-hello-world
       Paths_hyperion
   hs-source-dirs:
       example/src-hello-world
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
     , hyperion
@@ -120,7 +122,7 @@ executable example-lock-map
       Paths_hyperion
   hs-source-dirs:
       example/src-lock-map
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
     , distributed-process
@@ -136,7 +138,7 @@ executable example-polymorphic-remote
       Paths_hyperion
   hs-source-dirs:
       example/src-polymorphic-remote
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
     , binary
@@ -153,7 +155,7 @@ executable example-root-search
       Paths_hyperion
   hs-source-dirs:
       example/src-root-search
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
     , distributed-process

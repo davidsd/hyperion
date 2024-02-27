@@ -40,15 +40,15 @@
 --
 module Main where
 
-import           Control.Distributed.Process (Process)
-import           Control.Monad.Reader        (local)
-import           Hyperion
-import           Hyperion.Database.KeyValMap (KeyValMap (..), memoizeWithMap)
-import qualified Hyperion.Log                as Log
-import qualified Hyperion.Slurm              as Slurm
-import           Options.Applicative         (Parser, auto, help, long, metavar,
-                                              option, str)
-import           System.FilePath.Posix       ((</>))
+import Control.Distributed.Process (Process)
+import Control.Monad.Reader        (local)
+import Hyperion
+import Hyperion.Database.KeyValMap (KeyValMap (..), memoizeWithMap)
+import Hyperion.Log                qualified as Log
+import Hyperion.Slurm              qualified as Slurm
+import Options.Applicative         (Parser, auto, help, long, metavar, option,
+                                    str)
+import System.FilePath.Posix       ((</>))
 
 -- | lower and upper bounds for some quantity
 type Bracket = (Double, Double)
@@ -164,8 +164,12 @@ mkHyperionConfig ProgramOptions{..} =
     initialDatabase       = Nothing
     emailAddr             = Nothing
     maxSlurmJobs          = Nothing
-    sshRunCommand         = Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])
   in HyperionConfig{..}
 
+hyperionStaticConfig :: HyperionStaticConfig
+hyperionStaticConfig = defaultHyperionStaticConfig { commandTransport = SRun Nothing
+                                                   , hostNameStrategy = useSubnet $ Subnet (255, 255, 0, 0) (10, 211, 0, 0)
+                                                   }
+
 main :: IO ()
-main = hyperionMain programOpts mkHyperionConfig clusterComputation
+main = hyperionMain programOpts mkHyperionConfig hyperionStaticConfig clusterComputation --

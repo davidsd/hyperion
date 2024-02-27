@@ -17,19 +17,19 @@
 
 module Main where
 
-import           Control.Distributed.Process (Process)
-import           Control.Monad               ((>=>))
-import           Data.Binary                 (Binary)
-import           Data.Proxy                  (Proxy (..))
-import qualified Data.Set                    as Set
-import           Data.Text                   (Text)
-import           Data.Typeable               (Typeable)
-import           GHC.Generics                (Generic)
-import           GHC.TypeNats                (KnownNat, natVal)
-import           Hyperion
-import qualified Hyperion.Log                as Log
-import           Hyperion.Util               (withDict)
-import           Hyperion.Static.Reflection (withClosureDict)
+import Control.Distributed.Process (Process)
+import Control.Monad               ((>=>))
+import Data.Binary                 (Binary)
+import Data.Proxy                  (Proxy (..))
+import Data.Set                    qualified as Set
+import Data.Text                   (Text)
+import Data.Typeable               (Typeable)
+import GHC.Generics                (Generic)
+import GHC.TypeNats                (KnownNat, natVal)
+import Hyperion
+import Hyperion.Log                qualified as Log
+import Hyperion.Static.Reflection  (withClosureDict)
+import Hyperion.Util               (withDict)
 
 -- | A polymorphic function with a Show constraint
 sayHello :: Show a => a -> Process String
@@ -116,7 +116,7 @@ remoteNubOrd xs = remoteEval $
     nubOrd Dict = pure . Set.toList . Set.fromList
 
 main :: IO ()
-main = runJobLocal pInfo $ do
+main = runJobLocal defaultHyperionStaticConfig pInfo $ do
   Log.info "helloBar" =<< sayHelloRemote MkBar
   Log.info "helloFoo" =<< sayHelloRemoteFoo MkFoo
   Log.info "helloData" =<< sayHelloRemote ([MkBar, MkBar], 1 :: Integer, 'c', Just ("cool, huh?" :: Text))
@@ -129,5 +129,4 @@ main = runJobLocal pInfo $ do
       , programDatabase   = "/central/home/dssimmon/projects/petr/hyperion-projects/test/test.sqlite"
       , programLogDir     = "/central/home/dssimmon/projects/petr/hyperion-projects/test"
       , programDataDir    = "/central/home/dssimmon/projects/petr/hyperion-projects/test"
-      , programSSHCommand = Nothing
       }

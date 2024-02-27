@@ -3,24 +3,18 @@
 
 module Hyperion.Config where
 
-import qualified Data.Text              as T
-import           Data.Time.Format       (defaultTimeLocale, formatTime)
-import           Data.Time.LocalTime    (getZonedTime)
-import           Hyperion.Cluster
-import qualified Hyperion.Database      as DB
-import           Hyperion.HoldServer    (HoldMap)
-import qualified Hyperion.Log           as Log
-import           Hyperion.ProgramId
-import qualified Hyperion.Slurm         as Slurm
-import           Hyperion.Util          (savedExecutable)
-import           Hyperion.WorkerCpuPool (SSHCommand)
-import           Hyperion.TokenPool     (newTokenPool)
-import           System.Directory       (copyFile, createDirectoryIfMissing)
-import           System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>),
-                                         (</>))
-import Hyperion.LockMap (newLockMap)
+import Data.Text              qualified as T
+import Data.Time.Format       (defaultTimeLocale, formatTime)
+import Data.Time.LocalTime    (getZonedTime)
+import Hyperion.Log           qualified as Log
+import Hyperion.ProgramId
+import Hyperion.Remote        (HostNameStrategy, defaultHostNameStrategy)
+import Hyperion.Slurm         qualified as Slurm
+import Hyperion.WorkerCpuPool (CommandTransport, defaultCommandTransport)
+import System.Directory       (copyFile, createDirectoryIfMissing)
+import System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>), (</>))
 
--- | Global configuration for "Hyperion" cluster. 
+-- | Global configuration
 data HyperionConfig = HyperionConfig
   { -- | Default options to use for @sbatch@ submissions
     defaultSbatchOptions :: Slurm.SbatchOptions
@@ -28,26 +22,33 @@ data HyperionConfig = HyperionConfig
     maxSlurmJobs         :: Maybe Int
     -- | Base directory for working dirs produced by 'newWorkDir'
   , dataDir              :: FilePath
-    -- | Base directory for all the log files 
+    -- | Base directory for all the log files
   , logDir               :: FilePath
     -- | Base directory for databases
   , databaseDir          :: FilePath
     -- | Base directory for copies of the main executable
   , execDir              :: FilePath
     -- | Base directory for SLURM job files
-  , jobDir              :: FilePath
+  , jobDir               :: FilePath
     -- | The command to run the main executable. Automatic if 'Nothing' (see 'newClusterEnv')
   , hyperionCommand      :: Maybe FilePath
     -- | The database from which to initiate the program database
   , initialDatabase      :: Maybe FilePath
-    -- | The command used to run @ssh@ on nodes. Usually can be safely set to
-    -- 'Nothing'. See 'SSHCommand' for details.
-  , sshRunCommand        :: SSHCommand
     -- | Email address for cluster notifications from
     -- hyperion. Nothing means no emails will be sent. Note that this
     -- setting can be different from the one in defaultSbatchOptions,
     -- which controls notifications from SLURM.
   , emailAddr            :: Maybe T.Text
+  }
+
+-- | Global static (compile-time) configuration. This is directly accessible to the master and to the workers
+data HyperionStaticConfig = HyperionStaticConfig
+  {
+    -- | The command used to run shell commands on remtoe nodes in a job. Usually can be safely set to
+    -- 'SSH Nothing'. See 'CommandTransport' for details.
+    commandTransport :: CommandTransport
+    -- | The strategy for selecting our hostname. See 'HostNameStrategy' for details.
+  , hostNameStrategy :: HostNameStrategy
   }
 
 -- | Default configuration, with all paths built form a single
@@ -63,44 +64,15 @@ defaultHyperionConfig baseDirectory = HyperionConfig
   , jobDir               = baseDirectory </> "jobs"
   , hyperionCommand      = Nothing
   , initialDatabase      = Nothing
-  , sshRunCommand        = Nothing
   , emailAddr            = Nothing
   }
 
--- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
--- and a new 'HoldMap.
---
--- Things to note: 
---
---     * 'programId' is generated randomly.
---     * If 'hyperionCommand' is specified in 'HyperionConfig', then
---       'hyperionExec' == 'hyperionCommand'. Otherwise the running executable 
---       is copied to 'execDir' with a unique name, and that is used as 'hyperionExec'.
---     * 'newDatabasePath' is used to determine 'programDatabase' from 'initialDatabase'
---       and 'databaseDir', 'programId'.
---     * 'timedProgramDir' is used to determine 'programLogDir' and 'programDataDir' 
---       from the values in 'HyperionConfig' and 'programId'.
---     * 'slurmWorkerLauncher' is used for 'clusterWorkerLauncher'
---     * 'clusterDatabaseRetries' is set to 'defaultDBRetries'.
-newClusterEnv :: HyperionConfig -> HoldMap -> Int -> IO (ClusterEnv, FilePath)
-newClusterEnv HyperionConfig{..} holdMap holdPort = do
-  programId    <- newProgramId
-  hyperionExec <- maybe
-    (savedExecutable execDir (T.unpack (programIdToText programId)))
-    return
-    hyperionCommand
-  programDatabase <- newDatabasePath initialDatabase databaseDir programId
-  programLogDir <- timedProgramDir logDir programId
-  programDataDir <- timedProgramDir dataDir programId
-  sbatchTokenPool <- newTokenPool maxSlurmJobs
-  let clusterJobOptions = defaultSbatchOptions { Slurm.chdir = Just jobDir }
-      programSSHCommand = sshRunCommand
-      clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool
-      clusterDatabaseRetries = defaultDBRetries
-  clusterDatabasePool <- DB.newDefaultPool programDatabase
-  clusterLockMap <- newLockMap
-  return (ClusterEnv{..}, hyperionExec)
+defaultHyperionStaticConfig :: HyperionStaticConfig
+defaultHyperionStaticConfig = HyperionStaticConfig
+  { commandTransport        = defaultCommandTransport
+  , hostNameStrategy        = defaultHostNameStrategy
+  }
+
 
 -- | Returns the path to a new database, given 'Maybe' inital database filepath
 -- and base directory
@@ -109,7 +81,7 @@ newClusterEnv HyperionConfig{..} holdMap holdPort = do
 -- then the new filename is @original-XXXXX.sqlite@. If initial database path is
 -- 'Nothing', then the filename is @XXXXX.sqlite@.
 --
--- The path is in subdirectory @YYYY-mm@ (determined by current date) of base directory. 
+-- The path is in subdirectory @YYYY-mm@ (determined by current date) of base directory.
 --
 -- If inital database is given, then the new database is initilized with its contents.
 newDatabasePath :: Maybe FilePath -> FilePath -> ProgramId -> IO FilePath
@@ -127,7 +99,7 @@ newDatabasePath mOldDb baseDir progId = do
       copyFile f newDb
   return newDb
 
--- | Given base directory and 'ProgramId' (@==XXXXX@), returns the @YYYY-mm/XXXXX@ 
+-- | Given base directory and 'ProgramId' (@==XXXXX@), returns the @YYYY-mm/XXXXX@
 -- subdirectory of the base directory (determined by current date).
 timedProgramDir :: FilePath -> ProgramId -> IO FilePath
 timedProgramDir baseDir progId = do

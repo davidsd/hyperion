@@ -1,19 +1,19 @@
+{-# LANGUAGE MultiWayIf        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StaticPointers    #-}
-{-# LANGUAGE MultiWayIf #-}
 
 module Main where
 
-import           Control.Applicative (many)
-import qualified Data.Text           as Text
-import           Hyperion
-import qualified Hyperion.Log        as Log
-import qualified Options.Applicative as Opts
-import Control.Distributed.Process (Process, liftIO, getSelfPid, kill)
-import qualified Hyperion.LockMap as LM
-import Control.Concurrent (threadDelay)
-import Control.Monad.Trans (lift)
-import Control.Monad.Reader (local)
+import Control.Applicative         (many)
+import Control.Concurrent          (threadDelay)
+import Control.Distributed.Process (Process, getSelfPid, kill, liftIO)
+import Control.Monad.Reader        (local)
+import Control.Monad.Trans         (lift)
+import Data.Text                   qualified as Text
+import Hyperion
+import Hyperion.LockMap            qualified as LM
+import Hyperion.Log                qualified as Log
+import Options.Applicative         qualified as Opts
 
 data HelloOptions = HelloOptions
   { names   :: [String]
@@ -104,5 +104,6 @@ helloOpts = HelloOptions
 
 main :: IO ()
 main = hyperionMain helloOpts (
-  \o -> (defaultHyperionConfig . workDir $ o) {sshRunCommand = Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])}
-  ) printGreetings
+  \o -> (defaultHyperionConfig . workDir $ o)
+  ) (defaultHyperionStaticConfig {commandTransport = SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])}) 
+  printGreetings

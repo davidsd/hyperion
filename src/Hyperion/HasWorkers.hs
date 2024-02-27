@@ -1,29 +1,22 @@
 {-# OPTIONS_GHC -fno-warn-orphans  #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE StaticPointers        #-}
-{-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeFamilies          #-}
 
 module Hyperion.HasWorkers where
 
-import           Control.Distributed.Process (Closure, Process)
-import           Control.Monad.Base          (MonadBase (..))
-import           Control.Monad.IO.Class      (MonadIO)
-import           Control.Monad.Reader        (ReaderT (..), asks, runReaderT)
-import           Data.Binary                 (Binary)
-import           Data.Constraint             (Dict (..))
-import           Data.Typeable               (Typeable)
-import           Hyperion.Remote             (RemoteProcessRunner,
-                                              WorkerLauncher,
-                                              mkSerializableClosureProcess,
-                                              withRemoteRunProcess)
-import           Hyperion.Slurm              (JobId)
-import           Hyperion.Static             (Serializable, Static (..))
+import Control.Distributed.Process (Closure, Process)
+import Control.Monad.Base          (MonadBase (..))
+import Control.Monad.IO.Class      (MonadIO)
+import Control.Monad.Reader        (ReaderT (..), asks, runReaderT)
+import Data.Binary                 (Binary)
+import Data.Constraint             (Dict (..))
+import Data.Typeable               (Typeable)
+import Hyperion.Slurm              (JobId)
+import Hyperion.Static             (Serializable, Static (..))
+import Hyperion.Worker             (RemoteProcessRunner, WorkerLauncher,
+                                    mkSerializableClosureProcess,
+                                    withRemoteRunProcess)
 
 -- | A class for monads that can run things in the 'Process' monad,
 -- and have access to a 'WorkerLauncher'. An instance of 'HasWorkers'

@@ -3,12 +3,12 @@
 
 module Main where
 
-import           Control.Applicative    (many)
-import           Control.Monad.IO.Class (liftIO)
-import qualified Data.Text              as Text
-import           Hyperion
-import qualified Hyperion.Log           as Log
-import qualified Options.Applicative    as Opts
+import Control.Applicative    (many)
+import Control.Monad.IO.Class (liftIO)
+import Data.Text              qualified as Text
+import Hyperion
+import Hyperion.Log           qualified as Log
+import Options.Applicative    qualified as Opts
 
 data HelloOptions = HelloOptions
   { names   :: [String]
@@ -40,4 +40,4 @@ helloOpts = HelloOptions
   <*> Opts.option Opts.str (Opts.long "workDir")
 
 main :: IO ()
-main = hyperionMain helloOpts (defaultHyperionConfig . workDir) printGreetings
+main = hyperionMain helloOpts (defaultHyperionConfig . workDir) defaultHyperionStaticConfig printGreetings
