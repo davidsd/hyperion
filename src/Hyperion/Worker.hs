@@ -9,6 +9,7 @@ module Hyperion.Worker
   ( ServiceId(..)
   , serviceIdToString
   , serviceIdToText
+  , withServiceId
   , WorkerLauncher(..)
   , RemoteError(..)
   , RemoteProcessRunner
