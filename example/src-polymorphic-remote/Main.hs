@@ -42,7 +42,7 @@ sayHello x = pure ("Hello " <> show x <> "!")
 sayHelloRemote :: (Static (Show a), Static (Binary a), Typeable a) => a -> Job String
 sayHelloRemote a =
   remoteEval $
-  static (withDict sayHello :: Dict (Show b) -> b -> Process String) `ptrAp` closureDict `cAp` cPure a
+  static (withDict sayHello :: Dict (Show b) -> b -> Process String) `cAp` closureDict `cAp` cPure a
 
 -- | Here's an example of providing the 'Static' instances
 data Bar = MkBar
@@ -55,8 +55,8 @@ data Bar = MkBar
 -- https://hackage.haskell.org/package/static-closure-0.1.0.0/docs/Control-Static-Closure-TH.html
 --
 -- With these instances we can use 'sayHelloRemote' with Bar.
-instance Static (Show Bar) where closureDict = cPtr (static Dict)
-instance Static (Binary Bar) where closureDict = cPtr (static Dict)
+instance Static (Show Bar) where closureDict = static Dict
+instance Static (Binary Bar) where closureDict = static Dict
 
 -- | Optionally, using withClosureDict, we can also supply 'Static'
 -- instances "on the fly".
@@ -65,8 +65,8 @@ data Foo = MkFoo
 
 sayHelloRemoteFoo :: Foo -> Job String
 sayHelloRemoteFoo =
-  withClosureDict @(Show Foo) (cPtr (static Dict)) $
-  withClosureDict @(Binary Foo) (cPtr (static Dict)) $
+  withClosureDict @(Show Foo) (static Dict) $
+  withClosureDict @(Binary Foo) (static Dict) $
   sayHelloRemote @Foo
 
 -- | In the above example, we had to define a bunch of 'Static'
@@ -86,7 +86,7 @@ newtype IntLabeled j = MkIntLabeled Int
 -- | We can take advantage of 'KnownNat j => Static
 -- (KnownNat j)' to get a serializable dictionary.
 instance Typeable (IntLabeled j) => Static (Binary (IntLabeled j)) where
-  closureDict = cPtr (static Dict)
+  closureDict = static Dict
 
 -- | An IntLabeled equal to its label
 tautology :: forall j . KnownNat j => IntLabeled j
@@ -99,7 +99,7 @@ multLabel = pure . (tautology *)
 -- | Remotely multiply a number by its label. Polymorphic in j!
 remoteMultLabel :: KnownNat j => IntLabeled j -> Job (IntLabeled j)
 remoteMultLabel k = remoteEval $
-  static (withDict multLabel :: Dict (KnownNat k) -> IntLabeled k -> Process (IntLabeled k)) `ptrAp`
+  static (withDict multLabel :: Dict (KnownNat k) -> IntLabeled k -> Process (IntLabeled k)) `cAp`
   closureDict `cAp`
   cPure k
 
@@ -110,7 +110,7 @@ remoteMultLabelCubed = remoteMultLabel >=> remoteMultLabel >=> remoteMultLabel
 
 remoteNubOrd :: (Typeable a, Static (Ord a), Static (Binary a)) => [a] -> Job [a]
 remoteNubOrd xs = remoteEval $
-  static nubOrd `ptrAp` closureDict `cAp` cPure xs
+  static nubOrd `cAp` closureDict `cAp` cPure xs
   where
     nubOrd :: Dict (Ord b) -> [b] -> Process [b]
     nubOrd Dict = pure . Set.toList . Set.fromList

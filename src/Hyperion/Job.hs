@@ -31,8 +31,7 @@ import Hyperion.Log                qualified as Log
 import Hyperion.Remote             (runProcessLocal)
 import Hyperion.Slurm              (JobId (..))
 import Hyperion.Slurm              qualified as Slurm
-import Hyperion.Static             (Closure, Static (..), cAp, cPtr, cPure,
-                                    ptrAp)
+import Hyperion.Static             (Closure, Static (..), cAp, cPure)
 import Hyperion.Util               (myExecutable, runCmdLocalAsync,
                                     runCmdLocalLog)
 import Hyperion.Worker             (ServiceId, WorkerLauncher (..),
@@ -257,7 +256,7 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
         let
           runCmdOnNode cmd = do
             scp <- mkSerializableClosureProcess closureDict $ pure $
-              static (liftIO . runCmdLocalLog) `ptrAp` cPure cmd
+              static (liftIO . runCmdLocalLog) `cAp` cPure cmd
             remoteRunNode scp
         in
           workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
@@ -306,7 +305,7 @@ remoteEvalJobM mc = do
   programInfo  <- asks clusterProgramInfo
   remoteEvalM $ do
     c <- mc
-    pure $ cPtr (static runJobSlurm) `cAp` cPure programInfo `cAp` c
+    pure $ static runJobSlurm `cAp` cPure programInfo `cAp` c
 
 remoteEvalJob
   :: (Static (Binary b), Typeable b)

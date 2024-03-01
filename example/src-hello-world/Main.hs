@@ -25,7 +25,7 @@ remoteGetGreeting :: String -> Cluster String
 remoteGetGreeting s = remoteEval $
   -- | Construct a 'Closure (Process String)' by applying a static
   -- pointer to a 'Closure String'
-  static (liftIO . getGreeting) `ptrAp` cPure s
+  static (liftIO . getGreeting) `cAp` cPure s
 
 -- | Compute greetings concurrently in separate Slurm jobs and print them
 printGreetings :: HelloOptions -> Cluster ()
