@@ -70,7 +70,9 @@ throwError e = do
   error e
 
 flush :: IO ()
-flush = hFlush stderr
+flush = do
+  hFlush stderr
+  hFlush stdout
 
 currentLogFile :: IORef (Maybe FilePath)
 {-# NOINLINE currentLogFile #-}
