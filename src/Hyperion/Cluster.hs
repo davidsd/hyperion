@@ -37,7 +37,7 @@ import Hyperion.Remote                  (runProcessLocalWithRT)
 import Hyperion.Slurm                   (JobId (..), SbatchError,
                                          SbatchOptions (..), sbatchCommand)
 import Hyperion.Slurm                   qualified as Slurm
-import Hyperion.Static                  (Static (..), cPtr)
+import Hyperion.Static                  (Static (..))
 import Hyperion.TokenPool               (TokenPool, newTokenPool, withToken)
 import Hyperion.Util                    (emailError, retryExponential,
                                          savedExecutable)
@@ -127,7 +127,7 @@ data ProgramInfo = ProgramInfo
   , programDataDir  :: FilePath
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
-instance Static (Binary ProgramInfo) where closureDict = cPtr (static Dict)
+instance Static (Binary ProgramInfo) where closureDict = static Dict
 
 -- | The environment for 'Cluster' monad.
 data ClusterEnv = ClusterEnv

@@ -6,7 +6,7 @@ import Control.Monad.Catch       (Exception, MonadThrow, throwM)
 import Control.Monad.IO.Class    (MonadIO, liftIO)
 import Data.IORef                (IORef, newIORef, readIORef, writeIORef)
 import Data.Text                 (Text)
-import Data.Text                 qualified as T
+import Data.Text                 qualified as Text
 import Data.Time.Format          (defaultTimeLocale, formatTime)
 import Data.Time.LocalTime       (getZonedTime)
 import GHC.IO.Handle             (hDuplicateTo)
@@ -28,26 +28,35 @@ import Text.Show.Pretty          (ppDoc)
 -- The output can be redirected from 'stderr' to a file by using 'redirectToFile'.
 
 showText :: Show a => a -> Text
-showText = T.pack . show
+showText = Text.pack . show
 
 prettyShowText :: Show a => a -> Text
-prettyShowText a = T.pack (PP.render (ppDoc a))
+prettyShowText a = Text.pack (PP.render (ppDoc a))
+
+-- | Take a Text 'msg' and a Show-able 'a' and pretty-print them
+-- together as Text
+prettyShowInfo :: Show a => Text -> a -> Text
+prettyShowInfo msg a = Text.pack $ PP.render $ PP.text (Text.unpack msg ++ ":") <+> ppDoc a
 
 rawText :: MonadIO m => Text -> m ()
 rawText t = liftIO $ errorConcurrent t
 
--- | Outputs the first argument to log. Prepends current time in the format
--- @[%a %D %X]@ where @%a@ is day of the week, @%D@ is date in @mm\/dd\/yy@ format, @%X@ is
--- current time of day in some default locale.
+-- | Get the current time, formatted for use in logs: @[%a %D %X]@
+-- where @%a@ is day of the week, @%D@ is date in @mm\/dd\/yy@ format,
+-- @%X@ is current time of day in some default locale.
+getTimestamp :: IO Text
+getTimestamp = Text.pack . formatTime defaultTimeLocale "[%a %D %X]" <$> getZonedTime
+
+-- | Prepends a timestamp and outputs 'msg' to the log.
 text :: MonadIO m => Text -> m ()
 text msg = liftIO $ do
-  now <- T.pack . formatTime defaultTimeLocale "[%a %D %X] " <$> getZonedTime
-  errorConcurrent (now <> msg <> "\n")
+  now <- getTimestamp
+  errorConcurrent (now <> " " <> msg <> "\n")
 
--- | Outputs a string to log using 'text' where the string is a pretty version of the first
--- two arguments
+-- | Output 'msg' and the 'a' to the log via 'text', rendering them
+-- using 'prettyShowInfo'
 info :: (Show a, MonadIO m) => Text -> a -> m ()
-info msg a = text $ T.pack $ PP.render $ PP.text (T.unpack msg ++ ":") <+> ppDoc a
+info msg a = text $ prettyShowInfo msg a
 
 -- | Same as 'info' but prepended by "WARN: ".
 warn :: (Show a, MonadIO m) => Text -> a -> m ()
@@ -66,7 +75,7 @@ throw e = do
 -- | Same as 'error' but first logs the error using 'text' by prepending "ERROR: " to the first argument.
 throwError :: MonadIO m => String -> m a
 throwError e = do
-  text $ "ERROR: " <> T.pack e
+  text $ "ERROR: " <> Text.pack e
   error e
 
 flush :: IO ()
