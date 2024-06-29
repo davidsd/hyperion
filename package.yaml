@@ -94,7 +94,6 @@ executables:
     dependencies:
       - base
       - hyperion
-      - distributed-process
       - text
       - binary
       - containers
@@ -109,6 +108,5 @@ executables:
       - hyperion
       - optparse-applicative
       - filepath
-      - distributed-process
       - mtl
     ghc-options : -threaded

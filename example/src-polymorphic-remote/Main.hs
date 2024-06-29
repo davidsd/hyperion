@@ -17,7 +17,6 @@
 
 module Main where
 
-import Control.Distributed.Process (Process)
 import Control.Monad               ((>=>))
 import Data.Binary                 (Binary)
 import Data.Proxy                  (Proxy (..))

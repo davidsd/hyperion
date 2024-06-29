@@ -6,7 +6,7 @@ module Main where
 
 import Control.Applicative         (many)
 import Control.Concurrent          (threadDelay)
-import Control.Distributed.Process (Process, getSelfPid, kill, liftIO)
+import Control.Distributed.Process (getSelfPid, kill, liftIO)
 import Control.Monad.Reader        (local)
 import Control.Monad.Trans         (lift)
 import Data.Text                   qualified as Text

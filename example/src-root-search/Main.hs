@@ -40,7 +40,6 @@
 --
 module Main where
 
-import Control.Distributed.Process (Process)
 import Control.Monad.Reader        (local)
 import Hyperion
 import Hyperion.Database.KeyValMap (KeyValMap (..), memoizeWithMap)

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d4f5cad2bd2887d2196d507cceaa01a9843c85c13c68e1e2ee5bfbf711b10d15
+-- hash: 368ef5caf898a6ce94fc41d84653f07e3e8f08e98d9a478957a3126db122e4df
 
 name:           hyperion
 version:        0.1.0.8
@@ -143,7 +143,6 @@ executable example-polymorphic-remote
       base
     , binary
     , containers
-    , distributed-process
     , hyperion
     , hyperion-static
     , text
@@ -158,7 +157,6 @@ executable example-root-search
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
-    , distributed-process
     , filepath
     , hyperion
     , mtl
