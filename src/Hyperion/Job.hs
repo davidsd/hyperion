@@ -1,21 +1,22 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE LambdaCase         #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE RecordWildCards    #-}
-{-# LANGUAGE StaticPointers     #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE StaticPointers      #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 module Hyperion.Job where
 
-import Control.Distributed.Process (NodeId, Process, spawnLocal)
+import Control.Distributed.Process (Process, spawnLocal)
 import Control.Lens                (lens)
 import Control.Monad.Catch         (throwM, try)
 import Control.Monad.IO.Class      (MonadIO, liftIO)
-import Control.Monad.Reader        (ReaderT, asks, runReaderT)
+import Control.Monad.Reader        (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans         (lift)
 import Control.Monad.Trans.Cont    (ContT (..), evalContT)
 import Data.Binary                 (Binary)
+import Data.Map                    (Map)
 import Data.Map                    qualified as Map
 import Data.Maybe                  (catMaybes)
 import Data.Text                   qualified as T
@@ -24,23 +25,25 @@ import Hyperion.Cluster            (Cluster, ClusterEnv (..),
                                     HasProgramInfo (..), ProgramInfo (..),
                                     dbConfigFromProgramInfo)
 import Hyperion.Command            (hyperionWorkerCommand)
-import Hyperion.Config             (HyperionStaticConfig (..))
+import Hyperion.Config             (HyperionStaticConfig (..),
+                                    defaultHyperionStaticConfig)
 import Hyperion.Database           qualified as DB
-import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEvalM)
+import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEval,
+                                    remoteEvalM)
 import Hyperion.Log                qualified as Log
+import Hyperion.ProgramId          (ProgramId (..))
 import Hyperion.Remote             (runProcessLocal)
 import Hyperion.Slurm              (JobId (..))
 import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Static             (Closure, Static (..), cAp, cPure)
 import Hyperion.Util               (myExecutable, runCmdLocalAsync,
                                     runCmdLocalLog)
-import Hyperion.Worker             (ServiceId, WorkerLauncher (..),
-                                    getWorkerStaticConfig,
+import Hyperion.Worker             (WorkerLauncher (..), getWorkerStaticConfig,
                                     mkSerializableClosureProcess,
                                     serviceIdToText, withRemoteRunProcess,
                                     worker)
 import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
-                                    WorkerAddr)
+                                    WorkerAddr, WorkerCpuPool)
 import Hyperion.WorkerCpuPool      qualified as WCP
 import System.FilePath.Posix       (dropExtension, (<.>), (</>))
 
@@ -73,21 +76,27 @@ import System.FilePath.Posix       (dropExtension, (<.>), (</>))
 -- * Documentation
 -- $
 
+type LauncherMap = Map WorkerAddr (WorkerLauncher JobId)
+
 -- | The environment type for 'Job' monad.
 data JobEnv = JobEnv
-  {
-    -- | 'DB.DatabaseConfig' for the database to use
-    jobDatabaseConfig :: DB.DatabaseConfig
+  { -- | 'DB.DatabaseConfig' for the database to use
+    jobDatabaseConfig    :: DB.DatabaseConfig
     -- | Number of CPUs available on each node in the job
-  , jobNodeCpus       :: NumCPUs
+  , jobNodeCpus          :: NumCPUs
     -- | Number of CPUs to use for running remote functions
-  , jobTaskCpus       :: NumCPUs
+  , jobTaskCpus          :: NumCPUs
     -- | 'ProgramInfo' inherited from the master
-  , jobProgramInfo    :: ProgramInfo
+  , jobProgramInfo       :: ProgramInfo
     -- | a 'WorkerLauncher' that runs workers with the given number of CPUs allocated
-  , jobTaskLauncher   :: NumCPUs -> WorkerLauncher JobId
+  , jobTaskLauncher      :: WorkerCpuPool -> LauncherMap -> NumCPUs -> WorkerLauncher JobId
     -- | The global static configuration
-  , jobStaticConfig   :: HyperionStaticConfig
+  , jobStaticConfig      :: HyperionStaticConfig
+    -- | A WorkerCpuPool that keeps track of the number of available
+    -- cores on each node
+  , jobWorkerCpuPool     :: WorkerCpuPool
+    -- | A collection of WorkerLauncher's, one for each node
+  , jobWorkerLauncherMap :: LauncherMap
   }
 
 instance HasProgramInfo JobEnv where
@@ -115,7 +124,8 @@ instance DB.HasDB JobEnv where
 -- This makes 'Job' an instance of 'HasWorkers' and gives us access to functions in
 -- "Hyperion.Remote".
 instance HasWorkerLauncher JobEnv where
-  toWorkerLauncher JobEnv{..} = jobTaskLauncher jobTaskCpus
+  toWorkerLauncher env =
+    env.jobTaskLauncher env.jobWorkerCpuPool env.jobWorkerLauncherMap env.jobTaskCpus
 
 -- | 'Job' monad is simply 'Process' with 'JobEnv' environment.
 type Job = ReaderT JobEnv Process
@@ -123,6 +133,23 @@ type Job = ReaderT JobEnv Process
 -- | Changses 'jobTaskCpus' in 'JobEnv'
 setTaskCpus :: NumCPUs -> JobEnv -> JobEnv
 setTaskCpus n cfg = cfg { jobTaskCpus = n }
+
+-- | Given a 'WorkerCpuPool', a collection of 'WorkerLauncher's for
+-- several noeds, and a number of CPU's, define a withLaunchedWorker
+-- that determines which node has the available resources (and is
+-- least busy) and launches a job on that node.
+defaultPoolLauncher
+  :: WorkerCpuPool
+  -> LauncherMap
+  -> NumCPUs
+  -> WorkerLauncher JobId
+defaultPoolLauncher workerCpuPool launcherMap nCpus = WorkerLauncher
+  { withLaunchedWorker = \nodeId serviceId goJobId ->
+      WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->
+      withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
+  , connectionTimeout = Nothing
+  , onRemoteError     = \e _ -> throwM e
+  }
 
 -- | Runs the 'Job' monad assuming we are inside a SLURM job. In
 -- practice it just fills in the environment 'JobEnv' and calls
@@ -151,16 +178,29 @@ runJobSlurm programInfo go = do
           Nothing      -> programLogDir programInfo </> "workers" </> "workers"
       , nodeCommandTransport = commandTransport staticConfig
       }
-  withPoolLauncher nodeLauncherConfig nodes $ \poolLauncher -> do
-    let cfg = JobEnv
-          { jobDatabaseConfig = dbConfig
-          , jobNodeCpus       = NumCPUs nodeCpus
-          , jobTaskCpus       = NumCPUs 1
-          , jobTaskLauncher   = poolLauncher
-          , jobProgramInfo    = programInfo
-          , jobStaticConfig   = staticConfig
-          }
+  withLauncherMap nodeLauncherConfig nodes $ \launcherMap -> do
+    let addrs = Map.keys launcherMap
+    workerCpuPool <- liftIO (WCP.newPoolFromSlurmEnv addrs)
+    let
+      cfg = JobEnv
+        { jobDatabaseConfig    = dbConfig
+        , jobNodeCpus          = NumCPUs nodeCpus
+        , jobTaskCpus          = NumCPUs 1
+        , jobTaskLauncher      = defaultPoolLauncher
+        , jobProgramInfo       = programInfo
+        , jobStaticConfig      = staticConfig
+        , jobWorkerCpuPool     = workerCpuPool
+        , jobWorkerLauncherMap = launcherMap
+        }
     runReaderT go cfg
+
+dummyProgramInfo :: ProgramInfo
+dummyProgramInfo = ProgramInfo
+  { programId       = ProgramId "test"
+  , programDatabase = "test.sqlite"
+  , programLogDir   = "test_logs"
+  , programDataDir  = "test_data"
+  }
 
 -- | Runs the 'Job' locally in IO without using any information from a
 -- SLURM environment, with some basic default settings. This function
@@ -168,21 +208,31 @@ runJobSlurm programInfo go = do
 runJobLocal :: HyperionStaticConfig -> ProgramInfo -> Job a -> IO a
 runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy staticConfig) $ do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
+  workerCpuPool <- liftIO $ WCP.newPool Map.empty
   let
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker nid serviceId goJobId = do
-      _ <- spawnLocal (worker nid serviceId)
-      goJobId (JobName (serviceIdToText serviceId))
-    connectionTimeout = Nothing
-    onRemoteError e _ = throwM e
+    localLauncher = WorkerLauncher
+      { withLaunchedWorker = \nid serviceId goJobId -> do
+          _ <- spawnLocal (worker nid serviceId)
+          goJobId (JobName (serviceIdToText serviceId))
+      , connectionTimeout = Nothing
+      , onRemoteError = \e _ -> throwM e
+      }
   runReaderT go $ JobEnv
-    { jobDatabaseConfig = dbConfig
-    , jobNodeCpus       = NumCPUs 1
-    , jobTaskCpus       = NumCPUs 1
-    , jobTaskLauncher   = const WorkerLauncher{..}
-    , jobProgramInfo    = programInfo
-    , jobStaticConfig   = staticConfig
+    { jobDatabaseConfig    = dbConfig
+    , jobNodeCpus          = NumCPUs 1
+    , jobTaskCpus          = NumCPUs 1
+    , jobTaskLauncher      = \_ _ _ -> localLauncher
+    , jobProgramInfo       = programInfo
+    , jobStaticConfig      = staticConfig
+    , jobWorkerCpuPool     = workerCpuPool
+    , jobWorkerLauncherMap = Map.singleton (WCP.LocalHost "localhost") localLauncher
     }
+
+-- | Run the 'Job' locally in 'IO' with dummy settings for the
+-- ProgramInfo and defaults for HyperionStaticConfig. NB: This might
+-- result in errors if the process tries to access the database.
+runJobLocal' :: Job a -> IO a
+runJobLocal' = runJobLocal defaultHyperionStaticConfig dummyProgramInfo
 
 -- | 'WorkerLauncher' that uses the supplied command runner to launch
 -- workers.  Sets 'connectionTimeout' to 'Nothing'. Uses the
@@ -197,16 +247,15 @@ workerLauncherWithRunCmd
   -> m (WorkerLauncher JobId)
 workerLauncherWithRunCmd logDir runCmd = liftIO $ do
   hyperionExec <- myExecutable
-  let
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker nid serviceId goJobId = do
-      let jobId = JobName (serviceIdToText serviceId)
-          logFile = logDir </> T.unpack (serviceIdToText serviceId) <.> "log"
-      runCmd (hyperionWorkerCommand hyperionExec nid serviceId logFile)
-      goJobId jobId
-    connectionTimeout = Nothing
-    onRemoteError e _ = throwM e
-  return WorkerLauncher{..}
+  pure $ WorkerLauncher
+    { withLaunchedWorker = \nid serviceId goJobId -> do
+        let jobId = JobName (serviceIdToText serviceId)
+            logFile = logDir </> T.unpack (serviceIdToText serviceId) <.> "log"
+        runCmd (hyperionWorkerCommand hyperionExec nid serviceId logFile)
+        goJobId jobId
+    , connectionTimeout = Nothing
+    , onRemoteError = \e _ -> throwM e
+    }
 
 -- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the
 -- continuation 'Maybe' passing it a pair @('WorkerAddr',
@@ -248,9 +297,10 @@ withNodeLauncher
   -> WorkerAddr
   -> (Maybe (WorkerAddr, WorkerLauncher JobId) -> Process a)
   -> Process a
-withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
+withNodeLauncher cfg addr' go = case addr' of
   WCP.RemoteAddr addr -> do
-    remoteLauncher <- workerLauncherWithRunCmd nodeLogDir (liftIO . WCP.remoteRunCmd addr nodeCommandTransport)
+    remoteLauncher <- workerLauncherWithRunCmd cfg.nodeLogDir
+                      (liftIO . WCP.remoteRunCmd addr cfg.nodeCommandTransport)
     eitherResult <- try @Process @SSHError $ do
       withRemoteRunProcess remoteLauncher $ \remoteRunNode ->
         let
@@ -259,7 +309,7 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
               static (liftIO . runCmdLocalLog) `cAp` cPure cmd
             remoteRunNode scp
         in
-          workerLauncherWithRunCmd nodeLogDir runCmdOnNode >>= \launcher ->
+          workerLauncherWithRunCmd cfg.nodeLogDir runCmdOnNode >>= \launcher ->
           go (Just (addr', launcher))
     case eitherResult of
       Right result -> return result
@@ -267,35 +317,21 @@ withNodeLauncher NodeLauncherConfig{..} addr' go = case addr' of
         Log.warn "Couldn't start launcher" err
         go Nothing
   WCP.LocalHost _ ->
-    workerLauncherWithRunCmd nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
+    workerLauncherWithRunCmd cfg.nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
     go (Just (addr', launcher))
 
-
--- | Takes a `NodeLauncherConfig` and a list of addresses. Tries to
--- start \"worker-launcher\" workers on these addresses (see
--- 'withNodeLauncher').  Discards addresses on which the this
--- fails. From remaining addresses builds a worker CPU pool. The
--- continuation is then passed a function that launches workers in
--- this pool. The 'WorkerLaunchers' that continuation gets have
--- 'connectionTimeout' to 'Nothing'.
-withPoolLauncher
+-- | Starts NodeLauncher's for each node and builds a 'LauncherMap' to
+-- pass to the continuation.
+withLauncherMap
   :: NodeLauncherConfig
   -> [WorkerAddr]
-  -> ((NumCPUs -> WorkerLauncher JobId) -> Process a)
+  -> (LauncherMap -> Process a)
   -> Process a
-withPoolLauncher cfg addrs' go = evalContT $ do
+withLauncherMap cfg addrs' go = evalContT $ do
   mLaunchers <- mapM (ContT . withNodeLauncher cfg) addrs'
   let launcherMap = Map.fromList (catMaybes mLaunchers)
-      addrs = Map.keys launcherMap
-  workerCpuPool <- liftIO (WCP.newJobPool addrs)
-  Log.info "Started worker launchers at" addrs
-  lift $ go $ \nCpus -> WorkerLauncher
-    { withLaunchedWorker = \nodeId serviceId goJobId ->
-        WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->
-        withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
-    , connectionTimeout = Nothing
-    , onRemoteError     = \e _ -> throwM e
-    }
+  Log.info "Started worker launchers at" (Map.keys launcherMap)
+  lift $ go launcherMap
 
 remoteEvalJobM
   :: (Static (Binary b), Typeable b)
@@ -312,3 +348,31 @@ remoteEvalJob
   => Closure (Job b)
   -> Cluster b
 remoteEvalJob = remoteEvalJobM . pure
+
+-- | Evaluate the given process remotely on the best available node,
+-- using the given number of CPUs on that node.
+remoteEvalWithCPUs
+  :: (Static (Binary b), Typeable b)
+  => Int
+  -> Closure (Process b)
+  -> Job b
+remoteEvalWithCPUs nCpus closure =
+  local (setTaskCpus (NumCPUs nCpus)) $
+  remoteEval closure
+
+-- | Evaluate the given 'Closure' at the given 'WorkerAddr', bypassing
+-- the 'WorkerCpuPool'.
+--
+-- WARNING: This function is only appropriate in an algorithm that
+-- does its own manual resource management. Because it bypasses the
+-- 'WorkerCpuPool', it can lead to over/undersubscription of resources
+-- if mixed with the usual remoteEval that uses a pool-based launcher.
+remoteEvalOnWorker
+  :: (Static (Binary b), Typeable b)
+  => WorkerAddr
+  -> Closure (Process b)
+  -> Job b
+remoteEvalOnWorker addr closure =
+  local (\env -> env
+          { jobTaskLauncher = \_ _ _ -> env.jobWorkerLauncherMap Map.! addr }) $
+  remoteEval closure

@@ -10,9 +10,11 @@ module Hyperion.WorkerCpuPool
   , NumCPUs(..)
   , SSHError
   , WorkerAddr(..)
+  , WorkerCpuPool(..)
   , withWorkerAddr
   , getSlurmAddrs
-  , newJobPool
+  , newPool
+  , newPoolFromSlurmEnv
   , remoteRunCmd
   ) where
 
@@ -65,9 +67,9 @@ data WorkerCpuPool = WorkerCpuPool
   { cpuMap :: TVar (Map WorkerAddr NumCPUs)
   }
 
--- | 'newWorkerCpuPool' creates a new 'WorkerCpuPool' from a 'Map'.
-newWorkerCpuPool :: Map WorkerAddr NumCPUs -> IO WorkerCpuPool
-newWorkerCpuPool cpus = WorkerCpuPool <$> newTVarIO cpus
+-- | 'newPool' creates a new 'WorkerCpuPool' from a 'Map'.
+newPool :: Map WorkerAddr NumCPUs -> IO WorkerCpuPool
+newPool cpus = WorkerCpuPool <$> newTVarIO cpus
 
 -- | A 'WorkerAddr' representing a node address. Can be a remote node or the local node
 data WorkerAddr
@@ -91,11 +93,11 @@ getSlurmAddrs = do
 -- | Reads the system environment to determine the number of CPUs available on
 -- each node (the same number on each node), and creates a new 'WorkerCpuPool'
 -- for the @['WorkerAddr']@ assuming that all CPUs are available.
-newJobPool :: [WorkerAddr] -> IO WorkerCpuPool
-newJobPool nodes = do
+newPoolFromSlurmEnv :: [WorkerAddr] -> IO WorkerCpuPool
+newPoolFromSlurmEnv nodes = do
   when (null nodes) (Log.throwError "Empty node list")
   cpusPerNode <- fmap NumCPUs Slurm.getNTasksPerNode
-  newWorkerCpuPool $ Map.fromList $ zip nodes (repeat cpusPerNode)
+  newPool $ Map.fromList $ zip nodes (repeat cpusPerNode)
 
 -- | Finds the worker with the most available CPUs and runs the given
 -- routine with the address of that worker. Blocks if the number of

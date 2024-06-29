@@ -7,7 +7,7 @@ replaced by 'Process'.
 -}
 module Hyperion.Concurrent where
 
-import Control.Applicative         (Alternative (..), liftA2)
+import Control.Applicative         (Alternative (..))
 import Control.Concurrent
 import Control.Distributed.Process (Process, kill, liftIO, spawnLocal)
 import Control.Exception           (SomeException, throwIO)
