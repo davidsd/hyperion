@@ -75,7 +75,7 @@ newPool cpus = WorkerCpuPool <$> newTVarIO cpus
 data WorkerAddr
   = LocalHost String
   | RemoteAddr String
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 -- | Reads the system environment to obtain the list of nodes allocated to the job.
 -- If the local node is in the list, then records it too, as 'LocalHost'.
