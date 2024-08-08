@@ -27,13 +27,16 @@ import Hyperion.Config                  (HyperionConfig (..),
                                          newDatabasePath, timedProgramDir)
 import Hyperion.Database                qualified as DB
 import Hyperion.HasWorkers              (HasWorkerLauncher (..))
-import Hyperion.HoldServer              (HoldMap, blockUntilRetried)
 import Hyperion.LockMap                 (LockMap, newLockMap, registerLockMap)
 import Hyperion.Log                     qualified as Log
 import Hyperion.ObjectId                (getObjectId, objectIdToString)
 import Hyperion.ProgramId               (ProgramId, newProgramId,
                                          programIdToText)
 import Hyperion.Remote                  (runProcessLocalWithRT)
+import Hyperion.Server                  (ServerState)
+import Hyperion.Server                  qualified as Server
+import Hyperion.ServiceId               (ServiceId, serviceIdToString,
+                                         serviceIdToText)
 import Hyperion.Slurm                   (JobId (..), SbatchError,
                                          SbatchOptions (..), sbatchCommand)
 import Hyperion.Slurm                   qualified as Slurm
@@ -41,10 +44,8 @@ import Hyperion.Static                  (Static (..))
 import Hyperion.TokenPool               (TokenPool, newTokenPool, withToken)
 import Hyperion.Util                    (emailError, retryExponential,
                                          savedExecutable)
-import Hyperion.Worker                  (RemoteError (..), ServiceId,
-                                         WorkerLauncher (..),
-                                         registerMasterNodeId,
-                                         serviceIdToString, serviceIdToText)
+import Hyperion.Worker                  (RemoteError (..), WorkerLauncher (..),
+                                         registerMasterNodeId)
 import System.Directory                 (createDirectoryIfMissing)
 import System.FilePath.Posix            ((<.>), (</>))
 
@@ -227,7 +228,7 @@ dbConfigFromProgramInfo pInfo = do
   return DB.DatabaseConfig{..}
 
 -- | Takes 'HyperionConfig' and returns 'ClusterEnv', the path to the executable,
--- and a new 'HoldMap.
+-- and a new 'ServerState.
 --
 -- Things to note:
 --
@@ -241,8 +242,8 @@ dbConfigFromProgramInfo pInfo = do
 --       from the values in 'HyperionConfig' and 'programId'.
 --     * 'slurmWorkerLauncher' is used for 'clusterWorkerLauncher'
 --     * 'clusterDatabaseRetries' is set to 'defaultDBRetries'.
-newClusterEnv :: HyperionConfig -> HyperionStaticConfig -> HoldMap -> Int -> IO (ClusterEnv, FilePath)
-newClusterEnv HyperionConfig{..} clusterStaticConfig holdMap holdPort = do
+newClusterEnv :: HyperionConfig -> HyperionStaticConfig -> ServerState -> Int -> IO (ClusterEnv, FilePath)
+newClusterEnv HyperionConfig{..} clusterStaticConfig serverState holdPort = do
   programId    <- newProgramId
   hyperionExec <- maybe
     (savedExecutable execDir (Text.unpack (programIdToText programId)))
@@ -254,7 +255,7 @@ newClusterEnv HyperionConfig{..} clusterStaticConfig holdMap holdPort = do
   sbatchTokenPool <- newTokenPool maxSlurmJobs
   let clusterJobOptions = defaultSbatchOptions { Slurm.chdir = Just jobDir }
       clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool
+      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool
       clusterDatabaseRetries = defaultDBRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   clusterLockMap <- newLockMap
@@ -269,13 +270,13 @@ slurmWorkerLauncher
                      -- fails or there is an error in a remote
                      -- job. 'Nothing' means no emails will be sent.
   -> FilePath        -- ^ Path to this hyperion executable
-  -> HoldMap         -- ^ HoldMap used by the HoldServer
-  -> Int             -- ^ Port used by the HoldServer (needed for error messages)
+  -> ServerState     -- ^ ServerState used by the Server
+  -> Int             -- ^ Port used by the Server (needed for error messages)
   -> TokenPool       -- ^ TokenPool for throttling the number of submitted jobs
   -> SbatchOptions
   -> ProgramInfo
   -> WorkerLauncher JobId
-slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool opts progInfo =
+slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
@@ -299,7 +300,7 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool opts
           ]
       Log.err errInfo
       emailAlertUser errInfo
-      blockUntilRetried holdMap (serviceIdToText sId)
+      Server.blockUntilRetried serverState sId
       Log.info "Retrying" sId
       go
 
@@ -310,7 +311,7 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool opts
         -- intervals between failures. Email the user on each failure
         -- (see logSbatchError). We do not allow an SbatchError to
         -- propagate up from here because there is no obvious way to
-        -- recover. TODO: maybe use the HoldServer?
+        -- recover. TODO: maybe use the Server?
         retryExponential (try @IO @SbatchError) logSbatchError $
         sbatchCommand opts' cmd (map Text.pack args)
       goJobId jobId
@@ -324,6 +325,15 @@ slurmWorkerLauncher emailAddr hyperionExec holdMap holdPort sbatchTokenPool opts
         logSbatchError e = do
           Log.err e
           emailAlertUser (e, progInfo, nid, serviceId)
+
+    -- TODO: Call scancel on the job as well?
+    storeCancelAction :: ServiceId -> JobId -> IO () -> Process ()
+    storeCancelAction serviceId _ cancelService =
+      Server.storeCancelAction serverState serviceId cancelService
+
+    onServiceExit :: ServiceId -> Process ()
+    onServiceExit = Server.onServiceExit serverState
+
 
 -- | Construct a working directory for the given object, using its
 -- ObjectId. Will be a subdirectory of 'programDataDir'. Created

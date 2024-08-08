@@ -1,18 +1,16 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE LambdaCase         #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE RecordWildCards    #-}
-{-# LANGUAGE StaticPointers     #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE StaticPointers      #-}
 
 module Hyperion.Worker
-  ( ServiceId(..)
-  , serviceIdToString
-  , serviceIdToText
-  , withServiceId
-  , WorkerLauncher(..)
+  ( WorkerLauncher(..)
   , RemoteError(..)
   , RemoteProcessRunner
+  , emptyStoreCancelAction
+  , emptyOnServiceExit
   , withRemoteRunProcess
   , mkSerializableClosureProcess
   , worker
@@ -22,6 +20,7 @@ module Hyperion.Worker
   , initWorkerRemoteTable
   ) where
 
+import Control.Concurrent                  (myThreadId)
 import Control.Concurrent.MVar             (MVar, isEmptyMVar, newEmptyMVar,
                                             putMVar, readMVar)
 import Control.Distributed.Process         hiding (bracket, catch, try)
@@ -29,6 +28,7 @@ import Control.Distributed.Process.Async   (AsyncResult (..), async, task, wait)
 import Control.Distributed.Process.Closure (SerializableDict (..))
 import Control.Distributed.Process.Node    qualified as Node
 import Control.Distributed.Static          (registerStatic, staticLabel)
+import Control.Exception                   (throwTo)
 import Control.Monad.Catch                 (Exception, bracket, catch, throwM)
 import Control.Monad.Extra                 (whenM)
 import Control.Monad.Trans.Maybe           (MaybeT (..))
@@ -37,28 +37,15 @@ import Data.Constraint                     (Dict (..))
 import Data.Data                           (Typeable)
 import Data.Foldable                       (asum)
 import Data.Rank1Dynamic                   (toDynamic)
-import Data.Text                           (Text, pack)
 import Data.Time.Clock                     (NominalDiffTime)
 import GHC.Generics                        (Generic)
 import Hyperion.CallClosure                (call')
 import Hyperion.Config                     (HyperionStaticConfig)
 import Hyperion.Log                        qualified as Log
+import Hyperion.ServiceId                  (ServiceId (..), withServiceId)
 import Hyperion.Static                     (Serializable, ptrAp)
-import Hyperion.Util                       (newUnique,
-                                            nominalDiffTimeToMicroseconds,
+import Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                             tryLogException)
-
--- | A label for a worker, unique for the given process (but not
--- unique across the whole distributed program).
-newtype ServiceId = ServiceId String
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (Binary)
-
-serviceIdToText :: ServiceId -> Text
-serviceIdToText = pack . serviceIdToString
-
-serviceIdToString :: ServiceId -> String
-serviceIdToString (ServiceId s) = s
 
 data RemoteError = RemoteError ServiceId RemoteErrorType
   deriving (Show, Exception)
@@ -86,12 +73,24 @@ data WorkerLauncher j = WorkerLauncher
     -- into a Slurm queue, it may take a very long time to connect. In
     -- that case, it is recommended to set 'connectionTimeout' =
     -- 'Nothing'.
-  , connectionTimeout :: Maybe NominalDiffTime
+  , connectionTimeout  :: Maybe NominalDiffTime
     -- | A handler for 'RemoteError's.  'onRemoteError' can do things
     -- like blocking before rerunning the remote process, or simply
     -- rethrowing the error.
-  , onRemoteError     :: forall b . RemoteError -> Process b -> Process b
+  , onRemoteError      :: forall b . RemoteError -> Process b -> Process b
+    -- | Store an action that cancels the current worker by raising a
+    -- RemoteError in its thread. The stored action could be called by
+    -- some external process if there is a problem.
+  , storeCancelAction  :: ServiceId -> j -> IO () -> Process ()
+    -- | A hook to run an action when the given Service is finished.
+  , onServiceExit      :: ServiceId -> Process ()
   }
+
+emptyStoreCancelAction :: ServiceId -> j -> IO () -> Process ()
+emptyStoreCancelAction _ _ _ = pure ()
+
+emptyOnServiceExit :: ServiceId -> Process ()
+emptyOnServiceExit _ = pure ()
 
 -- | Type for basic master to worker messaging
 data WorkerMessage = Connected | ShutDown
@@ -127,18 +126,6 @@ worker masterNode serviceId@(ServiceId masterService) = do
         ShutDown  -> Log.text "Shutting down."
     _ -> Log.text "Couldn't connect to master" >> die ()
 
--- | Registers ('register') the current process under a random
--- 'ServiceId', then passes the 'ServiceId' to the given continuation.
--- After the continuation returns, unregisters ('unregister') the
--- 'ServiceId'.
-withServiceId :: (ServiceId -> Process a) -> Process a
-withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
-  where
-    newServiceId = do
-      s <- liftIO $ show <$> newUnique
-      getSelfPid >>= register s
-      return (ServiceId s)
-
 -- | Start a new remote worker using 'WorkerLauncher' and call a
 -- continuation with the 'NodeId' and 'ServiceId' of that worker. The
 -- continuation is run in the process that is registered under the
@@ -154,15 +141,18 @@ withService
   => WorkerLauncher j
   -> (NodeId -> ServiceId -> Process a)
   -> Process a
-withService WorkerLauncher{..} go = withServiceId $ \serviceId -> do
+withService launcher go = withServiceId $ \serviceId -> do
   nid <- getSelfNode
   -- fire up a remote worker with instructions to contact this node
-  withLaunchedWorker nid serviceId $ \jobId -> do
+  withLaunchedWorker launcher nid serviceId $ \jobId -> do
     Log.info "Deployed worker" (serviceId, jobId)
+    myThread <- liftIO myThreadId
+    let cancelMe = throwTo myThread (RemoteError serviceId RemoteAsyncCancelled)
+    launcher.storeCancelAction serviceId jobId cancelMe
     -- Wait for the worker to connect and send its id
     let
       awaitWorker = do
-        connectionResult <- case connectionTimeout of
+        connectionResult <- case launcher.connectionTimeout of
           Just t  -> expectTimeout (nominalDiffTimeToMicroseconds t)
           Nothing -> fmap Just expect
         case connectionResult of
@@ -179,6 +169,7 @@ withService WorkerLauncher{..} go = withServiceId $ \serviceId -> do
                 return workerId
       shutdownWorker workerId = do
         Log.info "Worker finished" (serviceId, jobId)
+        launcher.onServiceExit serviceId
         send workerId ShutDown
     bracket awaitWorker shutdownWorker (\wId -> go (processNodeId wId) serviceId)
 
@@ -202,10 +193,10 @@ data SerializableClosureProcess a = SerializableClosureProcess
 -- | Get closure and memoize the result
 getClosure :: SerializableClosureProcess a -> Process (Closure (Process (Either String a)))
 getClosure s = do
-  whenM (liftIO (isEmptyMVar (closureVar s))) $ do
-    c <- runClosureProcess s
-    liftIO $ putMVar (closureVar s) c
-  liftIO $ readMVar (closureVar s)
+  whenM (liftIO (isEmptyMVar s.closureVar)) $ do
+    c <- s.runClosureProcess
+    liftIO $ putMVar s.closureVar c
+  liftIO $ readMVar s.closureVar
 
 -- | The type of a function that takes a 'SerializableClosureProcess'
 -- and runs the 'Closure' on a remote machine. In case the remote
@@ -224,16 +215,16 @@ withRemoteRunProcess
   => WorkerLauncher j
   -> (RemoteProcessRunner -> Process a)
   -> Process a
-withRemoteRunProcess workerLauncher go =
-  goWithRemote `catch` \e -> onRemoteError workerLauncher e (withRemoteRunProcess workerLauncher go)
+withRemoteRunProcess launcher go =
+  goWithRemote `catch` \e -> onRemoteError launcher e (withRemoteRunProcess launcher go)
   where
     goWithRemote =
-      withService workerLauncher $ \workerNodeId serviceId ->
-      go $ \s -> do
-      c <- getClosure s
-      a <- wait =<< async (task $ call' (staticSDict s) workerNodeId c)
+      withService launcher $ \workerNodeId serviceId ->
+      go $ \serailizableClosureProcess -> do
+      c <- getClosure serailizableClosureProcess
+      a <- wait =<< async (task $ call' serailizableClosureProcess.staticSDict workerNodeId c)
       case a of
-        AsyncDone (Right result) -> return result
+        AsyncDone (Right result) -> pure result
         -- By throwing an exception out of withService, we ensure that
         -- the offending worker will be sent the ShutDown signal,
         -- since withService uses 'bracket'

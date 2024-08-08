@@ -8,7 +8,7 @@ import Control.Distributed.Process (NodeId)
 import Data.Text                   (Text)
 import Data.Text                   qualified as T
 import Hyperion.Remote             (nodeIdToAddress)
-import Hyperion.Worker             (ServiceId (..), serviceIdToText)
+import Hyperion.ServiceId          (ServiceId (..), serviceIdToText)
 import Options.Applicative         (Parser, help, long, metavar, strOption)
 
 -- Note: The argument list in hyperionWorkerCommand and the workerOpts

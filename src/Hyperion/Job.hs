@@ -33,15 +33,17 @@ import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEval,
 import Hyperion.Log                qualified as Log
 import Hyperion.ProgramId          (ProgramId (..))
 import Hyperion.Remote             (runProcessLocal)
+import Hyperion.ServiceId          (serviceIdToText)
 import Hyperion.Slurm              (JobId (..))
 import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Static             (Closure, Static (..), cAp, cPure)
 import Hyperion.Util               (myExecutable, runCmdLocalAsync,
                                     runCmdLocalLog)
-import Hyperion.Worker             (WorkerLauncher (..), getWorkerStaticConfig,
+import Hyperion.Worker             (WorkerLauncher (..), emptyOnServiceExit,
+                                    emptyStoreCancelAction,
+                                    getWorkerStaticConfig,
                                     mkSerializableClosureProcess,
-                                    serviceIdToText, withRemoteRunProcess,
-                                    worker)
+                                    withRemoteRunProcess, worker)
 import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
                                     WorkerAddr, WorkerCpuPool)
 import Hyperion.WorkerCpuPool      qualified as WCP
@@ -149,6 +151,8 @@ defaultPoolLauncher workerCpuPool launcherMap nCpus = WorkerLauncher
       withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
   , connectionTimeout = Nothing
   , onRemoteError     = \e _ -> throwM e
+  , storeCancelAction = emptyStoreCancelAction
+  , onServiceExit     = emptyOnServiceExit
   }
 
 -- | Runs the 'Job' monad assuming we are inside a SLURM job. In
@@ -215,7 +219,9 @@ runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy stat
           _ <- spawnLocal (worker nid serviceId)
           goJobId (JobName (serviceIdToText serviceId))
       , connectionTimeout = Nothing
-      , onRemoteError = \e _ -> throwM e
+      , onRemoteError     = \e _ -> throwM e
+      , storeCancelAction = emptyStoreCancelAction
+      , onServiceExit     = emptyOnServiceExit
       }
   runReaderT go $ JobEnv
     { jobDatabaseConfig    = dbConfig
@@ -254,7 +260,9 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
         runCmd (hyperionWorkerCommand hyperionExec nid serviceId logFile)
         goJobId jobId
     , connectionTimeout = Nothing
-    , onRemoteError = \e _ -> throwM e
+    , onRemoteError     = \e _ -> throwM e
+    , storeCancelAction = emptyStoreCancelAction
+    , onServiceExit     = emptyOnServiceExit
     }
 
 -- | Given a `NodeLauncherConfig` and a 'WorkerAddr' runs the

@@ -9,16 +9,17 @@ import Control.Monad             (unless)
 import Control.Monad.Catch       (SomeException, try)
 import Data.Maybe                (isJust)
 import Hyperion.Cluster          (Cluster, ClusterEnv (..), ProgramInfo (..),
-                                  runCluster, runDBWithProgramInfo, newClusterEnv)
+                                  newClusterEnv, runCluster,
+                                  runDBWithProgramInfo)
 import Hyperion.Command          (Worker (..), workerOpts)
 import Hyperion.Config           (HyperionConfig (..),
                                   HyperionStaticConfig (..))
 import Hyperion.Database         qualified as DB
-import Hyperion.HoldServer       (newHoldMap, withHoldServer)
 import Hyperion.Log              qualified as Log
-import Hyperion.Remote           (addressToNodeId,
-                                  runProcessLocalWithRT)
+import Hyperion.Remote           (addressToNodeId, runProcessLocalWithRT)
+import Hyperion.Server           (newServerState, withHyperionServer)
 import Hyperion.Util             (logMemoryUsage)
+import Hyperion.Worker           (initWorkerRemoteTable, worker)
 import Options.Applicative
 import System.Console.Concurrent (withConcurrentOutput)
 import System.Directory          (removeFile)
@@ -27,7 +28,6 @@ import System.FilePath.Posix     ((<.>))
 import System.Posix.Process      (getProcessID)
 import System.Posix.Signals      (Handler (..), installHandler, raiseSignal,
                                   sigINT, sigTERM)
-import Hyperion.Worker (initWorkerRemoteTable, worker)
 
 -- | The type for command-line options to 'hyperionMain'. Here @a@ is
 -- the type for program-specific options.  In practice we want @a@ to
@@ -72,7 +72,7 @@ opts programOpts = info (helper <*> hyperionOpts programOpts) fullDesc
 --      - The data in 'HyperionConfig' is then used for all following actions
 --      - Depending on 'HyperionConfig', extra actions may be performed, see 'newClusterEnv'.
 --      - Starts a log in 'stderr', and then redirects it to a file
---      - Starts a hold server from "Hyperion.HoldServer"
+--      - Starts a hold server from "Hyperion.Server"
 --      - Uses 'DB.setupKeyValTable' to setup a "Hyperion.Database.KeyValMap" in the program database
 --      - Runs the supplied @'Cluster' ()@ action
 --      - Cleans up the copy of the executable, if exists (see 'newClusterEnv').
@@ -116,10 +116,10 @@ hyperionMain programOpts mkHyperionConfig hyperionStaticConfig clusterProgram = 
     installHandler sigTERM (handleSignal "SIGTERM" sigTERM) Nothing
     installHandler sigINT  (handleSignal "SIGINT"  sigINT)  Nothing
 
-    holdMap <- newHoldMap
-    withHoldServer holdMap $ \holdPort -> do
-      (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig 
-                                                            hyperionStaticConfig holdMap holdPort
+    serverState <- newServerState
+    withHyperionServer serverState $ \serverPort -> do
+      (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig
+                                                         hyperionStaticConfig serverState serverPort
       let progId = programId clusterProgramInfo
           masterLogFile = programLogDir clusterProgramInfo <.> "log"
       pid <- getProcessID
@@ -128,7 +128,7 @@ hyperionMain programOpts mkHyperionConfig hyperionStaticConfig clusterProgram = 
             Log.info "Process id" pid
             Log.info "Program arguments" args
             Log.info "Using database" (programDatabase clusterProgramInfo)
-            Log.info "Running hold server on port" holdPort
+            Log.info "Running server on port" serverPort
       Log.rawText "--------------------------------------------------------------------------------\n"
       logMasterInfo
       Log.info "Logging to" masterLogFile
