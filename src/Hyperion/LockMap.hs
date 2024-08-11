@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveAnyClass      #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StaticPointers      #-}
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StaticPointers    #-}
 
 module Hyperion.LockMap
   ( LockMap,

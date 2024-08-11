@@ -1,5 +1,3 @@
-{-# LANGUAGE RankNTypes #-}
-
 module Hyperion.CallClosure where
 
 import Control.Distributed.Process

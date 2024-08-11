@@ -1,6 +1,3 @@
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE FlexibleInstances #-}
-
 {-| This module contains copies of several utilities from
 "Control.Concurrent.Async" from the @async@ package, with 'IO'
 replaced by 'Process'.

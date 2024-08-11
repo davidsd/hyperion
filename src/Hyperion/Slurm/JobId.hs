@@ -1,5 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-
 module Hyperion.Slurm.JobId where
 
 import Data.Text (Text)

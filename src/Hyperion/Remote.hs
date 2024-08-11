@@ -1,9 +1,9 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE LambdaCase         #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE RecordWildCards    #-}
-{-# LANGUAGE StaticPointers     #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE StaticPointers      #-}
 
 module Hyperion.Remote
   ( runProcessLocal
@@ -61,10 +61,10 @@ data Subnet = Subnet
   }
 
 isAddressInSubnet :: Subnet -> HostAddress -> Bool
-isAddressInSubnet Subnet{..} address = (bits .&. maskbits) == (address .&. maskbits)
+isAddressInSubnet subnet address = (bits .&. maskbits) == (address .&. maskbits)
   where
-    bits = tupleToHostAddress subnetAddress
-    maskbits = tupleToHostAddress subnetMask
+    bits = tupleToHostAddress subnet.subnetAddress
+    maskbits = tupleToHostAddress subnet.subnetMask
 
 data HostInterfaceError = HostInterfaceError String [NetworkInterface]
   deriving (Show, Exception)

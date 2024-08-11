@@ -1,11 +1,6 @@
 {-# LANGUAGE DeriveAnyClass      #-}
-{-# LANGUAGE DeriveGeneric       #-}
-{-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PolyKinds           #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeFamilies        #-}
 
 -- | An 'ExtVar' is an 'MVar' that can be accessed by an external
@@ -26,12 +21,16 @@
 -- to be accessed by a client.  Now in a GHCi session (possibly on a
 -- completely different machine), you can do:
 --
+-- >>> import Hyperion.ExtVar
+-- >>> import Hyperion(HostNameStrategy(..))
+-- >>> :set -XOverloadedStrings
+-- >>> hostNameStrategy = GetHostEntriesExternal -- pick whatever works on your machine
 -- >>> eVar = extVar @Int "login1.cm.cluster:39443:0" "test"
--- >>> tryReadExtVarIO eVar
+-- >>> tryReadExtVarIO hostNameStrategy eVar
 -- Just 42
--- >>> modifyExtVarIO_ eVar (\x -> pure (x+1))
+-- >>> modifyExtVarIO_ hostNameStrategy eVar (\x -> pure (x+1))
 -- ()
--- >>> tryReadExtVarIO eVar
+-- >>> tryReadExtVarIO hostNameStrategy eVar
 -- Just 43
 --
 module Hyperion.ExtVar

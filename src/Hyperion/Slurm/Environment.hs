@@ -1,5 +1,3 @@
-{-# LANGUAGE TypeApplications #-}
-
 module Hyperion.Slurm.Environment where
 
 import Control.Applicative       ((<|>))

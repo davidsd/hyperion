@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
 {-# LANGUAGE TypeApplications   #-}
 
 module Hyperion.WorkerCpuPool
@@ -108,24 +108,24 @@ withWorkerAddr ::
   -> NumCPUs
   -> (WorkerAddr -> m a)
   -> m a
-withWorkerAddr WorkerCpuPool {..} cpus go =
+withWorkerAddr pool cpus go =
   bracket (liftIO getWorkerAddr) (liftIO . replaceWorkerAddr) go
   where
     getWorkerAddr =
       atomically $ do
-        workers <- readTVar cpuMap
+        workers <- readTVar pool.cpuMap
       -- find the worker with the largest number of cpus
         let (addr, availCpus) = maximumOn snd $ Map.toList workers
       -- If not enough cpus are available, retry
         check (availCpus >= cpus)
       -- subtract the requested cpus from the worker's total
-        modifyTVar cpuMap (Map.adjust (subtract cpus) addr)
+        modifyTVar pool.cpuMap (Map.adjust (subtract cpus) addr)
         return addr
     replaceWorkerAddr addr =
       atomically
         $
         -- add back the requested cpus to the worker's total
-         modifyTVar cpuMap (Map.adjust (+ cpus) addr)
+         modifyTVar pool.cpuMap (Map.adjust (+ cpus) addr)
 
 -- * 'remoteRunCmd' documentation
 -- $
