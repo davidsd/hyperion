@@ -213,15 +213,17 @@ withDict r Dict = r
 
 ----------- Running local commands ------------
 
--- | Run the given command in a child thread. Async.link ensures
--- that exceptions from the child are propagated to the parent.
+-- | Run the given command in a child thread. Async.link ensures that
+-- exceptions from the child are propagated to the parent. Note that
+-- this includes any time the given process exits with a nonzero exit
+-- code (which triggers an exception in callProcess).
 --
 -- NB: Previously, this function used 'System.Process.createProcess'
 -- and discarded the resulting 'ProcessHandle'. This could result in
 -- "insufficient resource" errors for OS threads. Hopefully the
 -- current implementation avoids this problem.
 runCmdLocalAsync :: (String, [String]) -> IO ()
-runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
+runCmdLocalAsync c = Async.withAsync (uncurry callProcess c) Async.link
 
 -- | Run the given command and log the command. This is suitable
 -- for running on remote machines so we can keep track of what is
