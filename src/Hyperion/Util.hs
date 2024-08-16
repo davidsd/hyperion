@@ -222,8 +222,12 @@ withDict r Dict = r
 -- and discarded the resulting 'ProcessHandle'. This could result in
 -- "insufficient resource" errors for OS threads. Hopefully the
 -- current implementation avoids this problem.
+--
+-- NB2: Async documentation recommends using 'withAsync', however the
+-- behavior of that function is different, and it would cancel the
+-- 'Async' on return from 'link'.
 runCmdLocalAsync :: (String, [String]) -> IO ()
-runCmdLocalAsync c = Async.withAsync (uncurry callProcess c) Async.link
+runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
 
 -- | Run the given command and log the command. This is suitable
 -- for running on remote machines so we can keep track of what is
