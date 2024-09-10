@@ -1,13 +1,13 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.36.0.
+-- This file has been generated from package.yaml by hpack version 0.37.0.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: b1c7d111ef7f57eebec2a44a255928453a043d10bf19111d552201653b3d113b
+-- hash: c0e339f5b6535add7645615e65d0c562bac60c8a824ba5f4af06c6aa50c54339
 
 name:           hyperion
-version:        0.1.0.9
+version:        0.1.0.10
 author:         David Simmons-Duffin
 maintainer:     davidsd@gmail.com
 license:        MIT

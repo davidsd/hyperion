@@ -59,6 +59,8 @@ data SbatchOptions = SbatchOptions
   , qos           :: Maybe Text
   -- | (\"--no-requeue")
   , noRequeue     :: Bool
+  -- | code to inject in sbatch script before the commands
+  , scriptPreamble :: Maybe Text
   } deriving (Show)
 
 -- | Default 'SbatchOptions'. Request 1 task on 1 node for 24 hrs, everything else
@@ -79,6 +81,7 @@ defaultSbatchOptions = SbatchOptions
   , account         = Nothing
   , qos             = Nothing
   , noRequeue       = True
+  , scriptPreamble   = Nothing
   }
 
 -- | Convert 'SbatchOptions' to a string of options for @sbatch@
@@ -123,7 +126,10 @@ sbatchScript opts script = do
     _                      -> Log.throw (SbatchError result pipeToSbatch)
   where
     pipeToSbatch = "printf '" ++ wrappedScript ++ "' | sbatch " ++ sBatchOptionString opts
-    wrappedScript = "#!/bin/sh\n " ++ script
+    preamble = case scriptPreamble opts of
+      Just t -> T.unpack t ++ "\n"
+      Nothing -> ""
+    wrappedScript = "#!/bin/sh\n" ++ preamble ++ script
 
 -- | Formats 'NominalDiffTime' into @hh:mm:ss@.
 formatRuntime :: NominalDiffTime -> String
