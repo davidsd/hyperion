@@ -8,6 +8,7 @@
 module Hyperion.Worker
   ( WorkerLauncher(..)
   , RemoteError(..)
+  , WorkerConnectionTimeout
   , RemoteProcessRunner
   , emptyStoreCancelAction
   , emptyOnServiceExit

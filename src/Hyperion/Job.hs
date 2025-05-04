@@ -1,10 +1,11 @@
-{-# LANGUAGE DeriveAnyClass      #-}
-{-# LANGUAGE DerivingStrategies  #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE StaticPointers      #-}
-{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DerivingStrategies    #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE OverloadedRecordDot   #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE StaticPointers        #-}
+{-# LANGUAGE TypeFamilies          #-}
 
 module Hyperion.Job where
 
@@ -20,6 +21,7 @@ import Data.Map                    (Map)
 import Data.Map                    qualified as Map
 import Data.Maybe                  (catMaybes)
 import Data.Text                   qualified as T
+import Data.Time.Clock             (NominalDiffTime)
 import Data.Typeable               (Typeable)
 import Hyperion.Cluster            (Cluster, ClusterEnv (..),
                                     HasProgramInfo (..), ProgramInfo (..),
@@ -37,9 +39,10 @@ import Hyperion.ServiceId          (serviceIdToText)
 import Hyperion.Slurm              (JobId (..))
 import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Static             (Closure, Static (..), cAp, cPure)
-import Hyperion.Util               (myExecutable, runCmdLocalAsync,
-                                    runCmdLocalLog)
-import Hyperion.Worker             (WorkerLauncher (..), emptyOnServiceExit,
+import Hyperion.Util               (myExecutable, retryRepeated,
+                                    runCmdLocalAsync, runCmdLocalLog)
+import Hyperion.Worker             (WorkerConnectionTimeout,
+                                    WorkerLauncher (..), emptyOnServiceExit,
                                     emptyStoreCancelAction,
                                     getWorkerStaticConfig,
                                     mkSerializableClosureProcess,
@@ -108,9 +111,12 @@ instance HasProgramInfo JobEnv where
 data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
-    nodeLogDir           :: FilePath
+    nodeLogDir                 :: FilePath
     -- | The command used to run shell commands on remote nodes. See 'CommandTransport' for description.
-  , nodeCommandTransport :: CommandTransport
+  , nodeCommandTransport       :: CommandTransport
+    -- | How long to wait before re-trying creating a Node launcher,
+    -- and number of times to retry
+  , nodeLauncherTimeoutRetries :: Maybe (NominalDiffTime, Int)
   }
 
 -- | Make 'JobEnv' an instance of 'DB.HasDB'.
@@ -180,7 +186,8 @@ runJobSlurm programInfo go = do
           -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
           Nothing      -> programLogDir programInfo </> "workers" </> "workers"
-      , nodeCommandTransport = commandTransport staticConfig
+      , nodeCommandTransport        = staticConfig.commandTransport
+      , nodeLauncherTimeoutRetries  = staticConfig.nodeLauncherTimeoutRetries
       }
   withLauncherMap nodeLauncherConfig nodes $ \launcherMap -> do
     let addrs = Map.keys launcherMap
@@ -300,6 +307,10 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
 -- with the head node via the usual machinery of @hyperion@ ---
 -- effectively, we keep a connection open to each node so that we no
 -- longer have to use the command transport.
+--
+-- If nodeLauncherTimeoutRetries is specified, we retry setting up the
+-- node launcher the given number of times, applying the given timeout
+-- each time.
 withNodeLauncher
   :: NodeLauncherConfig
   -> WorkerAddr
@@ -307,10 +318,19 @@ withNodeLauncher
   -> Process a
 withNodeLauncher cfg addr' go = case addr' of
   WCP.RemoteAddr addr -> do
-    remoteLauncher <- workerLauncherWithRunCmd cfg.nodeLogDir
-                      (liftIO . WCP.remoteRunCmd addr cfg.nodeCommandTransport)
-    eitherResult <- try @Process @SSHError $ do
-      withRemoteRunProcess remoteLauncher $ \remoteRunNode ->
+    remoteLauncher <-
+      workerLauncherWithRunCmd cfg.nodeLogDir
+      (liftIO . WCP.remoteRunCmd addr cfg.nodeCommandTransport)
+    let
+      remoteLauncherWithTimeout = remoteLauncher
+        { connectionTimeout = fmap fst cfg.nodeLauncherTimeoutRetries }
+      maybeTimeoutRetry = case cfg.nodeLauncherTimeoutRetries of
+        Just (_, n) -> retryRepeated n (try @Process @WorkerConnectionTimeout)
+        Nothing     -> id
+    eitherResult <-
+      try @Process @SSHError $
+      maybeTimeoutRetry $ do
+      withRemoteRunProcess remoteLauncherWithTimeout $ \remoteRunNode ->
         let
           runCmdOnNode cmd = do
             scp <- mkSerializableClosureProcess closureDict $ pure $

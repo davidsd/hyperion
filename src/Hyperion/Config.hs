@@ -4,6 +4,7 @@
 module Hyperion.Config where
 
 import Data.Text              qualified as T
+import Data.Time.Clock        (NominalDiffTime)
 import Data.Time.Format       (defaultTimeLocale, formatTime)
 import Data.Time.LocalTime    (getZonedTime)
 import Hyperion.Log           qualified as Log
@@ -46,9 +47,12 @@ data HyperionStaticConfig = HyperionStaticConfig
   {
     -- | The command used to run shell commands on remtoe nodes in a job. Usually can be safely set to
     -- 'SSH Nothing'. See 'CommandTransport' for details.
-    commandTransport :: CommandTransport
+    commandTransport           :: CommandTransport
     -- | The strategy for selecting our hostname. See 'HostNameStrategy' for details.
-  , hostNameStrategy :: HostNameStrategy
+  , hostNameStrategy           :: HostNameStrategy
+    -- | Timeout and number of retries for starting a node launcher on
+    -- one of the nodes of a job.
+  , nodeLauncherTimeoutRetries :: Maybe (NominalDiffTime, Int)
   }
 
 -- | Default configuration, with all paths built form a single
@@ -69,8 +73,9 @@ defaultHyperionConfig baseDirectory = HyperionConfig
 
 defaultHyperionStaticConfig :: HyperionStaticConfig
 defaultHyperionStaticConfig = HyperionStaticConfig
-  { commandTransport        = defaultCommandTransport
-  , hostNameStrategy        = defaultHostNameStrategy
+  { commandTransport           = defaultCommandTransport
+  , hostNameStrategy           = defaultHostNameStrategy
+  , nodeLauncherTimeoutRetries = Nothing
   }
 
 
