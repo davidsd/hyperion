@@ -20,7 +20,6 @@ import Data.Binary                 (Binary)
 import Data.Map                    (Map)
 import Data.Map                    qualified as Map
 import Data.Maybe                  (catMaybes)
-import Data.Text                   qualified as T
 import Data.Time.Clock             (NominalDiffTime)
 import Data.Typeable               (Typeable)
 import Hyperion.Cluster            (Cluster, ClusterEnv (..),
@@ -35,7 +34,8 @@ import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEval,
 import Hyperion.Log                qualified as Log
 import Hyperion.ProgramId          (ProgramId (..))
 import Hyperion.Remote             (runProcessLocal)
-import Hyperion.ServiceId          (serviceIdToText)
+import Hyperion.ServiceId          (ServiceId, serviceIdToString,
+                                    serviceIdToText)
 import Hyperion.Slurm              (JobId (..))
 import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Static             (Closure, Static (..), cAp, cPure)
@@ -152,9 +152,10 @@ defaultPoolLauncher
   -> NumCPUs
   -> WorkerLauncher JobId
 defaultPoolLauncher workerCpuPool launcherMap nCpus = WorkerLauncher
-  { withLaunchedWorker = \nodeId serviceId goJobId ->
+  { withLaunchedWorker = \serviceIdToLogPath nodeId serviceId goJobId ->
       WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->
-      withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
+      withLaunchedWorker (launcherMap Map.! addr) serviceIdToLogPath nodeId serviceId goJobId
+  , overrideToLogPath = Nothing
   , connectionTimeout = Nothing
   , onRemoteError     = \e _ -> throwM e
   , storeCancelAction = emptyStoreCancelAction
@@ -222,9 +223,11 @@ runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy stat
   workerCpuPool <- liftIO $ WCP.newPool Map.empty
   let
     localLauncher = WorkerLauncher
-      { withLaunchedWorker = \nid serviceId goJobId -> do
+      -- TODO: redirect logs if overrideToLogPath is specified?
+      { withLaunchedWorker = \_ nid serviceId goJobId -> do
           _ <- spawnLocal (worker nid serviceId)
           goJobId (JobName (serviceIdToText serviceId))
+      , overrideToLogPath = Nothing
       , connectionTimeout = Nothing
       , onRemoteError     = \e _ -> throwM e
       , storeCancelAction = emptyStoreCancelAction
@@ -261,11 +264,14 @@ workerLauncherWithRunCmd
 workerLauncherWithRunCmd logDir runCmd = liftIO $ do
   hyperionExec <- myExecutable
   pure $ WorkerLauncher
-    { withLaunchedWorker = \nid serviceId goJobId -> do
+    { withLaunchedWorker = \serviceIdToLogPath nid serviceId goJobId -> do
         let jobId = JobName (serviceIdToText serviceId)
-            logFile = logDir </> T.unpack (serviceIdToText serviceId) <.> "log"
+            logFile = case serviceIdToLogPath of
+              Just toPath -> toPath serviceId
+              Nothing     -> logDir </> serviceIdToString serviceId <.> "log"
         runCmd (hyperionWorkerCommand hyperionExec nid serviceId logFile)
         goJobId jobId
+    , overrideToLogPath = Nothing
     , connectionTimeout = Nothing
     , onRemoteError     = \e _ -> throwM e
     , storeCancelAction = emptyStoreCancelAction
@@ -403,4 +409,19 @@ remoteEvalOnWorker
 remoteEvalOnWorker addr closure =
   local (\env -> env
           { jobTaskLauncher = \_ _ _ -> env.jobWorkerLauncherMap Map.! addr }) $
+  remoteEval closure
+
+-- Same as remoteEvalOnWorker, but with a custom function to specify log path.
+remoteEvalOnWorkerWithCustomLog
+  :: (Static (Binary b), Typeable b)
+  => (ServiceId -> FilePath)
+  -> WorkerAddr
+  -> Closure (Process b)
+  -> Job b
+remoteEvalOnWorkerWithCustomLog serviceIdToLogPath addr closure =
+  local (\env -> env
+          { jobTaskLauncher = \_ _ _ -> (env.jobWorkerLauncherMap Map.! addr)
+            { overrideToLogPath = Just serviceIdToLogPath }
+          }
+        ) $
   remoteEval closure
