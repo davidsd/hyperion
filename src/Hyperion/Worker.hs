@@ -75,8 +75,16 @@ data WorkerConnectionTimeout = WorkerConnectionTimeout ServiceId
 data WorkerLauncher j = WorkerLauncher
   { -- | A function that launches a worker for the given 'ServiceId' on
     -- the master 'NodeId' and supplies its job id to the given
+<<<<<<< HEAD
     -- continuation
     withLaunchedWorker :: forall b . Service -> (j -> Process b) -> Process b
+=======
+    -- continuation. The first argument is a custom serviceIdToLogPath function
+    -- (in practice it's overrideToLogPath).
+    withLaunchedWorker :: forall b . Maybe (ServiceId -> FilePath) -> NodeId -> ServiceId -> (j -> Process b) -> Process b
+  -- | An optional function to override log path for a worker.
+  , overrideToLogPath  :: Maybe (ServiceId -> FilePath)
+>>>>>>> custom-log-path
     -- | Timeout for the worker to connect. If the worker is launched
     -- into a Slurm queue, it may take a very long time to connect. In
     -- that case, it is recommended to set 'connectionTimeout' =
@@ -176,7 +184,7 @@ withWorker launcher go = do
   (workerInfoSendPort, workerInfoRecievePort) <- newChan
   let myService = MkService serviceId workerInfoSendPort
   -- fire up a remote worker with instructions to contact this node
-  withLaunchedWorker launcher myService $ \jobId -> do
+  withLaunchedWorker launcher launcher.overrideToLogPath myService $ \jobId -> do
     Log.info "Deployed worker" (serviceId, jobId)
     myThread <- liftIO myThreadId
     let cancelMe = throwTo myThread (RemoteError serviceId RemoteAsyncCancelled)

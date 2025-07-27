@@ -283,6 +283,8 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
   where
     connectionTimeout = Nothing
 
+    overrideToLogPath = Nothing
+
     emailAlertUser :: (MonadIO m, Show e) => e -> m ()
     emailAlertUser e = case emailAddr of
       Just toAddr -> emailError toAddr e
@@ -306,8 +308,8 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
       Log.info "Retrying" sId
       go
 
-    withLaunchedWorker :: forall b . Service -> (JobId -> Process b) -> Process b
-    withLaunchedWorker service goJobId = withToken sbatchTokenPool $ do
+    withLaunchedWorker :: forall b . Maybe (ServiceId -> FilePath) -> Service -> (JobId -> Process b) -> Process b
+    withLaunchedWorker serviceIdToLogPath service goJobId = withToken sbatchTokenPool $ do
       jobId <- liftIO $
         -- Repeatedly run sbatch, with exponentially increasing time
         -- intervals between failures. Email the user on each failure
@@ -319,7 +321,9 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
       goJobId jobId
       where
         progId = programId progInfo
-        logFile = programLogDir progInfo </> serviceIdToString service.serviceId <.> "log"
+        logFile = case serviceIdToLogPath of
+          Just toPath -> toPath serviceId
+          Nothing -> programLogDir progInfo </> serviceIdToString service.serviceId <.> "log"
         opts' = opts
           { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText service.serviceId
           }
