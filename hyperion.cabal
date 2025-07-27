@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c0e339f5b6535add7645615e65d0c562bac60c8a824ba5f4af06c6aa50c54339
+-- hash: 4a91b0290b753fdc9e295974183698cea09853890c5275809bb0232ab051b725
 
 name:           hyperion
 version:        0.1.0.10
@@ -57,6 +57,7 @@ library
     , async
     , attoparsec
     , base
+    , base64
     , binary
     , binaryhash
     , bytestring

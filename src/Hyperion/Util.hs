@@ -5,31 +5,36 @@
 
 module Hyperion.Util where
 
-import Control.Concurrent       (threadDelay)
-import Control.Concurrent.Async qualified as Async
-import Control.Monad            (replicateM)
-import Control.Monad.Catch      (MonadCatch, SomeException, try)
-import Control.Monad.IO.Class   (MonadIO, liftIO)
-import Data.BinaryHash          (hashBase64Safe)
-import Data.ByteString.Char8    qualified as B
-import Data.Constraint          (Constraint, Dict (..))
-import Data.IORef               (IORef, atomicModifyIORef', newIORef)
-import Data.Text                (Text)
-import Data.Text                qualified as Text
-import Data.Text.Lazy           qualified as LazyText
-import Data.Time.Clock          (NominalDiffTime)
-import Data.Vector              qualified as V
-import Hyperion.Log             qualified as Log
-import Network.Mail.Mime        (Address (..), renderSendMail, simpleMail')
-import Numeric                  (showFFloat, showIntAtBase)
-import System.Directory         (copyFile, createDirectoryIfMissing)
-import System.FilePath.Posix    (replaceDirectory)
-import System.IO.Unsafe         (unsafePerformIO)
-import System.Posix.Files       (readSymbolicLink)
-import System.Process           (callProcess)
-import System.Random            (randomRIO)
-import System.RUsage            qualified as RUsage
-import Text.ShellEscape         qualified as Esc
+import Control.Concurrent         (threadDelay)
+import Control.Concurrent.Async   qualified as Async
+import Control.Monad              (replicateM)
+import Control.Monad.Catch        (MonadCatch, SomeException, try)
+import Control.Monad.IO.Class     (MonadIO, liftIO)
+import Data.Base64.Types          qualified as B64
+import Data.Binary                (Binary, decodeOrFail, encode)
+import Data.BinaryHash            (hashBase64Safe)
+import Data.ByteString.Base64.URL qualified as B64URL
+import Data.ByteString.Char8      qualified as B
+import Data.ByteString.Lazy       qualified as BL
+import Data.Constraint            (Constraint, Dict (..))
+import Data.IORef                 (IORef, atomicModifyIORef', newIORef)
+import Data.Text                  (Text)
+import Data.Text                  qualified as Text
+import Data.Text.Encoding         qualified as TE
+import Data.Text.Lazy             qualified as LazyText
+import Data.Time.Clock            (NominalDiffTime)
+import Data.Vector                qualified as V
+import Hyperion.Log               qualified as Log
+import Network.Mail.Mime          (Address (..), renderSendMail, simpleMail')
+import Numeric                    (showFFloat, showIntAtBase)
+import System.Directory           (copyFile, createDirectoryIfMissing)
+import System.FilePath.Posix      (replaceDirectory)
+import System.IO.Unsafe           (unsafePerformIO)
+import System.Posix.Files         (readSymbolicLink)
+import System.Process             (callProcess)
+import System.Random              (randomRIO)
+import System.RUsage              qualified as RUsage
+import Text.ShellEscape           qualified as Esc
 
 -- | An opaque type representing a unique object. Only guaranteed to
 -- be unique in one instance of a running program. For example, if we
@@ -54,6 +59,21 @@ uniqueSource = unsafePerformIO (newIORef 0)
 -- | Get a new Unique.
 newUnique :: IO Unique
 newUnique = fmap MkUnique $ atomicModifyIORef' uniqueSource $ \c -> (c+1,c)
+
+----------------- base64 encoding ----------------------
+
+encodeBinaryToBase64 :: Binary a => a -> Text
+encodeBinaryToBase64 = B64.extractBase64 . B64URL.encodeBase64 . BL.toStrict . encode
+
+decodeBinaryFromBase64 :: Binary a => Text -> Either String a
+decodeBinaryFromBase64 t =
+  case B64URL.decodeBase64Untyped (TE.encodeUtf8 t) of
+    Left err -> Left (Text.unpack err)
+    Right bs -> case decodeOrFail (BL.fromStrict bs) of
+      Right (_, _, a)  -> Right a
+      Left (_, _, err) -> Left err
+
+----------------- Misc ----------------------
 
 -- | 'IO' action that returns a random string of given length
 randomString :: Int -> IO String

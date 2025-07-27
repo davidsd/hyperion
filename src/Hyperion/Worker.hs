@@ -50,7 +50,9 @@ import Hyperion.Config                     (HyperionStaticConfig)
 import Hyperion.Log                        qualified as Log
 import Hyperion.ServiceId                  (ServiceId (..), newServiceId)
 import Hyperion.Static                     (Serializable, ptrAp)
-import Hyperion.Util                       (nominalDiffTimeToMicroseconds,
+import Hyperion.Util                       (decodeBinaryFromBase64,
+                                            encodeBinaryToBase64,
+                                            nominalDiffTimeToMicroseconds,
                                             tryLogException)
 
 data RemoteError = RemoteError ServiceId RemoteErrorType
@@ -113,10 +115,10 @@ data WorkerInfo = MkWorkerInfo
   deriving (Show, Generic, Binary)
 
 encodeService :: Service -> Text
-encodeService = undefined
+encodeService = encodeBinaryToBase64
 
-decodeService :: Text -> Service
-decodeService = undefined
+decodeService :: Text -> Either String Service
+decodeService = decodeBinaryFromBase64
 
 serviceNodeId :: Service -> NodeId
 serviceNodeId = processNodeId . sendPortProcessId . sendPortId . workerInfoPort

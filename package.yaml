@@ -64,6 +64,7 @@ library:
     - hyperion-static
     - vector
     - rusage
+    - base64
 
 executables:
   example-hello-world:
