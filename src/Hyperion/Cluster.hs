@@ -1,10 +1,10 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE OverloadedRecordDot  #-}
-{-# LANGUAGE RecordWildCards    #-}
-{-# LANGUAGE StaticPointers     #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE StaticPointers      #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 module Hyperion.Cluster where
 
@@ -17,6 +17,7 @@ import Control.Monad.Reader             (MonadReader, ReaderT, asks, runReaderT)
 import Data.Aeson                       (FromJSON, ToJSON)
 import Data.Binary                      (Binary)
 import Data.Constraint                  (Dict (..))
+import Data.Maybe                       (fromMaybe)
 import Data.Text                        (Text)
 import Data.Text                        qualified as Text
 import Data.Time.Clock                  (NominalDiffTime)
@@ -45,7 +46,8 @@ import Hyperion.Static                  (Static (..))
 import Hyperion.TokenPool               (TokenPool, newTokenPool, withToken)
 import Hyperion.Util                    (emailError, retryExponential,
                                          savedExecutable)
-import Hyperion.Worker                  (RemoteError (..), WorkerLauncher (..), Service(..),
+import Hyperion.Worker                  (RemoteError (..), Service (..),
+                                         WorkerLauncher (..),
                                          registerMasterNodeId)
 import System.Directory                 (createDirectoryIfMissing)
 import System.FilePath.Posix            ((<.>), (</>))
@@ -321,9 +323,8 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
       goJobId jobId
       where
         progId = programId progInfo
-        logFile = case serviceIdToLogPath of
-          Just toPath -> toPath service.serviceId
-          Nothing -> programLogDir progInfo </> serviceIdToString service.serviceId <.> "log"
+        defaultToLogPath serviceId = programLogDir progInfo </> serviceIdToString serviceId <.> "log"
+        logFile = fromMaybe defaultToLogPath serviceIdToLogPath service.serviceId
         opts' = opts
           { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText service.serviceId
           }
