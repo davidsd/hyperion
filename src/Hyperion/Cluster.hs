@@ -322,7 +322,7 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
       where
         progId = programId progInfo
         logFile = case serviceIdToLogPath of
-          Just toPath -> toPath serviceId
+          Just toPath -> toPath service.serviceId
           Nothing -> programLogDir progInfo </> serviceIdToString service.serviceId <.> "log"
         opts' = opts
           { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText service.serviceId
