@@ -1,7 +1,8 @@
-{-# LANGUAGE ApplicativeDo     #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE ApplicativeDo       #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards     #-}
 
 module Hyperion.Main where
 
@@ -16,10 +17,11 @@ import Hyperion.Config           (HyperionConfig (..),
                                   HyperionStaticConfig (..))
 import Hyperion.Database         qualified as DB
 import Hyperion.Log              qualified as Log
-import Hyperion.Remote           (addressToNodeId, runProcessLocalWithRT)
+import Hyperion.Remote           (runProcessLocalWithRT)
 import Hyperion.Server           (newServerState, withHyperionServer)
 import Hyperion.Util             (logMemoryUsage)
-import Hyperion.Worker           (initWorkerRemoteTable, worker)
+import Hyperion.Worker           (initWorkerRemoteTable, runWorker,
+                                  serviceNodeId)
 import Options.Applicative
 import System.Console.Concurrent (withConcurrentOutput)
 import System.Directory          (removeFile)
@@ -95,14 +97,14 @@ hyperionMain
   -> IO ()
 hyperionMain programOpts mkHyperionConfig hyperionStaticConfig clusterProgram = withConcurrentOutput $
   execParser (opts programOpts) >>= \case
-  HyperionWorker Worker{..} -> do
-    Log.redirectToFile workerLogFile
-    Log.info "Starting service" workerService
+  HyperionWorker worker -> do
+    Log.redirectToFile worker.workerLogFile
+    Log.info "Starting service" worker.workerService
     Log.info "Environment" =<< getEnvironment
-    let masterNid = addressToNodeId workerMasterAddress
+    let masterNodeId = serviceNodeId worker.workerService
     runProcessLocalWithRT (hostNameStrategy hyperionStaticConfig)
-      (initWorkerRemoteTable hyperionStaticConfig (Just masterNid))
-      (worker masterNid workerService)
+      (initWorkerRemoteTable hyperionStaticConfig (Just masterNodeId))
+      (runWorker worker.workerService)
     logMemoryUsage
   HyperionMaster args -> do
     let hyperionConfig = mkHyperionConfig args

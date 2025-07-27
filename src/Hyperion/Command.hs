@@ -4,11 +4,8 @@
 
 module Hyperion.Command where
 
-import Control.Distributed.Process (NodeId)
-import Data.Text                   (Text)
 import Data.Text                   qualified as T
-import Hyperion.Remote             (nodeIdToAddress)
-import Hyperion.ServiceId          (ServiceId (..), serviceIdToText)
+import Hyperion.Worker             (Service (..), encodeService, decodeService)
 import Options.Applicative         (Parser, help, long, metavar, strOption)
 
 -- Note: The argument list in hyperionWorkerCommand and the workerOpts
@@ -16,22 +13,17 @@ import Options.Applicative         (Parser, help, long, metavar, strOption)
 
 -- | Haskell representation of arguments passed to the worker process.
 data Worker = Worker
-  { workerMasterAddress :: Text
-  , workerService       :: ServiceId
-  , workerLogFile       :: FilePath
+  { workerService :: Service
+  , workerLogFile :: FilePath
   } deriving Show
 
 -- | Parses worker command-line arguments. Essentially inverse to 'hyperionWorkerCommand'.
 workerOpts :: Parser Worker
 workerOpts = do
-  workerMasterAddress <- T.pack <$>
-    strOption (long "address"
-               <> metavar "HOST:PORT"
-               <> help "Address of the master process")
-  workerService <- ServiceId <$>
+  workerService <- decodeService <$>
     strOption (long "service"
-               <> metavar "SERVICENAME"
-               <> help "Name of service on master process")
+               <> metavar "SERVICE"
+               <> help "Service on master process (binary encoded)")
   workerLogFile <-
     strOption (long "logFile"
                <> metavar "PATH"
@@ -39,12 +31,11 @@ workerOpts = do
   return Worker{..}
 
 -- | Returns the @(command, [arguments])@ to run the worker process
-hyperionWorkerCommand :: FilePath -> NodeId -> ServiceId -> FilePath -> (String, [String])
-hyperionWorkerCommand hyperionExecutable masterNode masterService logFile =
+hyperionWorkerCommand :: FilePath -> Service -> FilePath -> (String, [String])
+hyperionWorkerCommand hyperionExecutable service logFile =
   (hyperionExecutable, map T.unpack args)
   where
     args = [ "worker"
-           , "--address", nodeIdToAddress masterNode
-           , "--service", serviceIdToText masterService
+           , "--service", encodeService service
            , "--logFile", T.pack logFile
            ]

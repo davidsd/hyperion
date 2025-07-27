@@ -5,7 +5,7 @@ module Hyperion.ServiceId
   ( ServiceId(..)
   , serviceIdToString
   , serviceIdToText
-  , withServiceId
+  , newServiceId
   ) where
 
 import Control.Distributed.Process (Process, getSelfPid, register, unregister)
@@ -30,14 +30,5 @@ serviceIdToText = Text.pack . serviceIdToString
 serviceIdToString :: ServiceId -> String
 serviceIdToString (ServiceId s) = s
 
--- | Registers ('register') the current process under a random
--- 'ServiceId', then passes the 'ServiceId' to the given continuation.
--- After the continuation returns, unregisters ('unregister') the
--- 'ServiceId'.
-withServiceId :: (ServiceId -> Process a) -> Process a
-withServiceId = bracket newServiceId (\(ServiceId s) -> unregister s)
-  where
-    newServiceId = do
-      s <- liftIO $ show <$> newUnique
-      getSelfPid >>= register s
-      return (ServiceId s)
+newServiceId :: Process ServiceId
+newServiceId = liftIO $ ServiceId . show <$> newUnique

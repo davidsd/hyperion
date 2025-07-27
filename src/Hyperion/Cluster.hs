@@ -1,13 +1,14 @@
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE OverloadedRecordDot  #-}
 {-# LANGUAGE RecordWildCards    #-}
 {-# LANGUAGE StaticPointers     #-}
 {-# LANGUAGE TypeFamilies       #-}
 
 module Hyperion.Cluster where
 
-import Control.Distributed.Process      (NodeId, Process)
+import Control.Distributed.Process      (Process)
 import Control.Distributed.Process.Node (initRemoteTable)
 import Control.Lens                     (lens)
 import Control.Monad.Catch              (MonadCatch, try)
@@ -44,7 +45,7 @@ import Hyperion.Static                  (Static (..))
 import Hyperion.TokenPool               (TokenPool, newTokenPool, withToken)
 import Hyperion.Util                    (emailError, retryExponential,
                                          savedExecutable)
-import Hyperion.Worker                  (RemoteError (..), WorkerLauncher (..),
+import Hyperion.Worker                  (RemoteError (..), WorkerLauncher (..), Service(..),
                                          registerMasterNodeId)
 import System.Directory                 (createDirectoryIfMissing)
 import System.FilePath.Posix            ((<.>), (</>))
@@ -155,23 +156,23 @@ type Cluster = ReaderT ClusterEnv Process
 instance DB.HasDB ClusterEnv where
   dbConfigLens = lens get set
     where
-      get ClusterEnv {..} = DB.DatabaseConfig
-        { dbPool      = clusterDatabasePool
-        , dbProgramId = programId clusterProgramInfo
-        , dbRetries   = clusterDatabaseRetries
+      get env = DB.DatabaseConfig
+        { dbPool      = env.clusterDatabasePool
+        , dbProgramId = programId env.clusterProgramInfo
+        , dbRetries   = env.clusterDatabaseRetries
         }
-      set h DB.DatabaseConfig {..} = h
-        { clusterDatabasePool    = dbPool
-        , clusterProgramInfo     = (clusterProgramInfo h) { programId = dbProgramId }
-        , clusterDatabaseRetries = dbRetries
+      set h dbConfig = h
+        { clusterDatabasePool    = dbConfig.dbPool
+        , clusterProgramInfo     = h.clusterProgramInfo { programId = dbConfig.dbProgramId }
+        , clusterDatabaseRetries = dbConfig.dbRetries
         }
 
 -- | We make 'ClusterEnv' an instance of 'HasWorkerLauncher'. This makes
 -- 'Cluster' an instance of 'HasWorkers' and gives us access to functions in
 -- "Hyperion.Remote".
 instance HasWorkerLauncher ClusterEnv where
-  toWorkerLauncher ClusterEnv{..} =
-    clusterWorkerLauncher clusterJobOptions clusterProgramInfo
+  toWorkerLauncher env =
+    env.clusterWorkerLauncher env.clusterJobOptions env.clusterProgramInfo
 
 -- | Type representing resources for an MPI job.
 data MPIJob = MPIJob
@@ -180,11 +181,12 @@ data MPIJob = MPIJob
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON, Typeable)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
-runCluster clusterEnv@ClusterEnv{..} h = runProcessLocalWithRT (hostNameStrategy clusterStaticConfig)
-                                                               rtable (runReaderT h clusterEnv)
+runCluster clusterEnv h =
+  runProcessLocalWithRT (hostNameStrategy clusterEnv.clusterStaticConfig)
+  rtable (runReaderT h clusterEnv)
   where
     rtable = registerMasterNodeId Nothing
-           $ registerLockMap clusterLockMap initRemoteTable
+           $ registerLockMap clusterEnv.clusterLockMap initRemoteTable
 
 modifyJobOptions :: (SbatchOptions -> SbatchOptions) -> ClusterEnv -> ClusterEnv
 modifyJobOptions f cfg = cfg { clusterJobOptions = f (clusterJobOptions cfg) }
@@ -199,9 +201,9 @@ setJobMemory :: Text -> ClusterEnv -> ClusterEnv
 setJobMemory m = modifyJobOptions $ \opts -> opts { mem = Just m }
 
 setJobType :: MPIJob -> ClusterEnv -> ClusterEnv
-setJobType MPIJob{..} = modifyJobOptions $ \opts -> opts
-  { nodes = mpiNodes
-  , nTasksPerNode = mpiNTasksPerNode
+setJobType job = modifyJobOptions $ \opts -> opts
+  { nodes = job.mpiNodes
+  , nTasksPerNode = job.mpiNTasksPerNode
   }
 
 setSlurmPartition :: Text -> ClusterEnv -> ClusterEnv
@@ -304,8 +306,8 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
       Log.info "Retrying" sId
       go
 
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker nid serviceId goJobId = withToken sbatchTokenPool $ do
+    withLaunchedWorker :: forall b . Service -> (JobId -> Process b) -> Process b
+    withLaunchedWorker service goJobId = withToken sbatchTokenPool $ do
       jobId <- liftIO $
         -- Repeatedly run sbatch, with exponentially increasing time
         -- intervals between failures. Email the user on each failure
@@ -317,14 +319,14 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
       goJobId jobId
       where
         progId = programId progInfo
-        logFile = programLogDir progInfo </> serviceIdToString serviceId <.> "log"
+        logFile = programLogDir progInfo </> serviceIdToString service.serviceId <.> "log"
         opts' = opts
-          { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText serviceId
+          { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText service.serviceId
           }
-        (cmd, args) = hyperionWorkerCommand hyperionExec nid serviceId logFile
+        (cmd, args) = hyperionWorkerCommand hyperionExec service logFile
         logSbatchError e = do
           Log.err e
-          emailAlertUser (e, progInfo, nid, serviceId)
+          emailAlertUser (e, progInfo, service)
 
     -- TODO: Call scancel on the job as well?
     storeCancelAction :: ServiceId -> JobId -> IO () -> Process ()

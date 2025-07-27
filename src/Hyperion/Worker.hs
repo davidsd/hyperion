@@ -10,11 +10,15 @@ module Hyperion.Worker
   , RemoteError(..)
   , WorkerConnectionTimeout
   , RemoteProcessRunner
+  , Service(..)
   , emptyStoreCancelAction
   , emptyOnServiceExit
+  , encodeService
+  , decodeService
+  , serviceNodeId
   , withRemoteRunProcess
   , mkSerializableClosureProcess
-  , worker
+  , runWorker
   , getMasterNodeId
   , registerMasterNodeId
   , getWorkerStaticConfig
@@ -38,12 +42,13 @@ import Data.Constraint                     (Dict (..))
 import Data.Data                           (Typeable)
 import Data.Foldable                       (asum)
 import Data.Rank1Dynamic                   (toDynamic)
+import Data.Text                           (Text)
 import Data.Time.Clock                     (NominalDiffTime)
 import GHC.Generics                        (Generic)
 import Hyperion.CallClosure                (call')
 import Hyperion.Config                     (HyperionStaticConfig)
 import Hyperion.Log                        qualified as Log
-import Hyperion.ServiceId                  (ServiceId (..), withServiceId)
+import Hyperion.ServiceId                  (ServiceId (..), newServiceId)
 import Hyperion.Static                     (Serializable, ptrAp)
 import Hyperion.Util                       (nominalDiffTimeToMicroseconds,
                                             tryLogException)
@@ -69,7 +74,7 @@ data WorkerLauncher j = WorkerLauncher
   { -- | A function that launches a worker for the given 'ServiceId' on
     -- the master 'NodeId' and supplies its job id to the given
     -- continuation
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (j -> Process b) -> Process b
+    withLaunchedWorker :: forall b . Service -> (j -> Process b) -> Process b
     -- | Timeout for the worker to connect. If the worker is launched
     -- into a Slurm queue, it may take a very long time to connect. In
     -- that case, it is recommended to set 'connectionTimeout' =
@@ -87,42 +92,64 @@ data WorkerLauncher j = WorkerLauncher
   , onServiceExit      :: ServiceId -> Process ()
   }
 
+-- | Type for basic master to worker messaging
+data WorkerControlMessage = Connected | ShutDown
+  deriving (Read, Show, Generic, Binary)
+
+-- | Something on the master that a worker can connect to in order to
+-- get instructions
+data Service = MkService
+  { serviceId      :: ServiceId
+  , workerInfoPort :: SendPort WorkerInfo
+  }
+  deriving (Show, Generic, Binary)
+
+-- | Info about a worker that a master needs to run computations on it
+-- and shut it down.
+data WorkerInfo = MkWorkerInfo
+  { workerNodeId          :: NodeId
+  , workerControlSendPort :: SendPort WorkerControlMessage
+  }
+  deriving (Show, Generic, Binary)
+
+encodeService :: Service -> Text
+encodeService = undefined
+
+decodeService :: Text -> Service
+decodeService = undefined
+
+serviceNodeId :: Service -> NodeId
+serviceNodeId = processNodeId . sendPortProcessId . sendPortId . workerInfoPort
+
 emptyStoreCancelAction :: ServiceId -> j -> IO () -> Process ()
 emptyStoreCancelAction _ _ _ = pure ()
 
 emptyOnServiceExit :: ServiceId -> Process ()
 emptyOnServiceExit _ = pure ()
 
--- | Type for basic master to worker messaging
-data WorkerMessage = Connected | ShutDown
-  deriving (Read, Show, Generic, Binary)
-
 -- | The main worker process.
 --
--- Repeatedly (at most 5 times) send our own 'ProcessId' and the send
--- end of a typed channel ('SendPort' 'WorkerMessage') to a master
+-- Repeatedly (at most 5 times) send our own 'WorkerInfo' to a master
 -- node until it replies 'Connected' (timeout 10 seconds for each
--- attempt).  Then 'expect' a 'ShutDown' signal.
+-- attempt).  Then wait for a 'ShutDown' signal.
 --
 -- While waiting, other processes will be run in a different thread,
--- invoked by master through our 'NodeId' (which it extracts from 'ProcessId')
-worker
-  :: NodeId     -- ^ 'NodeId' of the master node
-  -> ServiceId  -- ^ 'ServiceId' of master 'Process' (should be 'register'ed)
-  -> Process ()
-worker masterNode serviceId@(ServiceId masterService) = do
-  self <- getSelfPid
-  (sendPort, receivePort) <- newChan
+-- invoked by master through our 'NodeId'.
+runWorker :: Service -> Process ()
+runWorker service = do
+  selfNodeId <- getSelfNode
+  (controlSendPort, controlReceivePort) <- newChan
+  let
+    myWorkerInfo = MkWorkerInfo selfNodeId controlSendPort
+    connectToMaster = do
+      Log.info "Connecting to master" service
+      sendChan service.workerInfoPort myWorkerInfo
+      receiveChanTimeout (10*1000*1000) controlReceivePort
 
-  let connectToMaster = MaybeT $ do
-        Log.info "Connecting to master" masterNode
-        nsendRemote masterNode masterService (self, serviceId, sendPort)
-        receiveChanTimeout (10*1000*1000) receivePort
-
-  runMaybeT (asum (replicate 5 connectToMaster)) >>= \case
+  runMaybeT (asum (replicate 5 (MaybeT connectToMaster))) >>= \case
     Just Connected -> do
       Log.text "Successfully connected to master."
-      expect >>= \case
+      receiveChan controlReceivePort >>= \case
         Connected -> Log.throwError "Unexpected 'Connected' received."
         ShutDown  -> Log.text "Shutting down."
     _ -> Log.text "Couldn't connect to master" >> die ()
@@ -137,42 +164,40 @@ worker masterNode serviceId@(ServiceId masterService) = do
 --
 -- The call to the user function is 'bracket'ed by worker startup and
 -- shutdown procedures.
-withService
+withWorker
   :: Show j
   => WorkerLauncher j
   -> (NodeId -> ServiceId -> Process a)
   -> Process a
-withService launcher go = withServiceId $ \serviceId -> do
-  nid <- getSelfNode
+withWorker launcher go = do
+  serviceId <- newServiceId
+  (workerInfoSendPort, workerInfoRecievePort) <- newChan
+  let myService = MkService serviceId workerInfoSendPort
   -- fire up a remote worker with instructions to contact this node
-  withLaunchedWorker launcher nid serviceId $ \jobId -> do
+  withLaunchedWorker launcher myService $ \jobId -> do
     Log.info "Deployed worker" (serviceId, jobId)
     myThread <- liftIO myThreadId
     let cancelMe = throwTo myThread (RemoteError serviceId RemoteAsyncCancelled)
     launcher.storeCancelAction serviceId jobId cancelMe
     -- Wait for the worker to connect and send its id
     let
-      awaitWorker = do
+      acquireWorker = do
         connectionResult <- case launcher.connectionTimeout of
-          Just t  -> expectTimeout (nominalDiffTimeToMicroseconds t)
-          Nothing -> fmap Just expect
+          Just t  -> receiveChanTimeout (nominalDiffTimeToMicroseconds t) workerInfoRecievePort
+          Nothing -> fmap Just (receiveChan workerInfoRecievePort)
         case connectionResult of
           Nothing -> Log.throw (WorkerConnectionTimeout serviceId)
-          Just (workerId :: ProcessId, workerServiceId :: ServiceId, _ :: SendPort WorkerMessage)
-            | workerServiceId /= serviceId -> do
-                Log.info "Ignoring message from unknown worker" (workerServiceId, jobId, workerId)
-                awaitWorker
-          Just (workerId :: ProcessId, _ :: ServiceId, replyTo :: SendPort WorkerMessage)
-            | otherwise -> do
-                Log.info "Acquired worker" (serviceId, jobId, workerId)
-                -- Confirm that the worker connected successfully
-                sendChan replyTo Connected
-                return workerId
-      shutdownWorker workerId = do
+          Just workerInfo -> do
+            Log.info "Acquired worker" (serviceId, jobId, workerInfo.workerNodeId)
+            -- Confirm that the worker connected successfully
+            sendChan workerInfo.workerControlSendPort Connected
+            return workerInfo
+      releaseWorker workerInfo = do
         Log.info "Worker finished" (serviceId, jobId)
         launcher.onServiceExit serviceId
-        send workerId ShutDown
-    bracket awaitWorker shutdownWorker (\wId -> go (processNodeId wId) serviceId)
+        sendChan workerInfo.workerControlSendPort ShutDown
+      useWorker workerInfo = go workerInfo.workerNodeId serviceId
+    bracket acquireWorker releaseWorker useWorker
 
 -- * Functions related to running remote functions
 
@@ -220,15 +245,15 @@ withRemoteRunProcess launcher go =
   goWithRemote `catch` \e -> onRemoteError launcher e (withRemoteRunProcess launcher go)
   where
     goWithRemote =
-      withService launcher $ \workerNodeId serviceId ->
+      withWorker launcher $ \workerNodeId serviceId ->
       go $ \serailizableClosureProcess -> do
       c <- getClosure serailizableClosureProcess
       a <- wait =<< async (task $ call' serailizableClosureProcess.staticSDict workerNodeId c)
       case a of
         AsyncDone (Right result) -> pure result
-        -- By throwing an exception out of withService, we ensure that
+        -- By throwing an exception out of withWorker, we ensure that
         -- the offending worker will be sent the ShutDown signal,
-        -- since withService uses 'bracket'
+        -- since withWorker uses 'bracket'
         AsyncDone (Left err)     -> throwM $ RemoteError serviceId $ RemoteException err
         AsyncFailed reason       -> throwM $ RemoteError serviceId $ RemoteAsyncFailed reason
         AsyncLinkFailed reason   -> throwM $ RemoteError serviceId $ RemoteAsyncLinkFailed reason

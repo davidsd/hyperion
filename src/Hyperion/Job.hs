@@ -41,12 +41,12 @@ import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Static             (Closure, Static (..), cAp, cPure)
 import Hyperion.Util               (myExecutable, retryRepeated,
                                     runCmdLocalAsync, runCmdLocalLog)
-import Hyperion.Worker             (WorkerConnectionTimeout,
+import Hyperion.Worker             (WorkerConnectionTimeout, Service(..),
                                     WorkerLauncher (..), emptyOnServiceExit,
                                     emptyStoreCancelAction,
                                     getWorkerStaticConfig,
                                     mkSerializableClosureProcess,
-                                    withRemoteRunProcess, worker)
+                                    withRemoteRunProcess, runWorker)
 import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
                                     WorkerAddr, WorkerCpuPool)
 import Hyperion.WorkerCpuPool      qualified as WCP
@@ -152,9 +152,9 @@ defaultPoolLauncher
   -> NumCPUs
   -> WorkerLauncher JobId
 defaultPoolLauncher workerCpuPool launcherMap nCpus = WorkerLauncher
-  { withLaunchedWorker = \nodeId serviceId goJobId ->
+  { withLaunchedWorker = \service goJobId ->
       WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->
-      withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
+      withLaunchedWorker (launcherMap Map.! addr) service goJobId
   , connectionTimeout = Nothing
   , onRemoteError     = \e _ -> throwM e
   , storeCancelAction = emptyStoreCancelAction
@@ -222,9 +222,9 @@ runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy stat
   workerCpuPool <- liftIO $ WCP.newPool Map.empty
   let
     localLauncher = WorkerLauncher
-      { withLaunchedWorker = \nid serviceId goJobId -> do
-          _ <- spawnLocal (worker nid serviceId)
-          goJobId (JobName (serviceIdToText serviceId))
+      { withLaunchedWorker = \service goJobId -> do
+          _ <- spawnLocal (runWorker service)
+          goJobId (JobName (serviceIdToText service.serviceId))
       , connectionTimeout = Nothing
       , onRemoteError     = \e _ -> throwM e
       , storeCancelAction = emptyStoreCancelAction
@@ -261,10 +261,10 @@ workerLauncherWithRunCmd
 workerLauncherWithRunCmd logDir runCmd = liftIO $ do
   hyperionExec <- myExecutable
   pure $ WorkerLauncher
-    { withLaunchedWorker = \nid serviceId goJobId -> do
-        let jobId = JobName (serviceIdToText serviceId)
-            logFile = logDir </> T.unpack (serviceIdToText serviceId) <.> "log"
-        runCmd (hyperionWorkerCommand hyperionExec nid serviceId logFile)
+    { withLaunchedWorker = \service goJobId -> do
+        let jobId = JobName (serviceIdToText service.serviceId)
+            logFile = logDir </> T.unpack (serviceIdToText service.serviceId) <.> "log"
+        runCmd (hyperionWorkerCommand hyperionExec service logFile)
         goJobId jobId
     , connectionTimeout = Nothing
     , onRemoteError     = \e _ -> throwM e
