@@ -117,18 +117,29 @@ data WorkerInfo = MkWorkerInfo
   }
   deriving (Show, Generic, Binary)
 
+-- | Encode a 'Service' to url-safe base64 encoded binary. Used for
+-- passing the 'Service' on the command line.
 encodeService :: Service -> Text
 encodeService = encodeBinaryToBase64
 
+-- | Decode a 'Service' from url-safe base64 encoded binary. Used for
+-- parsing from a command line argument. This function should be the
+-- inverse of 'encodeService':
+--
+-- Right s == decodeService (encodeService s)
+--
 decodeService :: Text -> Either String Service
 decodeService = decodeBinaryFromBase64
 
+-- | The 'NodeId' of the master associated with the given 'Service'
 serviceNodeId :: Service -> NodeId
 serviceNodeId = processNodeId . sendPortProcessId . sendPortId . workerInfoPort
 
+-- | Ignore the given cancel action.
 emptyStoreCancelAction :: ServiceId -> j -> IO () -> Process ()
 emptyStoreCancelAction _ _ _ = pure ()
 
+-- | Do nothing when the 'Service' is finished.
 emptyOnServiceExit :: ServiceId -> Process ()
 emptyOnServiceExit _ = pure ()
 
@@ -159,6 +170,15 @@ runWorker service = do
         ShutDown  -> Log.text "Shutting down."
     _ -> Log.text "Couldn't connect to master" >> die ()
 
+-- | receiveChan with an optional timeout
+receiveChanMaybeTimeout
+  :: (Binary a, Typeable a)
+  => Maybe NominalDiffTime
+  -> ReceivePort a
+  -> Process (Maybe a)
+receiveChanMaybeTimeout (Just t) = receiveChanTimeout (nominalDiffTimeToMicroseconds t)
+receiveChanMaybeTimeout Nothing  = fmap Just . receiveChan
+
 -- | Start a new remote worker using 'WorkerLauncher' and call a
 -- continuation with the 'NodeId' and 'ServiceId' of that worker. The
 -- continuation is run in the process that is registered under the
@@ -178,18 +198,16 @@ withWorker launcher go = do
   serviceId <- newServiceId
   (workerInfoSendPort, workerInfoRecievePort) <- newChan
   let myService = MkService serviceId workerInfoSendPort
-  -- fire up a remote worker with instructions to contact this node
+  -- Start a remote worker with instructions to contact this 'Service'
   withLaunchedWorker launcher launcher.overrideToLogPath myService $ \jobId -> do
     Log.info "Deployed worker" (serviceId, jobId)
     myThread <- liftIO myThreadId
     let cancelMe = throwTo myThread (RemoteError serviceId RemoteAsyncCancelled)
     launcher.storeCancelAction serviceId jobId cancelMe
-    -- Wait for the worker to connect and send its id
     let
+      -- Wait for the worker to connect and send its 'WorkerInfo'
       acquireWorker = do
-        connectionResult <- case launcher.connectionTimeout of
-          Just t  -> receiveChanTimeout (nominalDiffTimeToMicroseconds t) workerInfoRecievePort
-          Nothing -> fmap Just (receiveChan workerInfoRecievePort)
+        connectionResult <- receiveChanMaybeTimeout launcher.connectionTimeout workerInfoRecievePort
         case connectionResult of
           Nothing -> Log.throw (WorkerConnectionTimeout serviceId)
           Just workerInfo -> do
@@ -197,6 +215,7 @@ withWorker launcher go = do
             -- Confirm that the worker connected successfully
             sendChan workerInfo.workerControlSendPort Connected
             return workerInfo
+      -- Send the 'ShutDown' message to the worker
       releaseWorker workerInfo = do
         Log.info "Worker finished" (serviceId, jobId)
         launcher.onServiceExit serviceId
@@ -288,6 +307,17 @@ mkSerializableClosureProcess bDict mb = do
     , staticSDict       = static (\Dict -> SerializableDict) `ptrAp` bDict
     , closureVar        = v
     }
+
+-- * Initializing the 'RemoteTable' for a worker.
+
+-- | Each worker needs to have access to the master 'NodeId' and
+-- 'HyperionStaticConfig'. We make this information available by the
+-- RemoteTable for the worker, which is a mapping from 'String' labels
+-- to data available in the 'Process' monad. An alternative would be
+-- for the master to send this data each time it spawns a process on a
+-- 'Worker'. Note that 'getMasterNodeId' and 'getWorkerStaticConfig'
+-- will fail if called in a 'Process' that was not started with
+-- 'initWorkerRemoteTable'.
 
 masterNodeIdLabel :: String
 masterNodeIdLabel = "masterNodeIdLabel"
