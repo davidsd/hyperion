@@ -4,7 +4,7 @@
 
 module Hyperion.Command where
 
-import Data.Text           qualified as T
+import Data.Text           qualified as Text
 import Hyperion.Worker     (Service (..), decodeService, encodeService)
 import Options.Applicative (Parser, ReadM, eitherReader, help, long, metavar,
                             option, strOption)
@@ -19,17 +19,23 @@ data Worker = Worker
   } deriving Show
 
 serviceReader :: ReadM Service
-serviceReader = eitherReader $ \s -> decodeService (T.pack s)
+serviceReader = eitherReader (decodeService . Text.pack)
+
+serviceArg :: String
+serviceArg = "service"
+
+logFileArg :: String
+logFileArg = "logFile"
 
 -- | Parses worker command-line arguments. Essentially inverse to 'hyperionWorkerCommand'.
 workerOpts :: Parser Worker
 workerOpts = do
   workerService <- option serviceReader
-    (long "service"
+    (long serviceArg
       <> metavar "SERVICE"
       <> help "Service on master process (binary encoded)")
   workerLogFile <- strOption
-    (long "logFile"
+    (long logFileArg
       <> metavar "PATH"
       <> help "Path for worker log file")
   return Worker{..}
@@ -37,9 +43,9 @@ workerOpts = do
 -- | Returns the @(command, [arguments])@ to run the worker process
 hyperionWorkerCommand :: FilePath -> Service -> FilePath -> (String, [String])
 hyperionWorkerCommand hyperionExecutable service logFile =
-  (hyperionExecutable, map T.unpack args)
-  where
-    args = [ "worker"
-           , "--service", encodeService service
-           , "--logFile", T.pack logFile
-           ]
+  ( hyperionExecutable
+  , [ "worker"
+    , "--"<>serviceArg, Text.unpack $ encodeService service
+    , "--"<>logFileArg, logFile
+    ]
+  )
