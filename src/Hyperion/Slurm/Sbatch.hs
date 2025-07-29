@@ -1,7 +1,7 @@
-{-# LANGUAGE DeriveAnyClass    #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Hyperion.Slurm.Sbatch where
 
@@ -32,33 +32,33 @@ data SbatchError = SbatchError
 data SbatchOptions = SbatchOptions
   {
   -- | Job name (\"--job-name\")
-    jobName       :: Maybe Text
+    jobName        :: Maybe Text
   -- | Working directory for the job (\"--D\")
-  , chdir         :: Maybe FilePath
+  , chdir          :: Maybe FilePath
   -- | Where to direct 'stdout' of the job (\"--output\")
-  , output        :: Maybe FilePath
+  , output         :: Maybe FilePath
   -- | Number of nodes (\"--nodes\")
-  , nodes         :: Int
+  , nodes          :: Int
   -- | Number of tasks per node (\"--ntasks-per-node\")
-  , nTasksPerNode :: Int
+  , nTasksPerNode  :: Int
   -- | Job time limit (\"--time\")
-  , time          :: NominalDiffTime
+  , time           :: NominalDiffTime
   -- | Memory per node, use suffix K,M,G, or T to define the units. (\"--mem\")
-  , mem           :: Maybe Text
+  , mem            :: Maybe Text
   -- | (\"--mail-type\")
-  , mailType      :: Maybe Text
+  , mailType       :: Maybe Text
   -- | (\"--mail-user\")
-  , mailUser      :: Maybe Text
+  , mailUser       :: Maybe Text
   -- | @SLURM@ partition (\"--partition\")
-  , partition     :: Maybe Text
+  , partition      :: Maybe Text
   -- | (\"--constraint")
-  , constraint    :: Maybe Text
+  , constraint     :: Maybe Text
   -- | (\"--account")
-  , account       :: Maybe Text
+  , account        :: Maybe Text
   -- | (\"--qos")
-  , qos           :: Maybe Text
+  , qos            :: Maybe Text
   -- | (\"--no-requeue")
-  , noRequeue     :: Bool
+  , noRequeue      :: Bool
   -- | code to inject in sbatch script before the commands
   , scriptPreamble :: Maybe Text
   } deriving (Show)
@@ -86,26 +86,26 @@ defaultSbatchOptions = SbatchOptions
 
 -- | Convert 'SbatchOptions' to a string of options for @sbatch@
 sBatchOptionString :: SbatchOptions -> String
-sBatchOptionString SbatchOptions{..} =
+sBatchOptionString opts =
   unwords [ opt ++ " " ++ val | (opt, Just val) <- optPairs]
   where
     optPairs =
-      [ ("--job-name",        fmap T.unpack jobName)
+      [ ("--job-name",        fmap T.unpack opts.jobName)
       -- sbatch changed this option from workdir to chdir
       -- at some point, so we need to use the short name
-      , ("-D",                chdir)
-      , ("--output",          output)
-      , ("--nodes",           Just (show nodes))
-      , ("--ntasks-per-node", Just (show nTasksPerNode))
-      , ("--time",            Just (formatRuntime time))
-      , ("--mem",             fmap T.unpack mem)
-      , ("--mail-type",       fmap T.unpack mailType)
-      , ("--mail-user",       fmap T.unpack mailUser)
-      , ("--partition",       fmap T.unpack partition)
-      , ("--constraint",      fmap T.unpack constraint)
-      , ("--account",         fmap T.unpack account)
-      , ("--qos",             fmap T.unpack qos)
-      , ("--no-requeue",      if noRequeue then Just "" else Nothing)
+      , ("-D",                opts.chdir)
+      , ("--output",          opts.output)
+      , ("--nodes",           Just (show opts.nodes))
+      , ("--ntasks-per-node", Just (show opts.nTasksPerNode))
+      , ("--time",            Just (formatRuntime opts.time))
+      , ("--mem",             fmap T.unpack opts.mem)
+      , ("--mail-type",       fmap T.unpack opts.mailType)
+      , ("--mail-user",       fmap T.unpack opts.mailUser)
+      , ("--partition",       fmap T.unpack opts.partition)
+      , ("--constraint",      fmap T.unpack opts.constraint)
+      , ("--account",         fmap T.unpack opts.account)
+      , ("--qos",             fmap T.unpack opts.qos)
+      , ("--no-requeue",      if opts.noRequeue then Just "" else Nothing)
       ]
 
 sbatchOutputParser :: Parser JobId
@@ -118,7 +118,7 @@ sbatchScript :: SbatchOptions -> String -> IO JobId
 sbatchScript opts script = do
   mapM_ (createDirectoryIfMissing True) $
     catMaybes [ chdir opts
-              , fmap takeDirectory (output opts)
+              , fmap takeDirectory opts.output
               ]
   result@(exit, out, _) <- readCreateProcessWithExitCode (shell pipeToSbatch) ""
   case (exit, parseOnly sbatchOutputParser (T.pack out)) of
@@ -126,8 +126,8 @@ sbatchScript opts script = do
     _                      -> Log.throw (SbatchError result pipeToSbatch)
   where
     pipeToSbatch = "printf '" ++ wrappedScript ++ "' | sbatch " ++ sBatchOptionString opts
-    preamble = case scriptPreamble opts of
-      Just t -> T.unpack t ++ "\n"
+    preamble = case opts.scriptPreamble of
+      Just t  -> T.unpack t ++ "\n"
       Nothing -> ""
     wrappedScript = "#!/bin/sh\n" ++ preamble ++ script
 

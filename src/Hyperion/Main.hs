@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RecordWildCards     #-}
 
 module Hyperion.Main where
 
@@ -120,16 +119,17 @@ hyperionMain programOpts mkHyperionConfig hyperionStaticConfig clusterProgram = 
 
     serverState <- newServerState
     withHyperionServer serverState $ \serverPort -> do
-      (clusterEnv@ClusterEnv{..}, hyperionExecutable) <- newClusterEnv hyperionConfig
-                                                         hyperionStaticConfig serverState serverPort
-      let progId = programId clusterProgramInfo
-          masterLogFile = programLogDir clusterProgramInfo <.> "log"
+      (clusterEnv, hyperionExecutable) <-
+        newClusterEnv hyperionConfig hyperionStaticConfig serverState serverPort
+      let
+        programInfo = clusterEnv.clusterProgramInfo
+        masterLogFile = programInfo.programLogDir <.> "log"
       pid <- getProcessID
       let logMasterInfo = do
-            Log.info "Program id" progId
+            Log.info "Program id" programInfo.programId
             Log.info "Process id" pid
             Log.info "Program arguments" args
-            Log.info "Using database" (programDatabase clusterProgramInfo)
+            Log.info "Using database" programInfo.programDatabase
             Log.info "Running server on port" serverPort
       Log.rawText "--------------------------------------------------------------------------------\n"
       logMasterInfo
@@ -137,11 +137,11 @@ hyperionMain programOpts mkHyperionConfig hyperionStaticConfig clusterProgram = 
       Log.flush
       Log.redirectToFile masterLogFile
       logMasterInfo
-      runDBWithProgramInfo clusterProgramInfo DB.setupKeyValTable
+      runDBWithProgramInfo programInfo DB.setupKeyValTable
       try (runCluster clusterEnv (clusterProgram args)) >>= \case
         Left (e :: SomeException) -> Log.throw e
         Right () -> do
           unless (isJust (hyperionCommand hyperionConfig)) $
             removeFile hyperionExecutable
-          Log.info "Finished" progId
+          Log.info "Finished" programInfo.programId
     logMemoryUsage

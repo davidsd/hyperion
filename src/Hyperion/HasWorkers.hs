@@ -1,7 +1,4 @@
 {-# OPTIONS_GHC -fno-warn-orphans  #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE StaticPointers        #-}
-{-# LANGUAGE TypeFamilies          #-}
 
 module Hyperion.HasWorkers where
 
