@@ -192,7 +192,8 @@ remoteRunCmd addr (SSH sshCmd) (cmd, args) =
     (ssh, sshOpts) = fromMaybe defaultCmd sshCmd
     sshArgs =
       sshOpts
-        ++ [addr, shellEsc "sh" ["-c", shellEsc "nohup" (cmd : args) ++ " &"]]
+      -- NB: without /dev/null, nohup waits in some cases, e.g. ("sleep", ["5s"])
+        ++ [addr, shellEsc "sh" ["-c", shellEsc "nohup" (cmd : args) ++ " >/dev/null 2>&1 </dev/null &"]]
     -- update the haddock above if changing this default.
     defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"])
 remoteRunCmd addr (SRun srunCmd) (cmd, args) = runCmdLocalAsync (srun, srunArgs)
