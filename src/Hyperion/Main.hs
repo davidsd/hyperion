@@ -16,6 +16,7 @@ import Hyperion.Config           (HyperionConfig (..),
                                   HyperionStaticConfig (..))
 import Hyperion.Database         qualified as DB
 import Hyperion.Log              qualified as Log
+import Hyperion.OsPath           ((<.>))
 import Hyperion.Remote           (runProcessLocalWithRT)
 import Hyperion.Server           (newServerState, withHyperionServer)
 import Hyperion.Util             (logMemoryUsage)
@@ -23,9 +24,8 @@ import Hyperion.Worker           (initWorkerRemoteTable, runWorker,
                                   serviceNodeId)
 import Options.Applicative
 import System.Console.Concurrent (withConcurrentOutput)
-import System.Directory          (removeFile)
+import System.Directory.OsPath   (removeFile)
 import System.Environment        (getEnvironment)
-import System.FilePath.Posix     ((<.>))
 import System.Posix.Process      (getProcessID)
 import System.Posix.Signals      (Handler (..), installHandler, raiseSignal,
                                   sigINT, sigTERM)

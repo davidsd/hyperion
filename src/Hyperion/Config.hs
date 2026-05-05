@@ -2,17 +2,18 @@
 
 module Hyperion.Config where
 
-import Data.Text              qualified as T
-import Data.Time.Clock        (NominalDiffTime)
-import Data.Time.Format       (defaultTimeLocale, formatTime)
-import Data.Time.LocalTime    (getZonedTime)
-import Hyperion.Log           qualified as Log
+import Data.Time.Clock         (NominalDiffTime)
+import Data.Time.Format        (defaultTimeLocale, formatTime)
+import Data.Time.LocalTime     (getZonedTime)
+import Hyperion.Log            qualified as Log
+import Hyperion.OsPath         (OsPath, takeBaseName, takeDirectory, (<.>),
+                                (</>))
+import Hyperion.OsString       (OsString, fromString)
 import Hyperion.ProgramId
-import Hyperion.Remote        (HostNameStrategy, defaultHostNameStrategy)
-import Hyperion.Slurm         qualified as Slurm
-import Hyperion.WorkerCpuPool (CommandTransport, defaultCommandTransport)
-import System.Directory       (copyFile, createDirectoryIfMissing)
-import System.FilePath.Posix  (takeBaseName, takeDirectory, (<.>), (</>))
+import Hyperion.Remote         (HostNameStrategy, defaultHostNameStrategy)
+import Hyperion.Slurm          qualified as Slurm
+import Hyperion.WorkerCpuPool  (CommandTransport, defaultCommandTransport)
+import System.Directory.OsPath (copyFile, createDirectoryIfMissing)
 
 -- | Global configuration
 data HyperionConfig = HyperionConfig
@@ -21,24 +22,24 @@ data HyperionConfig = HyperionConfig
   , -- | Maximum number of jobs to submit at a time
     maxSlurmJobs         :: Maybe Int
     -- | Base directory for working dirs produced by 'newWorkDir'
-  , dataDir              :: FilePath
+  , dataDir              :: OsPath
     -- | Base directory for all the log files
-  , logDir               :: FilePath
+  , logDir               :: OsPath
     -- | Base directory for databases
-  , databaseDir          :: FilePath
+  , databaseDir          :: OsPath
     -- | Base directory for copies of the main executable
-  , execDir              :: FilePath
+  , execDir              :: OsPath
     -- | Base directory for SLURM job files
-  , jobDir               :: FilePath
+  , jobDir               :: OsPath
     -- | The command to run the main executable. Automatic if 'Nothing' (see 'newClusterEnv')
-  , hyperionCommand      :: Maybe FilePath
+  , hyperionCommand      :: Maybe OsPath
     -- | The database from which to initiate the program database
-  , initialDatabase      :: Maybe FilePath
+  , initialDatabase      :: Maybe OsPath
     -- | Email address for cluster notifications from
     -- hyperion. Nothing means no emails will be sent. Note that this
     -- setting can be different from the one in defaultSbatchOptions,
     -- which controls notifications from SLURM.
-  , emailAddr            :: Maybe T.Text
+  , emailAddr            :: Maybe OsString
   }
 
 -- | Global static (compile-time) configuration. This is directly accessible to the master and to the workers
@@ -56,7 +57,7 @@ data HyperionStaticConfig = HyperionStaticConfig
 
 -- | Default configuration, with all paths built form a single
 -- 'baseDirectory'
-defaultHyperionConfig :: FilePath -> HyperionConfig
+defaultHyperionConfig :: OsPath -> HyperionConfig
 defaultHyperionConfig baseDirectory = HyperionConfig
   { defaultSbatchOptions = Slurm.defaultSbatchOptions
   , maxSlurmJobs         = Nothing
@@ -88,13 +89,13 @@ defaultHyperionStaticConfig = HyperionStaticConfig
 -- The path is in subdirectory @YYYY-mm@ (determined by current date) of base directory.
 --
 -- If inital database is given, then the new database is initilized with its contents.
-newDatabasePath :: Maybe FilePath -> FilePath -> ProgramId -> IO FilePath
+newDatabasePath :: Maybe OsPath -> OsPath -> ProgramId -> IO OsPath
 newDatabasePath mOldDb baseDir progId = do
   let base = case mOldDb of
         Nothing -> ""
-        Just f  -> takeBaseName f ++ "-"
+        Just f  -> takeBaseName f <> "-"
   date <- formatTime defaultTimeLocale "%Y-%m" <$> getZonedTime
-  let newDb = baseDir </> date </> (base ++ T.unpack (programIdToText progId)) <.> "sqlite"
+  let newDb = baseDir </> fromString date </> (base <> programIdToOsString progId) <.> "sqlite"
   createDirectoryIfMissing True (takeDirectory newDb)
   case mOldDb of
     Nothing -> return ()
@@ -105,7 +106,7 @@ newDatabasePath mOldDb baseDir progId = do
 
 -- | Given base directory and 'ProgramId' (@==XXXXX@), returns the @YYYY-mm/XXXXX@
 -- subdirectory of the base directory (determined by current date).
-timedProgramDir :: FilePath -> ProgramId -> IO FilePath
+timedProgramDir :: OsPath -> ProgramId -> IO OsPath
 timedProgramDir baseDir progId = do
   date <- formatTime defaultTimeLocale "%Y-%m" <$> getZonedTime
-  return $ baseDir </> date </> T.unpack (programIdToText progId)
+  return $ baseDir </> fromString date </> programIdToOsString progId

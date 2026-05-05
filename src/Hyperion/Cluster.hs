@@ -18,7 +18,6 @@ import Data.Aeson                       (FromJSON, ToJSON)
 import Data.Binary                      (Binary)
 import Data.Constraint                  (Dict (..))
 import Data.Maybe                       (fromMaybe)
-import Data.Text                        (Text)
 import Data.Text                        qualified as Text
 import Data.Time.Clock                  (NominalDiffTime)
 import Data.Typeable                    (Typeable)
@@ -31,13 +30,15 @@ import Hyperion.Database                qualified as DB
 import Hyperion.HasWorkers              (HasWorkerLauncher (..))
 import Hyperion.LockMap                 (LockMap, newLockMap, registerLockMap)
 import Hyperion.Log                     qualified as Log
-import Hyperion.ObjectId                (getObjectId, objectIdToString)
+import Hyperion.ObjectId                (getObjectId, objectIdToOsString)
+import Hyperion.OsPath                  (OsPath, (<.>), (</>))
+import Hyperion.OsString                (OsString, toText)
 import Hyperion.ProgramId               (ProgramId, newProgramId,
-                                         programIdToText)
+                                         programIdToOsString)
 import Hyperion.Remote                  (runProcessLocalWithRT)
 import Hyperion.Server                  (ServerState)
 import Hyperion.Server                  qualified as Server
-import Hyperion.ServiceId               (ServiceId, serviceIdToString,
+import Hyperion.ServiceId               (ServiceId, serviceIdToOsString,
                                          serviceIdToText)
 import Hyperion.Slurm                   (JobId (..), SbatchError,
                                          SbatchOptions (..), sbatchCommand)
@@ -49,8 +50,7 @@ import Hyperion.Util                    (emailError, retryExponential,
 import Hyperion.Worker                  (RemoteError (..), Service (..),
                                          WorkerLauncher (..),
                                          registerMasterNodeId)
-import System.Directory                 (createDirectoryIfMissing)
-import System.FilePath.Posix            ((<.>), (</>))
+import System.Directory.OsPath          (createDirectoryIfMissing)
 
 -- * General comments
 -- $
@@ -126,9 +126,9 @@ import System.FilePath.Posix            ((<.>), (</>))
 -- | Type containing information about our program
 data ProgramInfo = ProgramInfo
   { programId       :: ProgramId
-  , programDatabase :: FilePath
-  , programLogDir   :: FilePath
-  , programDataDir  :: FilePath
+  , programDatabase :: OsPath
+  , programLogDir   :: OsPath
+  , programDataDir  :: OsPath
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 instance Static (Binary ProgramInfo) where closureDict = static Dict
@@ -199,7 +199,7 @@ setJobOptions c = modifyJobOptions (const c)
 setJobTime :: NominalDiffTime -> ClusterEnv -> ClusterEnv
 setJobTime t = modifyJobOptions $ \opts -> opts { time = t }
 
-setJobMemory :: Text -> ClusterEnv -> ClusterEnv
+setJobMemory :: OsString -> ClusterEnv -> ClusterEnv
 setJobMemory m = modifyJobOptions $ \opts -> opts { mem = Just m }
 
 setJobType :: MPIJob -> ClusterEnv -> ClusterEnv
@@ -208,16 +208,16 @@ setJobType job = modifyJobOptions $ \opts -> opts
   , nTasksPerNode = job.mpiNTasksPerNode
   }
 
-setSlurmPartition :: Text -> ClusterEnv -> ClusterEnv
+setSlurmPartition :: OsString -> ClusterEnv -> ClusterEnv
 setSlurmPartition p = modifyJobOptions $ \opts -> opts { partition = Just p }
 
-setSlurmConstraint :: Text -> ClusterEnv -> ClusterEnv
+setSlurmConstraint :: OsString -> ClusterEnv -> ClusterEnv
 setSlurmConstraint c = modifyJobOptions $ \opts -> opts { constraint = Just c }
 
-setSlurmAccount :: Text -> ClusterEnv -> ClusterEnv
+setSlurmAccount :: OsString -> ClusterEnv -> ClusterEnv
 setSlurmAccount a = modifyJobOptions $ \opts -> opts { account = Just a }
 
-setSlurmQos :: Text -> ClusterEnv -> ClusterEnv
+setSlurmQos :: OsString -> ClusterEnv -> ClusterEnv
 setSlurmQos a = modifyJobOptions $ \opts -> opts { qos = Just a }
 
 -- | The default number of retries to use in 'withConnectionRetry'. Set to 20.
@@ -246,11 +246,11 @@ dbConfigFromProgramInfo pInfo = do
 --       from the values in 'HyperionConfig' and 'programId'.
 --     * 'slurmWorkerLauncher' is used for 'clusterWorkerLauncher'
 --     * 'clusterDatabaseRetries' is set to 'defaultDBRetries'.
-newClusterEnv :: HyperionConfig -> HyperionStaticConfig -> ServerState -> Int -> IO (ClusterEnv, FilePath)
+newClusterEnv :: HyperionConfig -> HyperionStaticConfig -> ServerState -> Int -> IO (ClusterEnv, OsPath)
 newClusterEnv HyperionConfig{..} clusterStaticConfig serverState holdPort = do
   programId    <- newProgramId
   hyperionExec <- maybe
-    (savedExecutable execDir (Text.unpack (programIdToText programId)))
+    (savedExecutable execDir (programIdToOsString programId))
     return
     hyperionCommand
   programDatabase <- newDatabasePath initialDatabase databaseDir programId
@@ -270,10 +270,10 @@ runDBWithProgramInfo pInfo m = do
   dbConfigFromProgramInfo pInfo >>= runReaderT m
 
 slurmWorkerLauncher
-  :: Maybe Text      -- ^ Email address to send notifications to if sbatch
+  :: Maybe OsString      -- ^ Email address to send notifications to if sbatch
                      -- fails or there is an error in a remote
                      -- job. 'Nothing' means no emails will be sent.
-  -> FilePath        -- ^ Path to this hyperion executable
+  -> OsPath        -- ^ Path to this hyperion executable
   -> ServerState     -- ^ ServerState used by the Server
   -> Int             -- ^ Port used by the Server (needed for error messages)
   -> TokenPool       -- ^ TokenPool for throttling the number of submitted jobs
@@ -289,7 +289,7 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
 
     emailAlertUser :: (MonadIO m, Show e) => e -> m ()
     emailAlertUser e = case emailAddr of
-      Just toAddr -> emailError toAddr e
+      Just toAddr -> emailError (toText toAddr) e
       Nothing     -> return ()
 
     onRemoteError :: forall b . RemoteError -> Process b -> Process b
@@ -310,7 +310,7 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
       Log.info "Retrying" sId
       go
 
-    withLaunchedWorker :: forall b . Maybe (ServiceId -> FilePath) -> Service -> (JobId -> Process b) -> Process b
+    withLaunchedWorker :: forall b . Maybe (ServiceId -> OsPath) -> Service -> (JobId -> Process b) -> Process b
     withLaunchedWorker serviceIdToLogPath service goJobId = withToken sbatchTokenPool $ do
       jobId <- liftIO $
         -- Repeatedly run sbatch, with exponentially increasing time
@@ -319,14 +319,14 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
         -- propagate up from here because there is no obvious way to
         -- recover. TODO: maybe use the Server?
         retryExponential (try @IO @SbatchError) logSbatchError $
-        sbatchCommand opts' cmd (map Text.pack args)
+        sbatchCommand opts' cmd args
       goJobId jobId
       where
         progId = programId progInfo
-        defaultToLogPath serviceId = programLogDir progInfo </> serviceIdToString serviceId <.> "log"
+        defaultToLogPath serviceId = programLogDir progInfo </> serviceIdToOsString serviceId <.> "log"
         logFile = fromMaybe defaultToLogPath serviceIdToLogPath service.serviceId
         opts' = opts
-          { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText service.serviceId
+          { jobName = Just $ programIdToOsString progId <> "-" <> serviceIdToOsString service.serviceId
           }
         (cmd, args) = hyperionWorkerCommand hyperionExec service logFile
         logSbatchError e = do
@@ -355,10 +355,10 @@ newWorkDir
      , MonadIO m
      , MonadCatch m
      )
-  => a -> m FilePath
+  => a -> m OsPath
 newWorkDir = DB.memoizeWithMap (DB.KeyValMap "workDirectories") $ \obj -> do
   dataDir <- asks (programDataDir . toProgramInfo)
   objId <- getObjectId obj
-  let workDir = dataDir </> objectIdToString objId
+  let workDir = dataDir </> objectIdToOsString objId
   liftIO $ createDirectoryIfMissing True workDir
   return workDir

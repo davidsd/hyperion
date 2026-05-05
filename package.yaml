@@ -1,5 +1,5 @@
 name: hyperion
-version: '0.1.0.10'
+version: '0.2.0.0'
 author: David Simmons-Duffin
 maintainer: davidsd@gmail.com
 license: MIT
@@ -18,53 +18,57 @@ library:
     - condition: (flag(use-external-hostname))
       cpp-options: -DUSE_EXTERNAL_HOSTNAME
   dependencies:
-    - base
-    - process
-    - time
-    - random
-    - filepath
+    - aeson
+    - async
     - attoparsec
+    - base
+    - base64
+    - binary
+    - binaryhash
     - bytestring
-    - mtl
-    - text
-    - distributed-static
+    - bytestring-conversion
+    - concurrent-output
+    - constraints
+    - containers
+    - directory
     - distributed-process
     - distributed-process-async
-    - network-transport
-    - network-transport-tcp
+    - distributed-static
+    - exceptions
+    - extra
+    - file-io
+    - filepath
+    - hyperion-static
+    - lens
+    - mime-mail
+    - mtl
     - network
     - network-bsd
     - network-info
-    - unix
-    - binary
-    - transformers
-    - stm
-    - directory
-    - aeson
-    - containers
-    - pretty-show
-    - pretty
-    - exceptions
-    - lens
-    - extra
-    - concurrent-output
-    - shell-escape
-    - rank1dynamic
-    - sqlite-simple
-    - resource-pool
-    - transformers-base
+    - network-transport
+    - network-transport-tcp
     - optparse-applicative
+    - os-string
+    - pretty
+    - pretty-show
+    - process
+    - random
+    - rank1dynamic
+    - resource-pool
+    - rusage
     - servant-server
+    - shell-escape
+    - sqlite-simple
+    - stm
+    - text
+    - text-conversions
+    - time
+    - transformers
+    - transformers-base
+    - unix
+    - vector
     - wai
     - warp
-    - mime-mail
-    - binaryhash
-    - async
-    - constraints
-    - hyperion-static
-    - vector
-    - rusage
-    - base64
 
 executables:
   example-hello-world:
@@ -82,10 +86,10 @@ executables:
     main: Main.hs
     dependencies:
       - base
-      - hyperion
-      - optparse-applicative
       - distributed-process
+      - hyperion
       - mtl
+      - optparse-applicative
       - text
     ghc-options : -threaded
 
@@ -94,11 +98,11 @@ executables:
     main: Main.hs
     dependencies:
       - base
-      - hyperion
-      - text
       - binary
       - containers
+      - hyperion
       - hyperion-static
+      - text
     ghc-options : -threaded
 
   example-root-search:
@@ -107,7 +111,6 @@ executables:
     dependencies:
       - base
       - hyperion
-      - optparse-applicative
-      - filepath
       - mtl
+      - optparse-applicative
     ghc-options : -threaded

@@ -10,13 +10,14 @@ import Data.Text                 qualified as Text
 import Data.Time.Format          (defaultTimeLocale, formatTime)
 import Data.Time.LocalTime       (getZonedTime)
 import GHC.IO.Handle             (hDuplicateTo)
+import Hyperion.OsPath           (OsPath, takeDirectory)
 import System.Console.Concurrent (errorConcurrent)
-import System.Directory          (createDirectoryIfMissing)
-import System.FilePath.Posix     (takeDirectory)
-import System.IO                 (IOMode (..), hFlush, openFile, stderr, stdout)
+import System.Directory.OsPath   (createDirectoryIfMissing)
+import System.File.OsPath        (openFile)
+import System.IO                 (IOMode (..), hFlush, stderr, stdout)
 import System.IO.Unsafe          (unsafePerformIO)
-import Text.PrettyPrint          qualified as PP (render, text)
 import Text.PrettyPrint          ((<+>))
+import Text.PrettyPrint          qualified as PP (render, text)
 import Text.Show.Pretty          (ppDoc)
 
 -- * General comments
@@ -83,15 +84,15 @@ flush = do
   hFlush stderr
   hFlush stdout
 
-currentLogFile :: IORef (Maybe FilePath)
+currentLogFile :: IORef (Maybe OsPath)
 {-# NOINLINE currentLogFile #-}
 currentLogFile = unsafePerformIO (newIORef Nothing)
 
-getLogFile :: MonadIO m => m (Maybe FilePath)
+getLogFile :: MonadIO m => m (Maybe OsPath)
 getLogFile = liftIO (readIORef currentLogFile)
 
 -- | Redirects log output to file by rewrting 'stdout' and 'stderr' handles.
-redirectToFile :: FilePath -> IO ()
+redirectToFile :: OsPath -> IO ()
 redirectToFile logFile = do
   createDirectoryIfMissing True (takeDirectory logFile)
   -- Use AppendMode so that if the program is accidentally run twice

@@ -8,6 +8,7 @@ import Data.Binary                    (Binary)
 import Data.Text                      (Text, pack)
 import Database.SQLite.Simple.ToField qualified as Sql
 import GHC.Generics                   (Generic)
+import Hyperion.OsString              (OsString, fromText)
 import Hyperion.Util                  (randomString)
 
 newtype ProgramId = ProgramId Text
@@ -19,6 +20,9 @@ instance Sql.ToField ProgramId where
 
 programIdToText :: ProgramId -> Text
 programIdToText (ProgramId t) = t
+
+programIdToOsString :: ProgramId -> OsString
+programIdToOsString = fromText . programIdToText
 
 newProgramId :: IO ProgramId
 newProgramId = fmap (ProgramId . pack) (randomString 5)

@@ -1,13 +1,13 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.39.1.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4a91b0290b753fdc9e295974183698cea09853890c5275809bb0232ab051b725
+-- hash: 5f19d17bc4f553247e2b27c01fe701f577b5c0e559a101368545221561a02712
 
 name:           hyperion
-version:        0.1.0.10
+version:        0.2.0.0
 author:         David Simmons-Duffin
 maintainer:     davidsd@gmail.com
 license:        MIT
@@ -35,6 +35,8 @@ library
       Hyperion.Log
       Hyperion.Main
       Hyperion.ObjectId
+      Hyperion.OsPath
+      Hyperion.OsString
       Hyperion.ProgramId
       Hyperion.Remote
       Hyperion.Server
@@ -61,6 +63,7 @@ library
     , binary
     , binaryhash
     , bytestring
+    , bytestring-conversion
     , concurrent-output
     , constraints
     , containers
@@ -70,6 +73,7 @@ library
     , distributed-static
     , exceptions
     , extra
+    , file-io
     , filepath
     , hyperion-static
     , lens
@@ -81,6 +85,7 @@ library
     , network-transport
     , network-transport-tcp
     , optparse-applicative
+    , os-string
     , pretty
     , pretty-show
     , process
@@ -93,6 +98,7 @@ library
     , sqlite-simple
     , stm
     , text
+    , text-conversions
     , time
     , transformers
     , transformers-base
@@ -159,7 +165,6 @@ executable example-root-search
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
-    , filepath
     , hyperion
     , mtl
     , optparse-applicative

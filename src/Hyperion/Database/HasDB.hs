@@ -9,6 +9,8 @@ import Control.Monad.Reader   (MonadReader)
 import Data.Pool              qualified as Pool
 import Database.SQLite.Simple qualified as Sql
 import Hyperion.Log           qualified as Log
+import Hyperion.OsPath        (OsPath)
+import Hyperion.OsString      (toString)
 import Hyperion.ProgramId     (ProgramId)
 import Hyperion.Util          (retryExponential)
 import Prelude                hiding (lookup)
@@ -54,7 +56,7 @@ instance HasDB DatabaseConfig where
 type Pool = Pool.Pool Sql.Connection
 
 -- | Produces a default pool with connections to the SQLite DB in the given file
-newDefaultPool :: FilePath -> IO (Pool.Pool Sql.Connection)
+newDefaultPool :: OsPath -> IO (Pool.Pool Sql.Connection)
 newDefaultPool dbPath = do
   let
     stripes = 1
@@ -62,7 +64,7 @@ newDefaultPool dbPath = do
     poolSize = 1
   Pool.newPool $
     Pool.setNumStripes (Just stripes) $
-    Pool.defaultPoolConfig (Sql.open dbPath) Sql.close connectionTime (stripes * poolSize)
+    Pool.defaultPoolConfig (Sql.open $ toString dbPath) Sql.close connectionTime (stripes * poolSize)
 
 -- | Extracts the connection pool from the environment of our monad, gets a
 -- connection and runs the supplied function with it

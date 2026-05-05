@@ -44,10 +44,10 @@ import Control.Monad.Reader        (local)
 import Hyperion
 import Hyperion.Database.KeyValMap (KeyValMap (..), memoizeWithMap)
 import Hyperion.Log                qualified as Log
+import Hyperion.OsPath             (OsPath, (</>))
 import Hyperion.Slurm              qualified as Slurm
 import Options.Applicative         (Parser, auto, help, long, metavar, option,
                                     str)
-import System.FilePath.Posix       ((</>))
 
 -- | lower and upper bounds for some quantity
 type Bracket = (Double, Double)
@@ -128,7 +128,7 @@ data ProgramOptions = ProgramOptions
   , xMax          :: Double
   , eps           :: Double
   , nPoints       :: Int
-  , baseDirectory :: FilePath
+  , baseDirectory :: OsPath
   } deriving (Show)
 
 -- | Parser for command line arguments

@@ -3,6 +3,7 @@ module Hyperion.Slurm.Environment where
 import Control.Applicative       ((<|>))
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Data.Maybe                (fromMaybe)
+import Hyperion.OsString         (OsString, fromString)
 import System.Environment        (lookupEnv)
 import System.Process            (readCreateProcess, shell)
 import Text.Read                 (readMaybe)
@@ -27,10 +28,13 @@ getNTasksPerNode =
       return (nTasks `div` nNodes)
 
 -- | Returns the contents of @SLURM_JOB_NODELIST@ as a list of nodes names
-getJobNodes :: IO [String]
-getJobNodes = fmap lines $
-  readCreateProcess (shell "scontrol show hostnames $SLURM_JOB_NODELIST") ""
+getJobNodes :: IO [OsString]
+getJobNodes = do
+  out <- readCreateProcess (shell "scontrol show hostnames $SLURM_JOB_NODELIST") ""
+  pure $ map fromString $ lines out
 
 -- | Returns the value of @SLURMD_NODENAME@
-lookupHeadNode :: IO (Maybe String)
-lookupHeadNode = lookupEnv "SLURMD_NODENAME"
+lookupHeadNode :: IO (Maybe OsString)
+lookupHeadNode = do
+  node <- lookupEnv "SLURMD_NODENAME"
+  pure $ fromString <$> node

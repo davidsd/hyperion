@@ -8,11 +8,12 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Text              qualified as Text
 import Hyperion
 import Hyperion.Log           qualified as Log
+import Hyperion.OsPath        (OsPath)
 import Options.Applicative    qualified as Opts
 
 data HelloOptions = HelloOptions
   { names   :: [String]
-  , workDir :: FilePath
+  , workDir :: OsPath
   } deriving (Show)
 
 getGreeting :: String -> IO String

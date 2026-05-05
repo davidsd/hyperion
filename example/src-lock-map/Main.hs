@@ -13,11 +13,12 @@ import Data.Text                   qualified as Text
 import Hyperion
 import Hyperion.LockMap            qualified as LM
 import Hyperion.Log                qualified as Log
+import Hyperion.OsPath             (OsPath)
 import Options.Applicative         qualified as Opts
 
 data HelloOptions = HelloOptions
   { names   :: [String]
-  , workDir :: FilePath
+  , workDir :: OsPath
   } deriving (Show)
 
 objects :: [(Int, String)]
@@ -105,5 +106,5 @@ helloOpts = HelloOptions
 main :: IO ()
 main = hyperionMain helloOpts (
   \o -> (defaultHyperionConfig . workDir $ o)
-  ) (defaultHyperionStaticConfig {commandTransport = SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])}) 
+  ) (defaultHyperionStaticConfig {commandTransport = SSH $ Just ("ssh", ["-f", "-o", "StrictHostKeyChecking no"])})
   printGreetings

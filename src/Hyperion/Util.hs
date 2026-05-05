@@ -7,29 +7,32 @@ module Hyperion.Util where
 
 import Control.Concurrent         (threadDelay)
 import Control.Concurrent.Async   qualified as Async
-import Control.Monad              (replicateM)
+import Control.Monad              (replicateM, (<=<))
 import Control.Monad.Catch        (MonadCatch, SomeException, try)
 import Control.Monad.IO.Class     (MonadIO, liftIO)
 import Data.Base64.Types          qualified as B64
 import Data.Binary                (Binary, decodeOrFail, encode)
-import Data.BinaryHash            (hashBase64Safe)
 import Data.ByteString.Base64.URL qualified as B64URL
-import Data.ByteString.Char8      qualified as B
+import Data.ByteString.Conversion (fromByteString, toByteString')
 import Data.ByteString.Lazy       qualified as BL
 import Data.Constraint            (Constraint, Dict (..))
 import Data.IORef                 (IORef, atomicModifyIORef', newIORef)
+import Data.List                  (intersperse)
+import Data.Maybe                 (fromJust, fromMaybe)
 import Data.Text                  (Text)
 import Data.Text                  qualified as Text
-import Data.Text.Encoding         qualified as TE
 import Data.Text.Lazy             qualified as LazyText
 import Data.Time.Clock            (NominalDiffTime)
 import Data.Vector                qualified as V
 import Hyperion.Log               qualified as Log
+import Hyperion.OsPath            (OsPath, replaceDirectory)
+import Hyperion.OsString          (OsString, encodeUtf, hashBase64SafeOsString,
+                                   toString)
 import Network.Mail.Mime          (Address (..), renderSendMail, simpleMail')
 import Numeric                    (showFFloat, showIntAtBase)
-import System.Directory           (copyFile, createDirectoryIfMissing)
-import System.FilePath.Posix      (replaceDirectory)
+import System.Directory.OsPath    (copyFile, createDirectoryIfMissing)
 import System.IO.Unsafe           (unsafePerformIO)
+import System.OsString            qualified as OsString
 import System.Posix.Files         (readSymbolicLink)
 import System.Process             (callProcess)
 import System.Random              (randomRIO)
@@ -62,12 +65,12 @@ newUnique = fmap MkUnique $ atomicModifyIORef' uniqueSource $ \c -> (c+1,c)
 
 ----------------- base64 encoding ----------------------
 
-encodeBinaryToBase64 :: Binary a => a -> Text
-encodeBinaryToBase64 = B64.extractBase64 . B64URL.encodeBase64 . BL.toStrict . encode
+encodeBinaryToBase64 :: Binary a => a -> OsString
+encodeBinaryToBase64 = fromJust . fromByteString . B64.extractBase64 . B64URL.encodeBase64' . BL.toStrict . encode
 
-decodeBinaryFromBase64 :: Binary a => Text -> Either String a
-decodeBinaryFromBase64 t =
-  case B64URL.decodeBase64Untyped (TE.encodeUtf8 t) of
+decodeBinaryFromBase64 :: Binary a => OsString -> Either String a
+decodeBinaryFromBase64 s =
+  case B64URL.decodeBase64Untyped (toByteString' s) of
     Left err -> Left (Text.unpack err)
     Right bs -> case decodeOrFail (BL.fromStrict bs) of
       Right (_, _, a)  -> Right a
@@ -80,6 +83,10 @@ randomString :: Int -> IO String
 randomString len = replicateM len $ toAlpha <$> randomRIO (0, 51)
   where toAlpha n | n < 26    = toEnum (n + fromEnum 'A')
                   | otherwise = toEnum (n - 26 + fromEnum 'a')
+
+-- | 'IO' action that returns a random string of given length
+randomOsString :: Int -> IO OsString
+randomOsString = encodeUtf <=< randomString
 
 -- | @retryRepeated n doTry m@ tries to run @doTry m@ n-1 times, after
 -- which it runs @m@ 1 time. After each failure waits 15-90 seconds
@@ -170,8 +177,11 @@ emailError = email "Error"
 
 -- | Takes a path and a list of 'String' arguments, shell-escapes the arguments,
 -- and combines everything into a single string.
-shellEsc :: FilePath -> [String] -> String
-shellEsc cmd args = unwords $ cmd : map (B.unpack . Esc.bytes . Esc.sh . B.pack) args
+shellEsc :: OsPath -> [OsString] -> OsString
+shellEsc cmd args = mconcat $ intersperse " " words' where
+  words' = cmd : map esc args
+  esc arg = fromMaybe (error $ show arg) $
+    fromByteString $ Esc.bytes $ Esc.sh $ toByteString' arg
 
 ----------------- Time ----------------------
 
@@ -189,41 +199,44 @@ nominalDiffTimeToMicroseconds t = ceiling (t*1000*1000)
 
 ----------------- Filesystem ----------------------
 
-myExecutable :: IO FilePath
-myExecutable = readSymbolicLink "/proc/self/exe"
+myExecutable :: IO OsPath
+myExecutable = encodeUtf =<< readSymbolicLink "/proc/self/exe"
 
 -- | Determine the path to this executable and save a copy to the specified dir
 -- with a string appended to filename.
 savedExecutable
-  :: FilePath
-  -> String -- ^ the string to append
-  -> IO FilePath
+  :: OsPath
+  -> OsString -- ^ the string to append
+  -> IO OsPath
 savedExecutable dir idString = do
   selfExec <- myExecutable
   createDirectoryIfMissing True dir
-  let savedExec = replaceDirectory (selfExec ++ "-" ++ idString) dir
+  let savedExec = replaceDirectory (selfExec <> "-" <> idString) dir
   copyFile selfExec savedExec
   return savedExec
 
 -- | Replaces all non-allowed characters by @\'_\'@. Allowed characters are alphanumerics and .,-,_
-sanitizeFileString :: String -> FilePath
-sanitizeFileString = map (\c -> if c `notElem` allowed then '_' else c)
+sanitizeFileString :: OsString -> OsString
+sanitizeFileString = OsString.pack . map sanitizeChar . OsString.unpack
   where
-    allowed = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ".-_"
+    sanitizeChar c = if c `notElem` allowed then OsString.unsafeFromChar '_' else c
+    allowed = map OsString.unsafeFromChar $ ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ".-_"
 
 -- | Truncates a string to a string of at most given length, replacing dropped
 -- characters by a hash. The hash takes up 43 symbols,
 -- so asking for a smaller length will still return 43 symbols.
-hashTruncateString :: Int -> String -> String
-hashTruncateString len s | length s <= len = s
+hashTruncateString :: Int -> OsString -> OsString
+hashTruncateString len s | length (OsString.unpack s) <= len = s
 hashTruncateString len s =
-  take numTake s ++ (if numTake > 0 then "-" else "") ++ hString
+  prefix <> (if numTake > 0 then "-" else "") <> hString
   where
     numTake = len - 44
-    hString  = hashBase64Safe (drop numTake s)
+    prefix = OsString.pack $ take numTake $ OsString.unpack s
+    suffix = OsString.pack $ drop numTake $ OsString.unpack s
+    hString  = hashBase64SafeOsString suffix
 
 -- | Synonim for @'hashTruncateString' 230@
-hashTruncateFileName :: String -> String
+hashTruncateFileName :: OsString -> OsString
 hashTruncateFileName = hashTruncateString 230
 
 -- | Turn an expression with a constraint into a function of an
@@ -246,13 +259,15 @@ withDict r Dict = r
 -- NB2: Async documentation recommends using 'withAsync', however the
 -- behavior of that function is different, and it would cancel the
 -- 'Async' on return from 'link'.
-runCmdLocalAsync :: (String, [String]) -> IO ()
-runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
+runCmdLocalAsync :: (OsString, [OsString]) -> IO ()
+runCmdLocalAsync (cmd, args) = Async.async (callProcess cmd' args') >>= Async.link where
+  cmd' = toString cmd
+  args' = map toString args
 
 -- | Run the given command and log the command. This is suitable
 -- for running on remote machines so we can keep track of what is
 -- being run where.
-runCmdLocalLog :: (String, [String]) -> IO ()
+runCmdLocalLog :: (OsString, [OsString]) -> IO ()
 runCmdLocalLog c = do
   Log.info "Running command" c
   runCmdLocalAsync c

@@ -32,25 +32,26 @@ import Hyperion.Database           qualified as DB
 import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEval,
                                     remoteEvalM)
 import Hyperion.Log                qualified as Log
+import Hyperion.OsPath             (OsPath, OsString, dropExtension, (<.>),
+                                    (</>))
 import Hyperion.ProgramId          (ProgramId (..))
 import Hyperion.Remote             (runProcessLocal)
-import Hyperion.ServiceId          (ServiceId, serviceIdToString,
+import Hyperion.ServiceId          (ServiceId, serviceIdToOsString,
                                     serviceIdToText)
 import Hyperion.Slurm              (JobId (..))
 import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Static             (Closure, Static (..), cAp, cPure)
 import Hyperion.Util               (myExecutable, retryRepeated,
                                     runCmdLocalAsync, runCmdLocalLog)
-import Hyperion.Worker             (WorkerConnectionTimeout, Service(..),
+import Hyperion.Worker             (Service (..), WorkerConnectionTimeout,
                                     WorkerLauncher (..), emptyOnServiceExit,
                                     emptyStoreCancelAction,
                                     getWorkerStaticConfig,
-                                    mkSerializableClosureProcess,
-                                    withRemoteRunProcess, runWorker)
+                                    mkSerializableClosureProcess, runWorker,
+                                    withRemoteRunProcess)
 import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
                                     WorkerAddr, WorkerCpuPool)
 import Hyperion.WorkerCpuPool      qualified as WCP
-import System.FilePath.Posix       (dropExtension, (<.>), (</>))
 
 -- * General comments
 -- $
@@ -111,7 +112,7 @@ instance HasProgramInfo JobEnv where
 data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
-    nodeLogDir                 :: FilePath
+    nodeLogDir                 :: OsPath
     -- | The command used to run shell commands on remote nodes. See 'CommandTransport' for description.
   , nodeCommandTransport       :: CommandTransport
     -- | How long to wait before re-trying creating a Node launcher,
@@ -253,13 +254,13 @@ runJobLocal' = runJobLocal defaultHyperionStaticConfig dummyProgramInfo
 -- | 'WorkerLauncher' that uses the supplied command runner to launch
 -- workers.  Sets 'connectionTimeout' to 'Nothing'. Uses the
 -- 'ServiceId' supplied to 'withLaunchedWorker' to construct 'JobId'
--- (through 'JobName').  The supplied 'FilePath' is used as log
+-- (through 'JobName').  The supplied 'OsPath' is used as log
 -- directory for the worker, with the log file name derived from
 -- 'ServiceId'.
 workerLauncherWithRunCmd
   :: MonadIO m
-  => FilePath
-  -> ((String, [String]) -> Process ())
+  => OsPath
+  -> ((OsString, [OsString]) -> Process ())
   -> m (WorkerLauncher JobId)
 workerLauncherWithRunCmd logDir runCmd = liftIO $ do
   hyperionExec <- myExecutable
@@ -268,7 +269,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
         let jobId = JobName (serviceIdToText service.serviceId)
             logFile = case serviceIdToLogPath of
               Just toPath -> toPath service.serviceId
-              Nothing     -> logDir </> serviceIdToString service.serviceId <.> "log"
+              Nothing     -> logDir </> serviceIdToOsString service.serviceId <.> "log"
         runCmd (timeHyperionWorkerCommand hyperionExec service logFile)
         goJobId jobId
     , overrideToLogPath = Nothing
@@ -414,7 +415,7 @@ remoteEvalOnWorker addr closure =
 -- Same as remoteEvalOnWorker, but with a custom function to specify log path.
 remoteEvalOnWorkerWithCustomLog
   :: (Static (Binary b), Typeable b)
-  => (ServiceId -> FilePath)
+  => (ServiceId -> OsPath)
   -> WorkerAddr
   -> Closure (Process b)
   -> Job b

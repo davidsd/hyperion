@@ -42,12 +42,12 @@ import Data.Constraint                     (Dict (..))
 import Data.Data                           (Typeable)
 import Data.Foldable                       (asum)
 import Data.Rank1Dynamic                   (toDynamic)
-import Data.Text                           (Text)
 import Data.Time.Clock                     (NominalDiffTime)
 import GHC.Generics                        (Generic)
 import Hyperion.CallClosure                (call')
 import Hyperion.Config                     (HyperionStaticConfig)
 import Hyperion.Log                        qualified as Log
+import Hyperion.OsPath                     (OsPath, OsString)
 import Hyperion.ServiceId                  (ServiceId (..), newServiceId)
 import Hyperion.Static                     (Serializable, ptrAp)
 import Hyperion.Util                       (decodeBinaryFromBase64,
@@ -77,9 +77,9 @@ data WorkerLauncher j = WorkerLauncher
     -- supplies its job id to the given continuation. The first
     -- argument is a custom serviceIdToLogPath function (in practice
     -- it's overrideToLogPath).
-    withLaunchedWorker :: forall b . Maybe (ServiceId -> FilePath) -> Service -> (j -> Process b) -> Process b
+    withLaunchedWorker :: forall b . Maybe (ServiceId -> OsPath) -> Service -> (j -> Process b) -> Process b
   -- | An optional function to override log path for a worker.
-  , overrideToLogPath  :: Maybe (ServiceId -> FilePath)
+  , overrideToLogPath  :: Maybe (ServiceId -> OsPath)
     -- | Timeout for the worker to connect. If the worker is launched
     -- into a Slurm queue, it may take a very long time to connect. In
     -- that case, it is recommended to set 'connectionTimeout' =
@@ -119,7 +119,7 @@ data WorkerInfo = MkWorkerInfo
 
 -- | Encode a 'Service' to url-safe base64 encoded binary. Used for
 -- passing the 'Service' on the command line.
-encodeService :: Service -> Text
+encodeService :: Service -> OsString
 encodeService = encodeBinaryToBase64
 
 -- | Decode a 'Service' from url-safe base64 encoded binary. Used for
@@ -128,7 +128,7 @@ encodeService = encodeBinaryToBase64
 --
 -- Right s == decodeService (encodeService s)
 --
-decodeService :: Text -> Either String Service
+decodeService :: OsString -> Either String Service
 decodeService = decodeBinaryFromBase64
 
 -- | The 'NodeId' of the master associated with the given 'Service'
