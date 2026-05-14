@@ -55,22 +55,12 @@ hyperionWorkerCommand hyperionExecutable service logFile =
     ]
   )
 
--- | /usr/bin/time -v hyperionWorkerCommand
--- Returns the @(command, [arguments])@ to run the worker process prepended by "/usr/bin/time -v".
--- NB: since we redirect /usr/bin/time output to logFile, we have to create directory first.
-timeHyperionWorkerCommand :: OsPath -> Service -> OsPath -> (OsString, [OsString])
-timeHyperionWorkerCommand hyperionExecutable service logFile =
+-- | sh -c hyperionWorkerCommand
+-- Returns the @(command, [arguments])@ to run the worker process in a new shell process.
+-- This is a workaround for MaxRSS issue, see comment for hyperionWorkerCommand
+shHyperionWorkerCommand :: OsPath -> Service -> OsPath -> (OsString, [OsString])
+shHyperionWorkerCommand hyperionExecutable service logFile =
   ( "sh"
   , [ "-c"
-    , shellEsc "mkdir" ["-p", takeDirectory logFile]
-      <> " && "
-      <> shellEsc "/usr/bin/time"
-        [ "-v"
-        , hyperionExecutable
-        , "worker"
-        , "--" <> serviceArg, encodeService service
-        , "--" <> logFileArg, logFile
-        ]
-        <> " >>" <> logFile <> " 2>&1"
-    ]
-  )
+    , uncurry shellEsc $ hyperionWorkerCommand hyperionExecutable service logFile
+    ])

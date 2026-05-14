@@ -25,7 +25,7 @@ import Data.Typeable               (Typeable)
 import Hyperion.Cluster            (Cluster, ClusterEnv (..),
                                     HasProgramInfo (..), ProgramInfo (..),
                                     dbConfigFromProgramInfo)
-import Hyperion.Command            (timeHyperionWorkerCommand)
+import Hyperion.Command            (shHyperionWorkerCommand)
 import Hyperion.Config             (HyperionStaticConfig (..),
                                     defaultHyperionStaticConfig)
 import Hyperion.Database           qualified as DB
@@ -270,7 +270,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
             logFile = case serviceIdToLogPath of
               Just toPath -> toPath service.serviceId
               Nothing     -> logDir </> serviceIdToOsString service.serviceId <.> "log"
-        runCmd (timeHyperionWorkerCommand hyperionExec service logFile)
+        runCmd (shHyperionWorkerCommand hyperionExec service logFile)
         goJobId jobId
     , overrideToLogPath = Nothing
     , connectionTimeout = Nothing
