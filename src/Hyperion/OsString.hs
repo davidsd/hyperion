@@ -64,6 +64,9 @@ instance IsString OsString where
 toString :: OsString -> String
 toString = unsafeDecodeUtf
 
+showOs :: (Show a) => a -> OsString
+showOs = fromString . show
+
 instance ToByteString BS.ShortByteString where
   builder = byteString . BS.fromShort
 instance ToByteString PosixString where
