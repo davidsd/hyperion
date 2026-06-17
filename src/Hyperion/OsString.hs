@@ -27,6 +27,7 @@ import Data.Text.Conversions          (ToText (..))
 import Hyperion.Static                (Dict (..), Static, closureDict)
 import System.OsString
 import System.OsString.Internal.Types (OsString (..), PosixString (..))
+import Text.Read                      (Read (..))
 import Type.Reflection                (Typeable, typeOf)
 
 instance Binary PosixString where
@@ -80,6 +81,9 @@ instance FromByteString PosixString where
   parser = PosixString <$> parser
 instance FromByteString OsString where
   parser = OsString <$> parser
+
+instance Read OsString where
+  readPrec = fromString <$> readPrec
 
 unsafeDecodeUtf :: OsString -> String
 unsafeDecodeUtf os = case decodeUtf os of
