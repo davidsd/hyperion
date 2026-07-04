@@ -19,7 +19,7 @@ import Data.Text               qualified as T
 import Data.Time.Clock         (NominalDiffTime)
 import Hyperion.Log            qualified as Log
 import Hyperion.OsPath         (OsPath, takeDirectory)
-import Hyperion.OsString       (OsString, fromString, toString)
+import Hyperion.OsString       (OsString, fromString, showOs, toString)
 import Hyperion.Slurm.JobId    (JobId (..))
 import Hyperion.Util           (day, hour, minute)
 import Options.Applicative     (ReadM, auto, eitherReader, long, metavar,
@@ -105,8 +105,8 @@ sBatchOptionString opts =
       -- at some point, so we need to use the short name
       , ("-D",                opts.chdir)
       , ("--output",          opts.output)
-      , ("--nodes",           Just (fromString $ show opts.nodes))
-      , ("--ntasks-per-node", Just (fromString $ show opts.nTasksPerNode))
+      , ("--nodes",           Just (showOs opts.nodes))
+      , ("--ntasks-per-node", Just (showOs opts.nTasksPerNode))
       , ("--time",            Just (formatRuntime opts.time))
       , ("--mem",             opts.mem)
       , ("--mail-type",       opts.mailType)

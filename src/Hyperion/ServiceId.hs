@@ -12,7 +12,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson             (FromJSON, ToJSON)
 import Data.Binary            (Binary)
 import Data.Text              (Text)
-import Hyperion.OsString      (OsString, fromString, fromText, toText)
+import Hyperion.OsString      (OsString, fromText, showOs, toText)
 import Hyperion.Util          (newUnique)
 import Servant                (FromHttpApiData (..), ToHttpApiData (..))
 
@@ -35,4 +35,4 @@ serviceIdToOsString :: ServiceId -> OsString
 serviceIdToOsString (ServiceId s) = s
 
 newServiceId :: MonadIO m => m ServiceId
-newServiceId = liftIO $ ServiceId . fromString . show <$> newUnique
+newServiceId = liftIO $ ServiceId . showOs <$> newUnique
