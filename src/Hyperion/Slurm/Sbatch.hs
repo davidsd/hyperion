@@ -1,12 +1,17 @@
+{-# LANGUAGE ApplicativeDo       #-}
 {-# LANGUAGE DeriveAnyClass      #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE TypeApplications    #-}
 
 module Hyperion.Slurm.Sbatch where
 
+import Control.Applicative     (optional)
 import Control.Monad.Catch     (Exception)
-import Data.Attoparsec.Text    (Parser, parseOnly, takeWhile1)
+import Data.Attoparsec.Text    (char, decimal, endOfInput, parseOnly, sepBy1,
+                                takeWhile1)
+import Data.Attoparsec.Text    qualified as Attoparsec
 import Data.Char               (isSpace)
 import Data.List               (intersperse)
 import Data.Maybe              (catMaybes)
@@ -16,7 +21,10 @@ import Hyperion.Log            qualified as Log
 import Hyperion.OsPath         (OsPath, takeDirectory)
 import Hyperion.OsString       (OsString, fromString, toString)
 import Hyperion.Slurm.JobId    (JobId (..))
-import Hyperion.Util           (hour)
+import Hyperion.Util           (day, hour, minute)
+import Options.Applicative     (ReadM, auto, eitherReader, long, metavar,
+                                option, short, switch, value)
+import Options.Applicative     qualified as Applicative
 import System.Directory.OsPath (createDirectoryIfMissing)
 import System.Exit             (ExitCode (..))
 import System.Process          (readCreateProcessWithExitCode, shell)
@@ -110,7 +118,47 @@ sBatchOptionString opts =
       , ("--no-requeue",      if opts.noRequeue then Just "" else Nothing)
       ]
 
-sbatchOutputParser :: Parser JobId
+-- | Parse command-line options for sbatch, see https://slurm.schedmd.com/sbatch.html#SECTION_OPTIONS
+sBatchOptionsParser :: Applicative.Parser SbatchOptions
+sBatchOptionsParser = do
+  jobName <- optional $ option auto $ short 'J' <> long "job-name" <> metavar "STRING"
+  chdir <- optional $ option auto $ short 'D' <> long "chdir" <> metavar "STRING"
+  output <- optional $ option auto $ short 'o' <> long "output" <> metavar "STRING"
+  nodes <- option auto $ short 'N' <> long "nodes" <> value defaultSbatchOptions.nodes <> metavar "INT"
+  nTasksPerNode <-option auto $ long "ntasks-per-node" <> value defaultSbatchOptions.nTasksPerNode <> metavar "INT"
+  time <- option readTime $ short 't' <> long "time" <> value defaultSbatchOptions.time <> metavar "INT"
+  mem <- optional $ option auto $ long "mem" <> metavar "STRING"
+  mailType <- optional $ option auto $ long "mail-type" <> metavar "STRING"
+  mailUser <- optional $ option auto $ long "mail-user" <> metavar "STRING"
+  partition <- optional $ option auto $ short 'p' <> long "partition" <> metavar "STRING"
+  constraint <- optional $ option auto $ short 'C' <> long "constraint" <> metavar "STRING"
+  account <- optional $ option auto $ short 'A' <> long "account" <> metavar "STRING"
+  qos <- optional $ option auto $ short 'q' <> long "qos" <> metavar "STRING"
+  noRequeue <- switch $ long "no-requeue"
+  scriptPreamble <- optional $ option auto $ long "script-preamble" <> metavar "STRING"
+  pure SbatchOptions {..}
+  where
+    readTime :: ReadM NominalDiffTime
+    readTime = eitherReader $ parseOnly (slurmTimeParser <* endOfInput) . T.pack
+
+    slurmTimeParser :: Attoparsec.Parser NominalDiffTime
+    slurmTimeParser = do
+      dd :: Maybe Integer <- optional $ decimal <* char '-'
+      hmsList :: [Integer] <- decimal `sepBy1` char ':'
+      dhms <- case (dd, hmsList) of
+        (Nothing, [m])       -> pure [0, 0, m, 0]
+        (Nothing, [m, s])    -> pure [0, 0, m, s]
+        (Nothing, [h, m, s]) -> pure [0, h, m, s]
+        (Just d, [h])        -> pure [d, h, 0, 0]
+        (Just d, [h, m])     -> pure [d, h, m, 0]
+        (Just d, [h, m, s])  -> pure [d, h, m, s]
+        _                    -> fail "invalid SLURM time format"
+      pure $ sum $
+        zipWith (*)
+        (fromIntegral <$> dhms)
+        [day, hour, minute, 1]
+
+sbatchOutputParser :: Attoparsec.Parser JobId
 sbatchOutputParser = JobId <$> ("Submitted batch job " *> takeWhile1 (not . isSpace) <* "\n")
 
 -- | Runs @sbatch@ on a batch file with options pulled from 'SbatchOptions' and
