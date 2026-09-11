@@ -23,7 +23,7 @@ import Hyperion.OsString       (OsString, fromString, showOs, toString)
 import Hyperion.Slurm.JobId    (JobId (..))
 import Hyperion.Util           (day, hour, minute)
 import Options.Applicative     (ReadM, auto, eitherReader, long, metavar,
-                                option, short, switch, value)
+                                option, short, strOption, switch, value)
 import Options.Applicative     qualified as Applicative
 import System.Directory.OsPath (createDirectoryIfMissing)
 import System.Exit             (ExitCode (..))
@@ -119,23 +119,28 @@ sBatchOptionString opts =
       ]
 
 -- | Parse command-line options for sbatch, see https://slurm.schedmd.com/sbatch.html#SECTION_OPTIONS
+--
+-- NB: string options use 'strOption' so that they accept the value @sbatch@
+-- itself accepts (@--mem 64G@). Do not use @option auto@ here: that parses via
+-- 'Read', which requires the value to be quoted as a Haskell string literal
+-- (@--mem '"64G"'@).
 sBatchOptionsParser :: Applicative.Parser SbatchOptions
 sBatchOptionsParser = do
-  jobName <- optional $ option auto $ short 'J' <> long "job-name" <> metavar "STRING"
-  chdir <- optional $ option auto $ short 'D' <> long "chdir" <> metavar "STRING"
-  output <- optional $ option auto $ short 'o' <> long "output" <> metavar "STRING"
+  jobName <- optional $ strOption $ short 'J' <> long "job-name" <> metavar "STRING"
+  chdir <- optional $ strOption $ short 'D' <> long "chdir" <> metavar "PATH"
+  output <- optional $ strOption $ short 'o' <> long "output" <> metavar "PATH"
   nodes <- option auto $ short 'N' <> long "nodes" <> value defaultSbatchOptions.nodes <> metavar "INT"
   nTasksPerNode <-option auto $ long "ntasks-per-node" <> value defaultSbatchOptions.nTasksPerNode <> metavar "INT"
-  time <- option readTime $ short 't' <> long "time" <> value defaultSbatchOptions.time <> metavar "INT"
-  mem <- optional $ option auto $ long "mem" <> metavar "STRING"
-  mailType <- optional $ option auto $ long "mail-type" <> metavar "STRING"
-  mailUser <- optional $ option auto $ long "mail-user" <> metavar "STRING"
-  partition <- optional $ option auto $ short 'p' <> long "partition" <> metavar "STRING"
-  constraint <- optional $ option auto $ short 'C' <> long "constraint" <> metavar "STRING"
-  account <- optional $ option auto $ short 'A' <> long "account" <> metavar "STRING"
-  qos <- optional $ option auto $ short 'q' <> long "qos" <> metavar "STRING"
+  time <- option readTime $ short 't' <> long "time" <> value defaultSbatchOptions.time <> metavar "TIME"
+  mem <- optional $ strOption $ long "mem" <> metavar "STRING"
+  mailType <- optional $ strOption $ long "mail-type" <> metavar "STRING"
+  mailUser <- optional $ strOption $ long "mail-user" <> metavar "STRING"
+  partition <- optional $ strOption $ short 'p' <> long "partition" <> metavar "STRING"
+  constraint <- optional $ strOption $ short 'C' <> long "constraint" <> metavar "STRING"
+  account <- optional $ strOption $ short 'A' <> long "account" <> metavar "STRING"
+  qos <- optional $ strOption $ short 'q' <> long "qos" <> metavar "STRING"
   noRequeue <- switch $ long "no-requeue"
-  scriptPreamble <- optional $ option auto $ long "script-preamble" <> metavar "STRING"
+  scriptPreamble <- optional $ strOption $ long "script-preamble" <> metavar "STRING"
   pure SbatchOptions {..}
   where
     readTime :: ReadM NominalDiffTime
