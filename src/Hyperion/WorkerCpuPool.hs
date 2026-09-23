@@ -7,7 +7,7 @@
 module Hyperion.WorkerCpuPool
   ( CommandTransport (..)
   , defaultCommandTransport
-  , NumCPUs(..)
+  , NumCPUs
   , SSHError
   , WorkerAddr(..)
   , WorkerCpuPool(..)
@@ -58,10 +58,8 @@ import System.Process              (proc, readCreateProcessWithExitCode)
 -- We also provide 'remoteRunCmd' for running commands on the nodes via @ssh@ or @srun@.
 -- * 'WorkerCpuPool' documentation
 -- $
--- | A newtype for the number of available CPUs
-newtype NumCPUs =
-  NumCPUs Int
-  deriving newtype (Eq, Ord, Num)
+-- | A type alias for the number of available CPUs
+type NumCPUs = Int
 
 -- | The 'WorkerCpuPool' type, contaning a map of available CPU resources
 data WorkerCpuPool = WorkerCpuPool
@@ -97,7 +95,7 @@ getSlurmAddrs = do
 newPoolFromSlurmEnv :: [WorkerAddr] -> IO WorkerCpuPool
 newPoolFromSlurmEnv nodes = do
   when (null nodes) (Log.throwError "Empty node list")
-  cpusPerNode <- fmap NumCPUs Slurm.getNTasksPerNode
+  cpusPerNode <- Slurm.getNTasksPerNode
   newPool $ Map.fromList $ zip nodes (repeat cpusPerNode)
 
 -- | Finds the worker with the most available CPUs and runs the given

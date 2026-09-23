@@ -49,7 +49,7 @@ import Hyperion.Worker             (Service (..), WorkerConnectionTimeout,
                                     getWorkerStaticConfig,
                                     mkSerializableClosureProcess, runWorker,
                                     withRemoteRunProcess)
-import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
+import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs, SSHError,
                                     WorkerAddr, WorkerCpuPool)
 import Hyperion.WorkerCpuPool      qualified as WCP
 
@@ -197,8 +197,8 @@ runJobSlurm programInfo go = do
     let
       cfg = JobEnv
         { jobDatabaseConfig    = dbConfig
-        , jobNodeCpus          = NumCPUs nodeCpus
-        , jobTaskCpus          = NumCPUs 1
+        , jobNodeCpus          = nodeCpus
+        , jobTaskCpus          = 1
         , jobTaskLauncher      = defaultPoolLauncher
         , jobProgramInfo       = programInfo
         , jobStaticConfig      = staticConfig
@@ -236,8 +236,8 @@ runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy stat
       }
   runReaderT go $ JobEnv
     { jobDatabaseConfig    = dbConfig
-    , jobNodeCpus          = NumCPUs 1
-    , jobTaskCpus          = NumCPUs 1
+    , jobNodeCpus          = 1
+    , jobTaskCpus          = 1
     , jobTaskLauncher      = \_ _ _ -> localLauncher
     , jobProgramInfo       = programInfo
     , jobStaticConfig      = staticConfig
@@ -392,7 +392,7 @@ remoteEvalWithCPUs
   -> Closure (Process b)
   -> Job b
 remoteEvalWithCPUs nCpus closure =
-  local (setTaskCpus (NumCPUs nCpus)) $
+  local (setTaskCpus nCpus) $
   remoteEval closure
 
 -- | Evaluate the given 'Closure' at the given 'WorkerAddr', bypassing
