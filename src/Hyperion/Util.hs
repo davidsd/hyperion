@@ -7,18 +7,19 @@ module Hyperion.Util where
 
 import Control.Concurrent         (threadDelay)
 import Control.Concurrent.Async   qualified as Async
-import Control.Monad              (replicateM, (<=<))
-import Control.Monad.Catch        (MonadCatch, SomeException, try)
+import Control.Exception          (IOException)
+import Control.Monad              (liftM2, replicateM, (<=<))
+import Control.Monad.Catch        (MonadCatch, SomeException, handle, try)
 import Control.Monad.IO.Class     (MonadIO, liftIO)
 import Data.Base64.Types          qualified as B64
-import Data.Binary                (Binary, decodeOrFail, encode)
+import Data.Binary                (Binary, Word64, decodeOrFail, encode)
 import Data.ByteString.Base64.URL qualified as B64URL
 import Data.ByteString.Conversion (fromByteString, toByteString')
 import Data.ByteString.Lazy       qualified as BL
 import Data.Constraint            (Constraint, Dict (..))
 import Data.IORef                 (IORef, atomicModifyIORef', newIORef)
 import Data.List                  (intersperse)
-import Data.Maybe                 (fromJust, fromMaybe)
+import Data.Maybe                 (fromJust, fromMaybe, listToMaybe)
 import Data.Text                  (Text)
 import Data.Text                  qualified as Text
 import Data.Text.Lazy             qualified as LazyText
@@ -31,6 +32,7 @@ import Hyperion.OsString          (OsString, encodeUtf, hashBase64SafeOsString,
 import Network.Mail.Mime          (Address (..), renderSendMail, simpleMail')
 import Numeric                    (showFFloat, showIntAtBase)
 import System.Directory.OsPath    (copyFile, createDirectoryIfMissing)
+import System.IO                  (readFile')
 import System.IO.Unsafe           (unsafePerformIO)
 import System.OsString            qualified as OsString
 import System.Posix.Files         (readSymbolicLink)
@@ -274,17 +276,68 @@ runCmdLocalLog c = do
 
 ----------------- Memory ----------------------
 
+-- | The peak resident set size on the @VmHWM@ line of a @/proc/<pid>/status@
+-- text, in kilobytes; 'Nothing' if there is no such line.
+parseVmHWM :: String -> Maybe Word64
+parseVmHWM status = listToMaybe
+  [ kb
+  | line <- lines status
+  , ("VmHWM:" : kbText : _) <- [words line]
+  , (kb, "") <- reads kbText :: [(Word64, String)]
+  ]
+
+-- | Peak resident set size of this process, in kilobytes, from @VmHWM@ in
+-- @/proc/self/status@; 'Nothing' where that file or line is missing (not
+-- Linux).
+--
+-- VmHWM stands for Virtual memory high-water mark
+-- Preferred over @ru_maxrss@ from 'RUsage.get': @VmHWM@ belongs to the
+-- current program image and starts from zero at @exec@, whereas Linux folds
+-- the pre-exec image's high-water mark into @ru_maxrss@, so a worker spawned
+-- on the master's own node inherits the master's peak as a floor and every
+-- task there reports at least the master's size.
+-- See https://github.com/davidsd/hyperion/issues/4
+getVmHWM :: IO (Maybe Word64)
+getVmHWM = handle (\(_ :: IOException) -> pure Nothing) $
+  parseVmHWM <$> readFile' "/proc/self/status"
+
+-- | The largest peak RSS (in kilobytes) reached by this process.
+-- Use VmHWM when available (Linux), ru_maxrss otherwise.
+-- NB: ru_maxrss may be wrong (inherited from parent)
+-- if the process was forked from another Haskell process.
+-- See https://github.com/davidsd/hyperion/issues/3
+-- and https://github.com/davidsd/hyperion/issues/4
+peakResidentSetSizeSelf :: IO Word64
+peakResidentSetSizeSelf = do
+  rSelf <- RUsage.get RUsage.Self
+  fromMaybe rSelf.maxResidentSetSize <$> getVmHWM
+
+-- | The largest peak RSS (in kilobytes)
+-- reached by this by any one of its reaped children
+-- NB: it's a maximum, not a sum, and blind to children that have not been waited for.
+-- NB: RSS may be wrong (inherited from parent) if the child is the same Haskell process forked from parent.
+-- See https://github.com/davidsd/hyperion/issues/3
+-- and https://github.com/davidsd/hyperion/issues/4
+peakResidentSetSizeChildren :: IO Word64
+peakResidentSetSizeChildren = (.maxResidentSetSize) <$> RUsage.get RUsage.Children
+
+-- | The largest peak RSS (in kilobytes)
+-- reached by this process or by any one of its reaped children
+-- NB: it's a maximum, not a sum, and blind to children that have not been waited for.
+peakResidentSetSizeSelfOrChildren :: IO Word64
+peakResidentSetSizeSelfOrChildren = liftM2 max peakResidentSetSizeSelf peakResidentSetSizeChildren
+
 logMemoryUsage :: IO ()
 logMemoryUsage = do
-  rSelf     <- RUsage.get RUsage.Self
-  rChildren <- RUsage.get RUsage.Children
+  selfMaxRSS     <- peakResidentSetSizeSelf
+  childrenMaxRSS <- peakResidentSetSizeChildren
   let
-    toGB m = fromIntegral @_ @Double m / 1000 / 1000
-    showMem m = Text.pack $ showFFloat (Just 3) (toGB m) ""
+    -- KB to GB
+    toGB m = fromIntegral @_ @Double m / 1024 / 1024
+    showMem m = Text.pack $ showFFloat (Just 3) (toGB m) " GB"
   Log.text $ mconcat
     [ "Max resident set size: self: "
-    , showMem rSelf.maxResidentSetSize
-    , " GB, children: "
-    , showMem rChildren.maxResidentSetSize
-    , " GB"
+    , showMem selfMaxRSS
+    , ", children: "
+    , showMem childrenMaxRSS
     ]
