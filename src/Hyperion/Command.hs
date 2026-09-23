@@ -4,9 +4,8 @@
 
 module Hyperion.Command where
 
-import Hyperion.OsPath     (OsPath, takeDirectory)
+import Hyperion.OsPath     (OsPath)
 import Hyperion.OsString   (OsString, fromString, toString)
-import Hyperion.Util       (shellEsc)
 import Hyperion.Worker     (Service (..), decodeService, encodeService)
 import Options.Applicative (Parser, ReadM, eitherReader, help, long, metavar,
                             option, strOption)
@@ -54,13 +53,3 @@ hyperionWorkerCommand hyperionExecutable service logFile =
     , "--"<>logFileArg, logFile
     ]
   )
-
--- | sh -c hyperionWorkerCommand
--- Returns the @(command, [arguments])@ to run the worker process in a new shell process.
--- This is a workaround for MaxRSS issue, see comment for hyperionWorkerCommand
-shHyperionWorkerCommand :: OsPath -> Service -> OsPath -> (OsString, [OsString])
-shHyperionWorkerCommand hyperionExecutable service logFile =
-  ( "sh"
-  , [ "-c"
-    , uncurry shellEsc $ hyperionWorkerCommand hyperionExecutable service logFile
-    ])
