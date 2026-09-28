@@ -2,7 +2,7 @@
 
 module Hyperion.Log where
 
-import Control.Monad.Catch       (Exception, MonadThrow, throwM)
+import Control.Monad.Catch       (Exception, MonadThrow, bracket, throwM)
 import Control.Monad.IO.Class    (MonadIO, liftIO)
 import Data.IORef                (IORef, newIORef, readIORef, writeIORef)
 import Data.Text                 (Text)
@@ -14,7 +14,8 @@ import Hyperion.OsPath           (OsPath, takeDirectory)
 import System.Console.Concurrent (errorConcurrent)
 import System.Directory.OsPath   (createDirectoryIfMissing)
 import System.File.OsPath        (openFile)
-import System.IO                 (IOMode (..), hFlush, stderr, stdout)
+import System.IO                 (BufferMode (..), IOMode (..), hFlush,
+                                  hGetBuffering, hSetBuffering, stderr, stdout)
 import System.IO.Unsafe          (unsafePerformIO)
 import Text.PrettyPrint          ((<+>))
 import Text.PrettyPrint          qualified as PP (render, text)
@@ -27,6 +28,10 @@ import Text.Show.Pretty          (ppDoc)
 -- The functions use 'errorConcurrent' to write to stderr (through 'text').
 --
 -- The output can be redirected from 'stderr' to a file by using 'redirectToFile'.
+--
+-- 'text' writes an unbuffered handle, such as the default 'stderr',
+-- one character (one @write()@ syscall) at a time. When logging to
+-- 'stderr' without 'redirectToFile', use 'withLineBufferedStderr'.
 
 showText :: Show a => a -> Text
 showText = Text.pack . show
@@ -83,6 +88,13 @@ flush :: IO ()
 flush = do
   hFlush stderr
   hFlush stdout
+
+-- | Run an action with 'stderr' line-buffered, restoring the previous
+-- buffering afterwards.
+withLineBufferedStderr :: IO a -> IO a
+withLineBufferedStderr go =
+  bracket (hGetBuffering stderr) (hSetBuffering stderr) $ \_ ->
+    hSetBuffering stderr LineBuffering >> go
 
 currentLogFile :: IORef (Maybe OsPath)
 {-# NOINLINE currentLogFile #-}

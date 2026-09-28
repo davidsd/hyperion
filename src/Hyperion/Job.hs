@@ -217,9 +217,11 @@ dummyProgramInfo = ProgramInfo
 
 -- | Runs the 'Job' locally in IO without using any information from a
 -- SLURM environment, with some basic default settings. This function
--- is provided primarily for testing.
+-- is provided primarily for testing. Logs go to 'stderr', which is
+-- line-buffered while the 'Job' runs.
 runJobLocal :: HyperionStaticConfig -> ProgramInfo -> Job a -> IO a
-runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy staticConfig) $ do
+runJobLocal staticConfig programInfo go =
+  Log.withLineBufferedStderr $ runProcessLocal (hostNameStrategy staticConfig) $ do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   workerCpuPool <- liftIO $ WCP.newPool Map.empty
   let
