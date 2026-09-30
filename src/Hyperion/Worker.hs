@@ -16,6 +16,7 @@ module Hyperion.Worker
   , encodeService
   , decodeService
   , serviceNodeId
+  , withWorker
   , withRemoteRunProcess
   , mkSerializableClosureProcess
   , runWorker
