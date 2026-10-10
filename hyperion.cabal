@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5f19d17bc4f553247e2b27c01fe701f577b5c0e559a101368545221561a02712
+-- hash: 010de532c51faf0c4c1ce0b90644e6337482d1fe67300ddc37dff683975ca04a
 
 name:           hyperion
 version:        0.2.0.0
@@ -48,6 +48,7 @@ library
       Hyperion.TokenPool
       Hyperion.Util
       Hyperion.Worker
+      Hyperion.WorkerCommand
       Hyperion.WorkerCpuPool
   other-modules:
       Paths_hyperion
@@ -168,4 +169,22 @@ executable example-root-search
     , hyperion
     , mtl
     , optparse-applicative
+  default-language: GHC2021
+
+test-suite hyperion-test
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      test
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
+  build-depends:
+      base
+    , distributed-process
+    , hyperion
+    , network-transport
+    , optparse-applicative
+    , tasty
+    , tasty-hunit
   default-language: GHC2021
