@@ -11,14 +11,14 @@ import Hyperion.Worker     (Service (..), decodeService, encodeService)
 import Options.Applicative (Parser, ReadM, eitherReader, help, long, metavar,
                             option, strOption)
 
--- Note: The argument list in hyperionWorkerCommand and the workerOpts
--- parser must be kept in sync.
+-- Note: 'workerArgs' and the 'workerOpts' parser must agree; test/Main.hs
+-- checks that the arguments of a 'Worker' parse back into the same 'Worker'.
 
 -- | Haskell representation of arguments passed to the worker process.
 data Worker = Worker
   { workerService :: Service
   , workerLogFile :: OsPath
-  } deriving Show
+  } deriving (Eq, Show)
 
 serviceReader :: ReadM Service
 serviceReader = eitherReader (decodeService . fromString)
@@ -29,7 +29,7 @@ serviceArg = "service"
 logFileArg :: OsString
 logFileArg = "logFile"
 
--- | Parses worker command-line arguments. Essentially inverse to 'hyperionWorkerCommand'.
+-- | Parses worker command-line arguments. Inverse to 'workerArgs'.
 workerOpts :: Parser Worker
 workerOpts = do
   workerService <- option serviceReader
@@ -42,25 +42,18 @@ workerOpts = do
       <> help "Path for worker log file")
   return Worker{..}
 
--- | Returns the @(command, [arguments])@ to run the worker process
--- NB: if it is called directly from the same executable on the same machine,
--- then MaxRSS for the worker will be wrong (inherited from parent).
--- See https://github.com/davidsd/hyperion/issues/3
-hyperionWorkerCommand :: OsPath -> Service -> OsPath -> (OsString, [OsString])
-hyperionWorkerCommand hyperionExecutable service logFile =
-  ( hyperionExecutable
-  , [ "worker"
-    , "--"<>serviceArg, encodeService service
-    , "--"<>logFileArg, logFile
-    ]
-  )
+-- | The arguments that make the hyperion executable run as the given
+-- worker: the @worker@ command followed by what 'workerOpts' parses.
+workerArgs :: Worker -> [OsString]
+workerArgs worker =
+  [ "worker"
+  , "--"<>serviceArg, encodeService (workerService worker)
+  , "--"<>logFileArg, workerLogFile worker
+  ]
 
--- | sh -c hyperionWorkerCommand
--- Returns the @(command, [arguments])@ to run the worker process in a new shell process.
--- This is a workaround for MaxRSS issue, see comment for hyperionWorkerCommand
-shHyperionWorkerCommand :: OsPath -> Service -> OsPath -> (OsString, [OsString])
-shHyperionWorkerCommand hyperionExecutable service logFile =
-  ( "sh"
-  , [ "-c"
-    , uncurry shellEsc $ hyperionWorkerCommand hyperionExecutable service logFile
-    ])
+-- | The given command, run by a new @sh@ process. A worker started this
+-- way by a hyperion process on the same machine gets its own maximum
+-- resident set size, instead of inheriting the parent's: see
+-- https://github.com/davidsd/hyperion/issues/3
+inNewShell :: (OsString, [OsString]) -> (OsString, [OsString])
+inNewShell (command, args) = ("sh", ["-c", shellEsc command args])

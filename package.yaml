@@ -70,6 +70,20 @@ library:
     - wai
     - warp
 
+tests:
+  hyperion-test:
+    source-dirs: test
+    main: Main.hs
+    dependencies:
+      - base
+      - distributed-process
+      - hyperion
+      - network-transport
+      - optparse-applicative
+      - tasty
+      - tasty-hunit
+    ghc-options: -threaded
+
 executables:
   example-hello-world:
     source-dirs: example/src-hello-world
