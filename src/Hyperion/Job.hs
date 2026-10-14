@@ -20,7 +20,6 @@ import Data.Binary                 (Binary)
 import Data.Map                    (Map)
 import Data.Map                    qualified as Map
 import Data.Maybe                  (catMaybes)
-import Data.Time.Clock             (NominalDiffTime)
 import Data.Typeable               (Typeable)
 import Hyperion.Cluster            (Cluster, ClusterEnv (..),
                                     HasProgramInfo (..), ProgramInfo (..),
@@ -49,8 +48,8 @@ import Hyperion.Worker             (Service (..), WorkerConnectionTimeout,
                                     getWorkerStaticConfig,
                                     mkSerializableClosureProcess, runWorker,
                                     withRemoteRunProcess)
-import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs, SSHError,
-                                    WorkerAddr, WorkerCpuPool)
+import Hyperion.WorkerCpuPool      (NumCPUs, SSHError, WorkerAddr,
+                                    WorkerCpuPool)
 import Hyperion.WorkerCpuPool      qualified as WCP
 
 -- * General comments
@@ -112,12 +111,9 @@ instance HasProgramInfo JobEnv where
 data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
-    nodeLogDir                 :: OsPath
-    -- | The command used to run shell commands on remote nodes. See 'CommandTransport' for description.
-  , nodeCommandTransport       :: CommandTransport
-    -- | How long to wait before re-trying creating a Node launcher,
-    -- and number of times to retry
-  , nodeLauncherTimeoutRetries :: Maybe (NominalDiffTime, Int)
+    nodeLogDir       :: OsPath
+    -- | Provides 'commandTransport' and 'nodeLauncherTimeoutRetries'.
+  , nodeStaticConfig :: HyperionStaticConfig
   }
 
 -- | Make 'JobEnv' an instance of 'DB.HasDB'.
@@ -188,8 +184,7 @@ runJobSlurm programInfo go = do
           -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
           Nothing      -> programLogDir programInfo </> "workers" </> "workers"
-      , nodeCommandTransport        = staticConfig.commandTransport
-      , nodeLauncherTimeoutRetries  = staticConfig.nodeLauncherTimeoutRetries
+      , nodeStaticConfig = staticConfig
       }
   withLauncherMap nodeLauncherConfig nodes $ \launcherMap -> do
     let addrs = Map.keys launcherMap
@@ -329,11 +324,11 @@ withNodeLauncher cfg addr' go = case addr' of
   WCP.RemoteAddr addr -> do
     remoteLauncher <-
       workerLauncherWithRunCmd cfg.nodeLogDir
-      (liftIO . WCP.remoteRunCmd addr cfg.nodeCommandTransport)
+      (liftIO . WCP.remoteRunCmd addr staticCfg.commandTransport)
     let
       remoteLauncherWithTimeout = remoteLauncher
-        { connectionTimeout = fmap fst cfg.nodeLauncherTimeoutRetries }
-      maybeTimeoutRetry = case cfg.nodeLauncherTimeoutRetries of
+        { connectionTimeout = fmap fst staticCfg.nodeLauncherTimeoutRetries }
+      maybeTimeoutRetry = case staticCfg.nodeLauncherTimeoutRetries of
         Just (_, n) -> retryRepeated n (try @Process @WorkerConnectionTimeout)
         Nothing     -> id
     eitherResult <-
@@ -356,6 +351,8 @@ withNodeLauncher cfg addr' go = case addr' of
   WCP.LocalHost _ ->
     workerLauncherWithRunCmd cfg.nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
     go (Just (addr', launcher))
+  where
+    staticCfg = cfg.nodeStaticConfig
 
 -- | Starts NodeLauncher's for each node and builds a 'LauncherMap' to
 -- pass to the continuation.
