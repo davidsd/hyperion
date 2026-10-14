@@ -8,12 +8,12 @@
 module Hyperion.Slurm.Sbatch where
 
 import Control.Applicative     (optional)
+import Control.Exception       (IOException, tryJust)
 import Control.Monad.Catch     (Exception)
 import Data.Attoparsec.Text    (char, decimal, endOfInput, parseOnly, sepBy1,
                                 takeWhile1)
 import Data.Attoparsec.Text    qualified as Attoparsec
 import Data.Char               (isSpace)
-import Data.List               (intersperse)
 import Data.Maybe              (catMaybes)
 import Data.Text               qualified as T
 import Data.Time.Clock         (NominalDiffTime)
@@ -21,19 +21,23 @@ import Hyperion.Log            qualified as Log
 import Hyperion.OsPath         (OsPath, takeDirectory)
 import Hyperion.OsString       (OsString, fromString, showOs, toString)
 import Hyperion.Slurm.JobId    (JobId (..))
-import Hyperion.Util           (day, hour, minute)
-import Options.Applicative     (ReadM, auto, eitherReader, long, metavar,
+import Hyperion.Util           (day, hour, minute, shellEsc)
+import Options.Applicative     (ReadM, auto, eitherReader, help, long, metavar,
                                 option, short, strOption, switch, value)
 import Options.Applicative     qualified as Applicative
 import System.Directory.OsPath (createDirectoryIfMissing)
 import System.Exit             (ExitCode (..))
-import System.Process          (readCreateProcessWithExitCode, shell)
+import System.IO.Error         (isDoesNotExistError, isPermissionError)
+import System.Process          (proc, readCreateProcessWithExitCode)
 
--- | Error from running @sbatch@. The 'String's are the contents of 'stdout'
--- and 'stderr' from @sbatch@.
+-- | Error from running @sbatch@.
 data SbatchError = SbatchError
-  { exitCodeStdinStderr :: (ExitCode, OsString, OsString)
-  , input               :: OsString
+  { -- | 'Left' if @sbatch@ could not be started (it is not on @PATH@ or not
+    -- executable); otherwise its exit code and the contents of its stdout
+    -- and stderr.
+    result :: Either IOException (ExitCode, OsString, OsString)
+    -- | The @sbatch@ command line, then the script for its stdin
+  , input  :: OsString
   } deriving (Show, Exception)
 
 -- | Type representing possible options for @sbatch@. Map 1-to-1 to @sbatch@
@@ -68,7 +72,8 @@ data SbatchOptions = SbatchOptions
   , qos            :: Maybe OsString
   -- | (\"--no-requeue")
   , noRequeue      :: Bool
-  -- | code to inject in sbatch script before the commands
+  -- | Shell code put, as is, in the sbatch script before the command.
+  -- Separate several commands with newlines or @;@.
   , scriptPreamble :: Maybe OsString
   } deriving (Show)
 
@@ -93,12 +98,12 @@ defaultSbatchOptions = SbatchOptions
   , scriptPreamble   = Nothing
   }
 
--- | Convert 'SbatchOptions' to a string of options for @sbatch@
-sBatchOptionString :: SbatchOptions -> OsString
-sBatchOptionString opts =
-  unwords' [ opt <> " " <> val | (opt, Just val) <- optPairs]
+-- | Convert 'SbatchOptions' to command-line arguments for @sbatch@
+sBatchOptionArgs :: SbatchOptions -> [OsString]
+sBatchOptionArgs opts =
+  concat [ [opt, val] | (opt, Just val) <- optPairs ]
+  ++ [ "--no-requeue" | opts.noRequeue ]
   where
-    unwords' = mconcat . intersperse " "
     optPairs =
       [ ("--job-name",        opts.jobName)
       -- sbatch changed this option from workdir to chdir
@@ -115,7 +120,6 @@ sBatchOptionString opts =
       , ("--constraint",      opts.constraint)
       , ("--account",         opts.account)
       , ("--qos",             opts.qos)
-      , ("--no-requeue",      if opts.noRequeue then Just "" else Nothing)
       ]
 
 -- | Parse command-line options for sbatch, see https://slurm.schedmd.com/sbatch.html#SECTION_OPTIONS
@@ -141,6 +145,8 @@ sBatchOptionsParser = do
   qos <- optional $ strOption $ short 'q' <> long "qos" <> metavar "STRING"
   noRequeue <- switch $ long "no-requeue"
   scriptPreamble <- optional $ strOption $ long "script-preamble" <> metavar "STRING"
+    <> help "Shell code to run in the batch script before the command, as is; \
+            \separate several commands with ';' (e.g. 'module load gcc; module load openmpi')"
   pure SbatchOptions {..}
   where
     readTime :: ReadM NominalDiffTime
@@ -167,20 +173,30 @@ sbatchOutputParser :: Attoparsec.Parser JobId
 sbatchOutputParser = JobId <$> ("Submitted batch job " *> takeWhile1 (not . isSpace) <* "\n")
 
 -- | Runs @sbatch@ on a batch file with options pulled from 'SbatchOptions' and
--- script given as the 'OsPath' input parameter. If 'sbatch' exists with failure
--- then throws 'SbatchError'.
+-- script given as the 'OsPath' input parameter. @sbatch@ runs without a shell
+-- and reads the script, as is, from stdin. If @sbatch@ cannot be started or
+-- fails then throws 'SbatchError'.
 sbatchScript :: SbatchOptions -> OsPath -> IO JobId
 sbatchScript opts script = do
   mapM_ (createDirectoryIfMissing True) $
     catMaybes [ chdir opts
               , fmap takeDirectory opts.output
               ]
-  (exit, out, err) <- readCreateProcessWithExitCode (shell $ toString pipeToSbatch) ""
-  case (exit, parseOnly sbatchOutputParser (T.pack out)) of
-    (ExitSuccess, Right j) -> return j
-    _                      -> Log.throw (SbatchError (exit, fromString out, fromString err) pipeToSbatch)
+  outcome <- tryJust startFailure $
+    readCreateProcessWithExitCode (proc "sbatch" (map toString sbatchArgs)) (toString wrappedScript)
+  case outcome of
+    Left e -> Log.throw (SbatchError (Left e) input)
+    Right (exit, out, err) -> case (exit, parseOnly sbatchOutputParser (T.pack out)) of
+      (ExitSuccess, Right j) -> return j
+      _                      -> Log.throw (SbatchError (Right (exit, fromString out, fromString err)) input)
   where
-    pipeToSbatch = "printf '" <> wrappedScript <> "' | sbatch " <> sBatchOptionString opts
+    sbatchArgs = sBatchOptionArgs opts
+    input = shellEsc "sbatch" sbatchArgs <> "\n" <> wrappedScript
+    -- Other IO errors can come after sbatch has submitted the job, so
+    -- retrying on them could submit it twice.
+    startFailure e
+      | isDoesNotExistError e || isPermissionError e = Just e
+      | otherwise                                    = Nothing
     preamble = case opts.scriptPreamble of
       Just t  -> t <> "\n"
       Nothing -> ""
@@ -206,11 +222,8 @@ formatRuntime t = padNum h <> ":" <> padNum m <> ":" <> padNum s
       f = quotBy d n
 
 -- | Runs the command given by 'OsPath' with arguments @['OsString']@ in
--- @sbatch@ script via 'sbatchScript'. If 'sbatch' fails then throws
--- 'SbatchError'.
+-- @sbatch@ script via 'sbatchScript'. The command is a single program, not
+-- shell code, and the arguments reach it as they are: the shell expands
+-- nothing in them. If 'sbatch' fails then throws 'SbatchError'.
 sbatchCommand :: SbatchOptions -> OsPath -> [OsString] -> IO JobId
-sbatchCommand opts cmd args = sbatchScript opts script
-  where
-    script = cmd <> " " <> unwords' (map quote args)
-    quote a = "\"" <> a <> "\""
-    unwords' = mconcat . intersperse " "
+sbatchCommand opts cmd args = sbatchScript opts (shellEsc cmd args)

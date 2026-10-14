@@ -177,11 +177,12 @@ email msg toAddr a = emailMessage toAddr subject body
 emailError :: (Show a, MonadIO m) => Text -> a -> m ()
 emailError = email "Error"
 
--- | Takes a path and a list of 'String' arguments, shell-escapes the arguments,
--- and combines everything into a single string.
+-- | Takes a path and a list of 'String' arguments, shell-escapes the path and
+-- the arguments, and combines everything into a single string.
 shellEsc :: OsPath -> [OsString] -> OsString
-shellEsc cmd args = mconcat $ intersperse " " words' where
-  words' = cmd : map esc args
+shellEsc cmd args = mconcat $ intersperse " " $ map esc (cmd : args) where
+  -- Esc.sh turns "" into nothing, which would drop the argument
+  esc ""  = "''"
   esc arg = fromMaybe (error $ show arg) $
     fromByteString $ Esc.bytes $ Esc.sh $ toByteString' arg
 
