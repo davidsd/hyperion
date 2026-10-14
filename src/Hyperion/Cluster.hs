@@ -259,7 +259,7 @@ newClusterEnv HyperionConfig{..} clusterStaticConfig serverState holdPort = do
   sbatchTokenPool <- newTokenPool maxSlurmJobs
   let clusterJobOptions = defaultSbatchOptions { Slurm.chdir = Just jobDir }
       clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool
+      clusterWorkerLauncher = slurmWorkerLauncher emailAddr clusterStaticConfig.workerCommand hyperionExec serverState holdPort sbatchTokenPool
       clusterDatabaseRetries = defaultDBRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   clusterLockMap <- newLockMap
@@ -273,6 +273,10 @@ slurmWorkerLauncher
   :: Maybe OsString      -- ^ Email address to send notifications to if sbatch
                      -- fails or there is an error in a remote
                      -- job. 'Nothing' means no emails will be sent.
+  -> ((OsString, [OsString]) -> (OsString, [OsString]))
+                     -- ^ Turns 'hyperionWorkerCommand' into the
+                     -- command that sbatch runs (the @workerCommand@
+                     -- of 'HyperionStaticConfig')
   -> OsPath        -- ^ Path to this hyperion executable
   -> ServerState     -- ^ ServerState used by the Server
   -> Int             -- ^ Port used by the Server (needed for error messages)
@@ -280,7 +284,7 @@ slurmWorkerLauncher
   -> SbatchOptions
   -> ProgramInfo
   -> WorkerLauncher JobId
-slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool opts progInfo =
+slurmWorkerLauncher emailAddr workerCommand hyperionExec serverState holdPort sbatchTokenPool opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
@@ -328,7 +332,7 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
         opts' = opts
           { jobName = Just $ programIdToOsString progId <> "-" <> serviceIdToOsString service.serviceId
           }
-        (cmd, args) = hyperionWorkerCommand hyperionExec service logFile
+        (cmd, args) = workerCommand $ hyperionWorkerCommand hyperionExec service logFile
         logSbatchError e = do
           Log.err e
           emailAlertUser (e, progInfo, service)

@@ -12,6 +12,7 @@ import Hyperion.OsString       (OsString, fromString)
 import Hyperion.ProgramId
 import Hyperion.Remote         (HostNameStrategy, defaultHostNameStrategy)
 import Hyperion.Slurm          qualified as Slurm
+import Hyperion.WorkerCommand  (defaultWorkerCommand)
 import Hyperion.WorkerCpuPool  (CommandTransport, defaultCommandTransport)
 import System.Directory.OsPath (copyFile, createDirectoryIfMissing)
 
@@ -53,6 +54,14 @@ data HyperionStaticConfig = HyperionStaticConfig
     -- | Timeout and number of retries for starting a node launcher on
     -- one of the nodes of a job.
   , nodeLauncherTimeoutRetries :: Maybe (NominalDiffTime, Int)
+    -- | Turns the command that runs the hyperion executable as a worker,
+    -- @(executable, arguments)@, into the command that starts the worker
+    -- on its node. It applies to every hyperion process that hyperion
+    -- starts: the process of a Slurm job, the node launchers, and the
+    -- workers they start. 'defaultWorkerCommand' runs the executable itself;
+    -- 'Hyperion.WorkerCommand.wrapWorkerCommand' runs it under another
+    -- program.
+  , workerCommand              :: (OsString, [OsString]) -> (OsString, [OsString])
   }
 
 -- | Default configuration, with all paths built form a single
@@ -76,6 +85,7 @@ defaultHyperionStaticConfig = HyperionStaticConfig
   { commandTransport           = defaultCommandTransport
   , hostNameStrategy           = defaultHostNameStrategy
   , nodeLauncherTimeoutRetries = Nothing
+  , workerCommand              = defaultWorkerCommand
   }
 
 

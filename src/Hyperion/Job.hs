@@ -112,7 +112,8 @@ data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
     nodeLogDir       :: OsPath
-    -- | Provides 'commandTransport' and 'nodeLauncherTimeoutRetries'.
+    -- | Provides 'commandTransport', 'nodeLauncherTimeoutRetries' and
+    -- 'workerCommand'.
   , nodeStaticConfig :: HyperionStaticConfig
   }
 
@@ -253,13 +254,16 @@ runJobLocal' = runJobLocal defaultHyperionStaticConfig dummyProgramInfo
 -- 'ServiceId' supplied to 'withLaunchedWorker' to construct 'JobId'
 -- (through 'JobName').  The supplied 'OsPath' is used as log
 -- directory for the worker, with the log file name derived from
--- 'ServiceId'.
+-- 'ServiceId'. The supplied function (the @workerCommand@ of
+-- 'HyperionStaticConfig') turns 'hyperionWorkerCommand' into the command
+-- that is run.
 workerLauncherWithRunCmd
   :: MonadIO m
-  => OsPath
+  => ((OsString, [OsString]) -> (OsString, [OsString]))
+  -> OsPath
   -> ((OsString, [OsString]) -> Process ())
   -> m (WorkerLauncher JobId)
-workerLauncherWithRunCmd logDir runCmd = liftIO $ do
+workerLauncherWithRunCmd workerCommand logDir runCmd = liftIO $ do
   hyperionExec <- myExecutable
   pure $ WorkerLauncher
     { withLaunchedWorker = \serviceIdToLogPath service goJobId -> do
@@ -267,7 +271,7 @@ workerLauncherWithRunCmd logDir runCmd = liftIO $ do
             logFile = case serviceIdToLogPath of
               Just toPath -> toPath service.serviceId
               Nothing     -> logDir </> serviceIdToOsString service.serviceId <.> "log"
-        runCmd (hyperionWorkerCommand hyperionExec service logFile)
+        runCmd $ workerCommand $ hyperionWorkerCommand hyperionExec service logFile
         goJobId jobId
     , overrideToLogPath = Nothing
     , connectionTimeout = Nothing
@@ -323,7 +327,7 @@ withNodeLauncher
 withNodeLauncher cfg addr' go = case addr' of
   WCP.RemoteAddr addr -> do
     remoteLauncher <-
-      workerLauncherWithRunCmd cfg.nodeLogDir
+      workerLauncherWithRunCmd staticCfg.workerCommand cfg.nodeLogDir
       (liftIO . WCP.remoteRunCmd addr staticCfg.commandTransport)
     let
       remoteLauncherWithTimeout = remoteLauncher
@@ -341,7 +345,7 @@ withNodeLauncher cfg addr' go = case addr' of
               static (liftIO . runCmdLocalLog) `cAp` cPure cmd
             remoteRunNode scp
         in
-          workerLauncherWithRunCmd cfg.nodeLogDir runCmdOnNode >>= \launcher ->
+          workerLauncherWithRunCmd staticCfg.workerCommand cfg.nodeLogDir runCmdOnNode >>= \launcher ->
           go (Just (addr', launcher))
     case eitherResult of
       Right result -> return result
@@ -349,7 +353,7 @@ withNodeLauncher cfg addr' go = case addr' of
         Log.warn "Couldn't start launcher" err
         go Nothing
   WCP.LocalHost _ ->
-    workerLauncherWithRunCmd cfg.nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
+    workerLauncherWithRunCmd staticCfg.workerCommand cfg.nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
     go (Just (addr', launcher))
   where
     staticCfg = cfg.nodeStaticConfig
