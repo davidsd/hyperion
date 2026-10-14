@@ -77,8 +77,11 @@ tests:
     dependencies:
       - base
       - directory
+      - distributed-process
       - filepath
       - hyperion
+      - network-transport
+      - optparse-applicative
       - process
       - tasty
       - tasty-hunit

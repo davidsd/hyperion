@@ -2,22 +2,77 @@
 
 module Main (main) where
 
-import Control.Exception     (bracket_, try)
-import Hyperion.OsString     (OsString, fromString, toString)
-import Hyperion.Slurm.JobId  (JobId (..))
-import Hyperion.Slurm.Sbatch (SbatchError (..), SbatchOptions (..),
-                              defaultSbatchOptions, sbatchCommand)
-import Hyperion.Util         (shellEsc)
-import System.Directory      (getPermissions, setOwnerExecutable,
-                              setPermissions)
-import System.Environment    (getEnv, setEnv)
-import System.FilePath       ((</>))
-import System.IO             (readFile')
-import System.IO.Temp        (withSystemTempDirectory)
-import System.Process        (readProcess)
-import Test.Tasty            (DependencyType (..), defaultMain,
-                              dependentTestGroup)
-import Test.Tasty.HUnit      (assertFailure, testCase, (@?=))
+import Control.Distributed.Process.Internal.Types (LocalProcessId (..),
+                                                   NodeId (..), ProcessId (..),
+                                                   SendPort (..),
+                                                   SendPortId (..))
+import Control.Exception                          (bracket_, try)
+import Hyperion.Command                           (Worker (..),
+                                                   hyperionWorkerCommand)
+import Hyperion.Main                              (HyperionOpts (..),
+                                                   hyperionOpts)
+import Hyperion.OsPath                            (OsPath)
+import Hyperion.OsString                          (OsString, fromString,
+                                                   toString)
+import Hyperion.ServiceId                         (ServiceId (..))
+import Hyperion.Slurm.JobId                       (JobId (..))
+import Hyperion.Slurm.Sbatch                      (SbatchError (..),
+                                                   SbatchOptions (..),
+                                                   defaultSbatchOptions,
+                                                   sbatchCommand)
+import Hyperion.Util                              (shellEsc)
+import Hyperion.Worker                            (Service (..))
+import Hyperion.WorkerCommand                     (defaultWorkerCommand,
+                                                   wrapWorkerCommand)
+import Network.Transport                          (EndPointAddress (..))
+import Options.Applicative                        (ParserResult (..),
+                                                   defaultPrefs, execParserPure,
+                                                   info)
+import System.Directory                           (getPermissions,
+                                                   setOwnerExecutable,
+                                                   setPermissions)
+import System.Environment                         (getEnv, setEnv)
+import System.FilePath                            ((</>))
+import System.IO                                  (readFile')
+import System.IO.Temp                             (withSystemTempDirectory)
+import System.Process                             (readProcess)
+import Test.Tasty                                 (DependencyType (..),
+                                                   defaultMain,
+                                                   dependentTestGroup,
+                                                   testGroup)
+import Test.Tasty.HUnit                           (assertFailure, testCase,
+                                                   (@?=))
+
+-- | A worker as a master would describe it: the given service id with a
+-- port of the master for worker information, logging to the given file.
+exampleWorker :: ServiceId -> OsPath -> Worker
+exampleWorker serviceId logFile = Worker
+  { workerLogFile = logFile
+  , workerService = MkService
+      { serviceId      = serviceId
+      , workerInfoPort = SendPort SendPortId
+          { sendPortProcessId = ProcessId
+              { processNodeId  = NodeId (EndPointAddress "exp-3-54.expanse.sdsc.edu:45201:0")
+              , processLocalId = LocalProcessId { lpidUnique = 1817, lpidCounter = 225 }
+              }
+          , sendPortLocalId = 1
+          }
+      }
+  }
+
+-- | The command that runs the given worker.
+commandOf :: Worker -> (OsString, [OsString])
+commandOf worker =
+  hyperionWorkerCommand "/bin/bfss-exe" (workerService worker) (workerLogFile worker)
+
+-- | Parses the given arguments as hyperion's command line does.
+parseWorker :: [String] -> IO Worker
+parseWorker args =
+  case execParserPure defaultPrefs (info (hyperionOpts (pure ())) mempty) args of
+    Success (HyperionWorker worker) -> pure worker
+    Success (HyperionMaster ())     -> assertFailure "parsed as a master"
+    Failure failure                 -> assertFailure ("parse failed: " <> show failure)
+    CompletionInvoked _             -> assertFailure "completion invoked"
 
 -- | The arguments that the given program gets when @sh@ runs it with the
 -- given arguments escaped by 'shellEsc'. The arguments must not contain
@@ -70,7 +125,20 @@ withFakeSbatch dir go = do
 -- Sequential: the sbatchCommand tests change PATH, which all tests share.
 main :: IO ()
 main = defaultMain $ dependentTestGroup "hyperion" AllFinish
-  [ testCase "shellEsc keeps the command and every argument as is" $
+  [ testGroup "hyperionWorkerCommand parses back into the same worker"
+    [ testCase "log file in a job's log directory" $ do
+        let worker = exampleWorker (ServiceId "gd")
+              "/expanse/lustre/scratch/dsd/temp_project/logs/2026-10/GjiQl/0/exp-8-21.53.log"
+        parsed <- parseWorker (map toString (snd (commandOf worker)))
+        parsed @?= worker
+    , testCase "through sh, log file path with spaces" $
+        withTestDir $ \dir -> do
+          printArgs <- writePrintArgs dir
+          let worker = exampleWorker (ServiceId "AAAAAAAAAAJlbQ") "/tmp/a log dir/worker 1.log"
+          parsed <- parseWorker =<< argsAfterShell printArgs (snd (commandOf worker))
+          parsed @?= worker
+    ]
+  , testCase "shellEsc keeps the command and every argument as is" $
       withTestDir $ \dir -> do
         printArgs <- writePrintArgs dir
         printed <- argsAfterShell printArgs trickyArgs
@@ -100,4 +168,13 @@ main = defaultMain $ dependentTestGroup "hyperion" AllFinish
             Left (SbatchError (Left _) _) -> pure ()
             _ -> assertFailure ("expected an SbatchError with a Left result, got " <> show outcome)
     ]
+  , testGroup "worker commands"
+    [ testCase "defaultWorkerCommand runs the executable itself" $
+        defaultWorkerCommand command @?= command
+    , testCase "wrapWorkerCommand puts a program in front" $
+        wrapWorkerCommand "/usr/bin/numactl" ["--interleave=all"] command
+          @?= ("/usr/bin/numactl", ["--interleave=all", "/bin/bfss-exe", "worker", "--logFile", "w.log"])
+    ]
   ]
+  where
+    command = ("/bin/bfss-exe", ["worker", "--logFile", "w.log"])

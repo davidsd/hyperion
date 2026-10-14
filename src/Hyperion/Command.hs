@@ -11,13 +11,13 @@ import Options.Applicative (Parser, ReadM, eitherReader, help, long, metavar,
                             option, strOption)
 
 -- Note: The argument list in hyperionWorkerCommand and the workerOpts
--- parser must be kept in sync.
+-- parser must be kept in sync; test/Main.hs checks this.
 
 -- | Haskell representation of arguments passed to the worker process.
 data Worker = Worker
   { workerService :: Service
   , workerLogFile :: OsPath
-  } deriving Show
+  } deriving (Eq, Show)
 
 serviceReader :: ReadM Service
 serviceReader = eitherReader (decodeService . fromString)

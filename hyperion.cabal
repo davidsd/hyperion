@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1d78bf7b6febde1a88658d439651b3d164858f5c1dd9d9b6e1836b4bdd6fc065
+-- hash: 351f262e533467863baa175129a940d1065679d28752b358a455f7014631d224
 
 name:           hyperion
 version:        0.2.0.0
@@ -182,8 +182,11 @@ test-suite hyperion-test
   build-depends:
       base
     , directory
+    , distributed-process
     , filepath
     , hyperion
+    , network-transport
+    , optparse-applicative
     , process
     , tasty
     , tasty-hunit

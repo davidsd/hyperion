@@ -108,7 +108,7 @@ data Service = MkService
   { serviceId      :: ServiceId
   , workerInfoPort :: SendPort WorkerInfo
   }
-  deriving (Show, Generic, Binary)
+  deriving (Eq, Show, Generic, Binary)
 
 -- | Info about a worker that a master needs to run computations on it
 -- and shut it down.
