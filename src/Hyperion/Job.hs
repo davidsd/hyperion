@@ -34,7 +34,7 @@ import Hyperion.Log                qualified as Log
 import Hyperion.OsPath             (OsPath, OsString, dropExtension, (<.>),
                                     (</>))
 import Hyperion.ProgramId          (ProgramId (..))
-import Hyperion.Remote             (runProcessLocal)
+import Hyperion.Remote             (runProcessLocalWithRT)
 import Hyperion.ServiceId          (ServiceId, serviceIdToOsString,
                                     serviceIdToText)
 import Hyperion.Slurm              (JobId (..))
@@ -46,6 +46,7 @@ import Hyperion.Worker             (Service (..), WorkerConnectionTimeout,
                                     WorkerLauncher (..), emptyOnServiceExit,
                                     emptyStoreCancelAction,
                                     getWorkerStaticConfig,
+                                    initWorkerRemoteTable,
                                     mkSerializableClosureProcess, runWorker,
                                     withRemoteRunProcess)
 import Hyperion.WorkerCpuPool      (NumCPUs, SSHError, WorkerAddr,
@@ -214,10 +215,13 @@ dummyProgramInfo = ProgramInfo
 -- | Runs the 'Job' locally in IO without using any information from a
 -- SLURM environment, with some basic default settings. This function
 -- is provided primarily for testing. Logs go to 'stderr', which is
--- line-buffered while the 'Job' runs.
+-- line-buffered while the 'Job' runs. As in a worker,
+-- 'getWorkerStaticConfig' returns the given 'HyperionStaticConfig'.
 runJobLocal :: HyperionStaticConfig -> ProgramInfo -> Job a -> IO a
 runJobLocal staticConfig programInfo go =
-  Log.withLineBufferedStderr $ runProcessLocal (hostNameStrategy staticConfig) $ do
+  Log.withLineBufferedStderr $
+  runProcessLocalWithRT (hostNameStrategy staticConfig)
+    (initWorkerRemoteTable staticConfig Nothing) $ do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   workerCpuPool <- liftIO $ WCP.newPool Map.empty
   let
