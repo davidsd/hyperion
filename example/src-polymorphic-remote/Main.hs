@@ -17,18 +17,18 @@
 
 module Main where
 
-import Control.Monad               ((>=>))
-import Data.Binary                 (Binary)
-import Data.Proxy                  (Proxy (..))
-import Data.Set                    qualified as Set
-import Data.Text                   (Text)
-import Data.Typeable               (Typeable)
-import GHC.Generics                (Generic)
-import GHC.TypeNats                (KnownNat, natVal)
+import Control.Monad              ((>=>))
+import Data.Binary                (Binary)
+import Data.Proxy                 (Proxy (..))
+import Data.Set                   qualified as Set
+import Data.Text                  (Text)
+import Data.Typeable              (Typeable)
+import GHC.Generics               (Generic)
+import GHC.TypeNats               (KnownNat, natVal)
 import Hyperion
-import Hyperion.Log                qualified as Log
-import Hyperion.Static.Reflection  (withClosureDict)
-import Hyperion.Util               (withDict)
+import Hyperion.Log               qualified as Log
+import Hyperion.Static.Reflection (withClosureDict)
+import Hyperion.Util              (withDict)
 
 -- | A polymorphic function with a Show constraint
 sayHello :: Show a => a -> Process String
@@ -107,12 +107,12 @@ remoteMultLabel k = remoteEval $
 remoteMultLabelCubed :: KnownNat j => IntLabeled j -> Job (IntLabeled j)
 remoteMultLabelCubed = remoteMultLabel >=> remoteMultLabel >=> remoteMultLabel
 
+nubOrdDict :: Dict (Ord b) -> [b] -> Process [b]
+nubOrdDict Dict = pure . Set.toList . Set.fromList
+
 remoteNubOrd :: (Typeable a, Static (Ord a), Static (Binary a)) => [a] -> Job [a]
 remoteNubOrd xs = remoteEval $
-  static nubOrd `cAp` closureDict `cAp` cPure xs
-  where
-    nubOrd :: Dict (Ord b) -> [b] -> Process [b]
-    nubOrd Dict = pure . Set.toList . Set.fromList
+  static nubOrdDict `cAp` closureDict `cAp` cPure xs
 
 main :: IO ()
 main = runJobLocal defaultHyperionStaticConfig pInfo $ do

@@ -12,8 +12,6 @@ module Hyperion.Remote
   , defaultHostNameStrategy
   , useSubnet
   , Subnet(..)
-  , addressToNodeId
-  , nodeIdToAddress
   ) where
 
 import Control.Concurrent.MVar          (newEmptyMVar, putMVar, takeMVar)
@@ -21,8 +19,6 @@ import Control.Distributed.Process      hiding (bracket, catch, try)
 import Control.Distributed.Process.Node qualified as Node
 import Control.Monad.Catch              (Exception)
 import Data.Bits                        ((.&.))
-import Data.Text                        (Text)
-import Data.Text.Encoding               qualified as E
 import Data.Word                        (Word8)
 import Hyperion.Log                     qualified as Log
 import Network.BSD                      (HostEntry (..), getHostEntries,
@@ -31,7 +27,6 @@ import Network.Info                     (IPv4 (..), NetworkInterface (..),
                                          getNetworkInterfaces)
 import Network.Socket                   (HostAddress, hostAddressToTuple,
                                          tupleToHostAddress)
-import Network.Transport                (EndPointAddress (..))
 import Network.Transport.TCP            qualified as NT
 
 -- * Types
@@ -167,12 +162,3 @@ runProcessLocalWithRT_ strategy rtable process = do
       node <- Node.newLocalNode t rtable
       Log.info "Running on node" (Node.localNodeId node)
       Node.runProcess node process
-
--- | Convert a 'Text' representation of 'EndPointAddress' to 'NodeId'.
--- The format for the end point address is \"TCP host:TCP port:endpoint id\"
-addressToNodeId :: Text -> NodeId
-addressToNodeId = NodeId . EndPointAddress . E.encodeUtf8
-
--- | Inverse to 'addressToNodeId'
-nodeIdToAddress :: NodeId -> Text
-nodeIdToAddress (NodeId (EndPointAddress addr)) = E.decodeUtf8 addr

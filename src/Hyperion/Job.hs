@@ -20,8 +20,6 @@ import Data.Binary                 (Binary)
 import Data.Map                    (Map)
 import Data.Map                    qualified as Map
 import Data.Maybe                  (catMaybes)
-import Data.Text                   qualified as T
-import Data.Time.Clock             (NominalDiffTime)
 import Data.Typeable               (Typeable)
 import Hyperion.Cluster            (Cluster, ClusterEnv (..),
                                     HasProgramInfo (..), ProgramInfo (..),
@@ -33,24 +31,27 @@ import Hyperion.Database           qualified as DB
 import Hyperion.HasWorkers         (HasWorkerLauncher (..), remoteEval,
                                     remoteEvalM)
 import Hyperion.Log                qualified as Log
+import Hyperion.OsPath             (OsPath, OsString, dropExtension, (<.>),
+                                    (</>))
 import Hyperion.ProgramId          (ProgramId (..))
-import Hyperion.Remote             (runProcessLocal)
-import Hyperion.ServiceId          (serviceIdToText)
+import Hyperion.Remote             (runProcessLocalWithRT)
+import Hyperion.ServiceId          (ServiceId, serviceIdToOsString,
+                                    serviceIdToText)
 import Hyperion.Slurm              (JobId (..))
 import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Static             (Closure, Static (..), cAp, cPure)
 import Hyperion.Util               (myExecutable, retryRepeated,
                                     runCmdLocalAsync, runCmdLocalLog)
-import Hyperion.Worker             (WorkerConnectionTimeout,
+import Hyperion.Worker             (Service (..), WorkerConnectionTimeout,
                                     WorkerLauncher (..), emptyOnServiceExit,
                                     emptyStoreCancelAction,
                                     getWorkerStaticConfig,
-                                    mkSerializableClosureProcess,
-                                    withRemoteRunProcess, worker)
-import Hyperion.WorkerCpuPool      (CommandTransport, NumCPUs (..), SSHError,
-                                    WorkerAddr, WorkerCpuPool)
+                                    initWorkerRemoteTable,
+                                    mkSerializableClosureProcess, runWorker,
+                                    withRemoteRunProcess)
+import Hyperion.WorkerCpuPool      (NumCPUs, SSHError, WorkerAddr,
+                                    WorkerCpuPool)
 import Hyperion.WorkerCpuPool      qualified as WCP
-import System.FilePath.Posix       (dropExtension, (<.>), (</>))
 
 -- * General comments
 -- $
@@ -111,12 +112,10 @@ instance HasProgramInfo JobEnv where
 data NodeLauncherConfig = NodeLauncherConfig
   {
     -- | The directory to which the workers shall log.
-    nodeLogDir                 :: FilePath
-    -- | The command used to run shell commands on remote nodes. See 'CommandTransport' for description.
-  , nodeCommandTransport       :: CommandTransport
-    -- | How long to wait before re-trying creating a Node launcher,
-    -- and number of times to retry
-  , nodeLauncherTimeoutRetries :: Maybe (NominalDiffTime, Int)
+    nodeLogDir       :: OsPath
+    -- | Provides 'commandTransport', 'nodeLauncherTimeoutRetries' and
+    -- 'workerCommand'.
+  , nodeStaticConfig :: HyperionStaticConfig
   }
 
 -- | Make 'JobEnv' an instance of 'DB.HasDB'.
@@ -152,9 +151,10 @@ defaultPoolLauncher
   -> NumCPUs
   -> WorkerLauncher JobId
 defaultPoolLauncher workerCpuPool launcherMap nCpus = WorkerLauncher
-  { withLaunchedWorker = \nodeId serviceId goJobId ->
+  { withLaunchedWorker = \serviceIdToLogPath service goJobId ->
       WCP.withWorkerAddr workerCpuPool nCpus $ \addr ->
-      withLaunchedWorker (launcherMap Map.! addr) nodeId serviceId goJobId
+      withLaunchedWorker (launcherMap Map.! addr) serviceIdToLogPath service goJobId
+  , overrideToLogPath = Nothing
   , connectionTimeout = Nothing
   , onRemoteError     = \e _ -> throwM e
   , storeCancelAction = emptyStoreCancelAction
@@ -186,8 +186,7 @@ runJobSlurm programInfo go = do
           -- Fallback case for when Log.currentLogFile has not been
           -- set. This should never happen.
           Nothing      -> programLogDir programInfo </> "workers" </> "workers"
-      , nodeCommandTransport        = staticConfig.commandTransport
-      , nodeLauncherTimeoutRetries  = staticConfig.nodeLauncherTimeoutRetries
+      , nodeStaticConfig = staticConfig
       }
   withLauncherMap nodeLauncherConfig nodes $ \launcherMap -> do
     let addrs = Map.keys launcherMap
@@ -195,8 +194,8 @@ runJobSlurm programInfo go = do
     let
       cfg = JobEnv
         { jobDatabaseConfig    = dbConfig
-        , jobNodeCpus          = NumCPUs nodeCpus
-        , jobTaskCpus          = NumCPUs 1
+        , jobNodeCpus          = nodeCpus
+        , jobTaskCpus          = 1
         , jobTaskLauncher      = defaultPoolLauncher
         , jobProgramInfo       = programInfo
         , jobStaticConfig      = staticConfig
@@ -215,16 +214,23 @@ dummyProgramInfo = ProgramInfo
 
 -- | Runs the 'Job' locally in IO without using any information from a
 -- SLURM environment, with some basic default settings. This function
--- is provided primarily for testing.
+-- is provided primarily for testing. Logs go to 'stderr', which is
+-- line-buffered while the 'Job' runs. As in a worker,
+-- 'getWorkerStaticConfig' returns the given 'HyperionStaticConfig'.
 runJobLocal :: HyperionStaticConfig -> ProgramInfo -> Job a -> IO a
-runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy staticConfig) $ do
+runJobLocal staticConfig programInfo go =
+  Log.withLineBufferedStderr $
+  runProcessLocalWithRT (hostNameStrategy staticConfig)
+    (initWorkerRemoteTable staticConfig Nothing) $ do
   dbConfig <- liftIO $ dbConfigFromProgramInfo programInfo
   workerCpuPool <- liftIO $ WCP.newPool Map.empty
   let
     localLauncher = WorkerLauncher
-      { withLaunchedWorker = \nid serviceId goJobId -> do
-          _ <- spawnLocal (worker nid serviceId)
-          goJobId (JobName (serviceIdToText serviceId))
+      -- TODO: redirect logs if overrideToLogPath is specified?
+      { withLaunchedWorker = \_ service goJobId -> do
+          _ <- spawnLocal (runWorker service)
+          goJobId (JobName (serviceIdToText service.serviceId))
+      , overrideToLogPath = Nothing
       , connectionTimeout = Nothing
       , onRemoteError     = \e _ -> throwM e
       , storeCancelAction = emptyStoreCancelAction
@@ -232,8 +238,8 @@ runJobLocal staticConfig programInfo go = runProcessLocal (hostNameStrategy stat
       }
   runReaderT go $ JobEnv
     { jobDatabaseConfig    = dbConfig
-    , jobNodeCpus          = NumCPUs 1
-    , jobTaskCpus          = NumCPUs 1
+    , jobNodeCpus          = 1
+    , jobTaskCpus          = 1
     , jobTaskLauncher      = \_ _ _ -> localLauncher
     , jobProgramInfo       = programInfo
     , jobStaticConfig      = staticConfig
@@ -250,22 +256,28 @@ runJobLocal' = runJobLocal defaultHyperionStaticConfig dummyProgramInfo
 -- | 'WorkerLauncher' that uses the supplied command runner to launch
 -- workers.  Sets 'connectionTimeout' to 'Nothing'. Uses the
 -- 'ServiceId' supplied to 'withLaunchedWorker' to construct 'JobId'
--- (through 'JobName').  The supplied 'FilePath' is used as log
+-- (through 'JobName').  The supplied 'OsPath' is used as log
 -- directory for the worker, with the log file name derived from
--- 'ServiceId'.
+-- 'ServiceId'. The supplied function (the @workerCommand@ of
+-- 'HyperionStaticConfig') turns 'hyperionWorkerCommand' into the command
+-- that is run.
 workerLauncherWithRunCmd
   :: MonadIO m
-  => FilePath
-  -> ((String, [String]) -> Process ())
+  => ((OsString, [OsString]) -> (OsString, [OsString]))
+  -> OsPath
+  -> ((OsString, [OsString]) -> Process ())
   -> m (WorkerLauncher JobId)
-workerLauncherWithRunCmd logDir runCmd = liftIO $ do
+workerLauncherWithRunCmd workerCommand logDir runCmd = liftIO $ do
   hyperionExec <- myExecutable
   pure $ WorkerLauncher
-    { withLaunchedWorker = \nid serviceId goJobId -> do
-        let jobId = JobName (serviceIdToText serviceId)
-            logFile = logDir </> T.unpack (serviceIdToText serviceId) <.> "log"
-        runCmd (hyperionWorkerCommand hyperionExec nid serviceId logFile)
+    { withLaunchedWorker = \serviceIdToLogPath service goJobId -> do
+        let jobId = JobName (serviceIdToText service.serviceId)
+            logFile = case serviceIdToLogPath of
+              Just toPath -> toPath service.serviceId
+              Nothing     -> logDir </> serviceIdToOsString service.serviceId <.> "log"
+        runCmd $ workerCommand $ hyperionWorkerCommand hyperionExec service logFile
         goJobId jobId
+    , overrideToLogPath = Nothing
     , connectionTimeout = Nothing
     , onRemoteError     = \e _ -> throwM e
     , storeCancelAction = emptyStoreCancelAction
@@ -319,12 +331,12 @@ withNodeLauncher
 withNodeLauncher cfg addr' go = case addr' of
   WCP.RemoteAddr addr -> do
     remoteLauncher <-
-      workerLauncherWithRunCmd cfg.nodeLogDir
-      (liftIO . WCP.remoteRunCmd addr cfg.nodeCommandTransport)
+      workerLauncherWithRunCmd staticCfg.workerCommand cfg.nodeLogDir
+      (liftIO . WCP.remoteRunCmd addr staticCfg.commandTransport)
     let
       remoteLauncherWithTimeout = remoteLauncher
-        { connectionTimeout = fmap fst cfg.nodeLauncherTimeoutRetries }
-      maybeTimeoutRetry = case cfg.nodeLauncherTimeoutRetries of
+        { connectionTimeout = fmap fst staticCfg.nodeLauncherTimeoutRetries }
+      maybeTimeoutRetry = case staticCfg.nodeLauncherTimeoutRetries of
         Just (_, n) -> retryRepeated n (try @Process @WorkerConnectionTimeout)
         Nothing     -> id
     eitherResult <-
@@ -337,7 +349,7 @@ withNodeLauncher cfg addr' go = case addr' of
               static (liftIO . runCmdLocalLog) `cAp` cPure cmd
             remoteRunNode scp
         in
-          workerLauncherWithRunCmd cfg.nodeLogDir runCmdOnNode >>= \launcher ->
+          workerLauncherWithRunCmd staticCfg.workerCommand cfg.nodeLogDir runCmdOnNode >>= \launcher ->
           go (Just (addr', launcher))
     case eitherResult of
       Right result -> return result
@@ -345,8 +357,10 @@ withNodeLauncher cfg addr' go = case addr' of
         Log.warn "Couldn't start launcher" err
         go Nothing
   WCP.LocalHost _ ->
-    workerLauncherWithRunCmd cfg.nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
+    workerLauncherWithRunCmd staticCfg.workerCommand cfg.nodeLogDir (liftIO . runCmdLocalAsync) >>= \launcher ->
     go (Just (addr', launcher))
+  where
+    staticCfg = cfg.nodeStaticConfig
 
 -- | Starts NodeLauncher's for each node and builds a 'LauncherMap' to
 -- pass to the continuation.
@@ -385,7 +399,7 @@ remoteEvalWithCPUs
   -> Closure (Process b)
   -> Job b
 remoteEvalWithCPUs nCpus closure =
-  local (setTaskCpus (NumCPUs nCpus)) $
+  local (setTaskCpus nCpus) $
   remoteEval closure
 
 -- | Evaluate the given 'Closure' at the given 'WorkerAddr', bypassing
@@ -403,4 +417,19 @@ remoteEvalOnWorker
 remoteEvalOnWorker addr closure =
   local (\env -> env
           { jobTaskLauncher = \_ _ _ -> env.jobWorkerLauncherMap Map.! addr }) $
+  remoteEval closure
+
+-- Same as remoteEvalOnWorker, but with a custom function to specify log path.
+remoteEvalOnWorkerWithCustomLog
+  :: (Static (Binary b), Typeable b)
+  => (ServiceId -> OsPath)
+  -> WorkerAddr
+  -> Closure (Process b)
+  -> Job b
+remoteEvalOnWorkerWithCustomLog serviceIdToLogPath addr closure =
+  local (\env -> env
+          { jobTaskLauncher = \_ _ _ -> (env.jobWorkerLauncherMap Map.! addr)
+            { overrideToLogPath = Just serviceIdToLogPath }
+          }
+        ) $
   remoteEval closure

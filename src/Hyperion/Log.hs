@@ -2,7 +2,7 @@
 
 module Hyperion.Log where
 
-import Control.Monad.Catch       (Exception, MonadThrow, throwM)
+import Control.Monad.Catch       (Exception, MonadThrow, bracket, throwM)
 import Control.Monad.IO.Class    (MonadIO, liftIO)
 import Data.IORef                (IORef, newIORef, readIORef, writeIORef)
 import Data.Text                 (Text)
@@ -10,13 +10,15 @@ import Data.Text                 qualified as Text
 import Data.Time.Format          (defaultTimeLocale, formatTime)
 import Data.Time.LocalTime       (getZonedTime)
 import GHC.IO.Handle             (hDuplicateTo)
+import Hyperion.OsPath           (OsPath, takeDirectory)
 import System.Console.Concurrent (errorConcurrent)
-import System.Directory          (createDirectoryIfMissing)
-import System.FilePath.Posix     (takeDirectory)
-import System.IO                 (IOMode (..), hFlush, openFile, stderr, stdout)
+import System.Directory.OsPath   (createDirectoryIfMissing)
+import System.File.OsPath        (openFile)
+import System.IO                 (BufferMode (..), IOMode (..), hFlush,
+                                  hGetBuffering, hSetBuffering, stderr, stdout)
 import System.IO.Unsafe          (unsafePerformIO)
-import Text.PrettyPrint          qualified as PP (render, text)
 import Text.PrettyPrint          ((<+>))
+import Text.PrettyPrint          qualified as PP (render, text)
 import Text.Show.Pretty          (ppDoc)
 
 -- * General comments
@@ -26,6 +28,10 @@ import Text.Show.Pretty          (ppDoc)
 -- The functions use 'errorConcurrent' to write to stderr (through 'text').
 --
 -- The output can be redirected from 'stderr' to a file by using 'redirectToFile'.
+--
+-- 'text' writes an unbuffered handle, such as the default 'stderr',
+-- one character (one @write()@ syscall) at a time. When logging to
+-- 'stderr' without 'redirectToFile', use 'withLineBufferedStderr'.
 
 showText :: Show a => a -> Text
 showText = Text.pack . show
@@ -83,15 +89,22 @@ flush = do
   hFlush stderr
   hFlush stdout
 
-currentLogFile :: IORef (Maybe FilePath)
+-- | Run an action with 'stderr' line-buffered, restoring the previous
+-- buffering afterwards.
+withLineBufferedStderr :: IO a -> IO a
+withLineBufferedStderr go =
+  bracket (hGetBuffering stderr) (hSetBuffering stderr) $ \_ ->
+    hSetBuffering stderr LineBuffering >> go
+
+currentLogFile :: IORef (Maybe OsPath)
 {-# NOINLINE currentLogFile #-}
 currentLogFile = unsafePerformIO (newIORef Nothing)
 
-getLogFile :: MonadIO m => m (Maybe FilePath)
+getLogFile :: MonadIO m => m (Maybe OsPath)
 getLogFile = liftIO (readIORef currentLogFile)
 
 -- | Redirects log output to file by rewrting 'stdout' and 'stderr' handles.
-redirectToFile :: FilePath -> IO ()
+redirectToFile :: OsPath -> IO ()
 redirectToFile logFile = do
   createDirectoryIfMissing True (takeDirectory logFile)
   -- Use AppendMode so that if the program is accidentally run twice

@@ -1,30 +1,43 @@
-{-# LANGUAGE DeriveAnyClass    #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE ApplicativeDo       #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Hyperion.Slurm.Sbatch where
 
-import Control.Monad.Catch   (Exception)
-import Data.Attoparsec.Text  (Parser, parseOnly, takeWhile1)
-import Data.Char             (isSpace)
-import Data.Maybe            (catMaybes)
-import Data.Text             (Text)
-import Data.Text             qualified as T
-import Data.Time.Clock       (NominalDiffTime)
-import Hyperion.Log          qualified as Log
-import Hyperion.Slurm.JobId  (JobId (..))
-import Hyperion.Util         (hour)
-import System.Directory      (createDirectoryIfMissing)
-import System.Exit           (ExitCode (..))
-import System.FilePath.Posix (takeDirectory)
-import System.Process        (readCreateProcessWithExitCode, shell)
+import Control.Applicative     (optional)
+import Control.Exception       (IOException, tryJust)
+import Control.Monad.Catch     (Exception)
+import Data.Attoparsec.Text    (char, decimal, endOfInput, parseOnly, sepBy1,
+                                takeWhile1)
+import Data.Attoparsec.Text    qualified as Attoparsec
+import Data.Char               (isSpace)
+import Data.Maybe              (catMaybes)
+import Data.Text               qualified as T
+import Data.Time.Clock         (NominalDiffTime)
+import Hyperion.Log            qualified as Log
+import Hyperion.OsPath         (OsPath, takeDirectory)
+import Hyperion.OsString       (OsString, fromString, showOs, toString)
+import Hyperion.Slurm.JobId    (JobId (..))
+import Hyperion.Util           (day, hour, minute, shellEsc)
+import Options.Applicative     (ReadM, auto, eitherReader, help, long, metavar,
+                                option, short, strOption, switch, value)
+import Options.Applicative     qualified as Applicative
+import System.Directory.OsPath (createDirectoryIfMissing)
+import System.Exit             (ExitCode (..))
+import System.IO.Error         (isDoesNotExistError, isPermissionError)
+import System.Process          (proc, readCreateProcessWithExitCode)
 
--- | Error from running @sbatch@. The 'String's are the contents of 'stdout'
--- and 'stderr' from @sbatch@.
+-- | Error from running @sbatch@.
 data SbatchError = SbatchError
-  { exitCodeStdinStderr :: (ExitCode, String, String)
-  , input               :: String
+  { -- | 'Left' if @sbatch@ could not be started (it is not on @PATH@ or not
+    -- executable); otherwise its exit code and the contents of its stdout
+    -- and stderr.
+    result :: Either IOException (ExitCode, OsString, OsString)
+    -- | The @sbatch@ command line, then the script for its stdin
+  , input  :: OsString
   } deriving (Show, Exception)
 
 -- | Type representing possible options for @sbatch@. Map 1-to-1 to @sbatch@
@@ -32,35 +45,36 @@ data SbatchError = SbatchError
 data SbatchOptions = SbatchOptions
   {
   -- | Job name (\"--job-name\")
-    jobName       :: Maybe Text
+    jobName        :: Maybe OsString
   -- | Working directory for the job (\"--D\")
-  , chdir         :: Maybe FilePath
+  , chdir          :: Maybe OsPath
   -- | Where to direct 'stdout' of the job (\"--output\")
-  , output        :: Maybe FilePath
+  , output         :: Maybe OsPath
   -- | Number of nodes (\"--nodes\")
-  , nodes         :: Int
+  , nodes          :: Int
   -- | Number of tasks per node (\"--ntasks-per-node\")
-  , nTasksPerNode :: Int
+  , nTasksPerNode  :: Int
   -- | Job time limit (\"--time\")
-  , time          :: NominalDiffTime
+  , time           :: NominalDiffTime
   -- | Memory per node, use suffix K,M,G, or T to define the units. (\"--mem\")
-  , mem           :: Maybe Text
+  , mem            :: Maybe OsString
   -- | (\"--mail-type\")
-  , mailType      :: Maybe Text
+  , mailType       :: Maybe OsString
   -- | (\"--mail-user\")
-  , mailUser      :: Maybe Text
+  , mailUser       :: Maybe OsString
   -- | @SLURM@ partition (\"--partition\")
-  , partition     :: Maybe Text
+  , partition      :: Maybe OsString
   -- | (\"--constraint")
-  , constraint    :: Maybe Text
+  , constraint     :: Maybe OsString
   -- | (\"--account")
-  , account       :: Maybe Text
+  , account        :: Maybe OsString
   -- | (\"--qos")
-  , qos           :: Maybe Text
+  , qos            :: Maybe OsString
   -- | (\"--no-requeue")
-  , noRequeue     :: Bool
-  -- | code to inject in sbatch script before the commands
-  , scriptPreamble :: Maybe Text
+  , noRequeue      :: Bool
+  -- | Shell code put, as is, in the sbatch script before the command.
+  -- Separate several commands with newlines or @;@.
+  , scriptPreamble :: Maybe OsString
   } deriving (Show)
 
 -- | Default 'SbatchOptions'. Request 1 task on 1 node for 24 hrs, everything else
@@ -84,62 +98,119 @@ defaultSbatchOptions = SbatchOptions
   , scriptPreamble   = Nothing
   }
 
--- | Convert 'SbatchOptions' to a string of options for @sbatch@
-sBatchOptionString :: SbatchOptions -> String
-sBatchOptionString SbatchOptions{..} =
-  unwords [ opt ++ " " ++ val | (opt, Just val) <- optPairs]
+-- | Convert 'SbatchOptions' to command-line arguments for @sbatch@
+sBatchOptionArgs :: SbatchOptions -> [OsString]
+sBatchOptionArgs opts =
+  concat [ [opt, val] | (opt, Just val) <- optPairs ]
+  ++ [ "--no-requeue" | opts.noRequeue ]
   where
     optPairs =
-      [ ("--job-name",        fmap T.unpack jobName)
+      [ ("--job-name",        opts.jobName)
       -- sbatch changed this option from workdir to chdir
       -- at some point, so we need to use the short name
-      , ("-D",                chdir)
-      , ("--output",          output)
-      , ("--nodes",           Just (show nodes))
-      , ("--ntasks-per-node", Just (show nTasksPerNode))
-      , ("--time",            Just (formatRuntime time))
-      , ("--mem",             fmap T.unpack mem)
-      , ("--mail-type",       fmap T.unpack mailType)
-      , ("--mail-user",       fmap T.unpack mailUser)
-      , ("--partition",       fmap T.unpack partition)
-      , ("--constraint",      fmap T.unpack constraint)
-      , ("--account",         fmap T.unpack account)
-      , ("--qos",             fmap T.unpack qos)
-      , ("--no-requeue",      if noRequeue then Just "" else Nothing)
+      , ("-D",                opts.chdir)
+      , ("--output",          opts.output)
+      , ("--nodes",           Just (showOs opts.nodes))
+      , ("--ntasks-per-node", Just (showOs opts.nTasksPerNode))
+      , ("--time",            Just (formatRuntime opts.time))
+      , ("--mem",             opts.mem)
+      , ("--mail-type",       opts.mailType)
+      , ("--mail-user",       opts.mailUser)
+      , ("--partition",       opts.partition)
+      , ("--constraint",      opts.constraint)
+      , ("--account",         opts.account)
+      , ("--qos",             opts.qos)
       ]
 
-sbatchOutputParser :: Parser JobId
+-- | Parse command-line options for sbatch, see https://slurm.schedmd.com/sbatch.html#SECTION_OPTIONS
+--
+-- NB: string options use 'strOption' so that they accept the value @sbatch@
+-- itself accepts (@--mem 64G@). Do not use @option auto@ here: that parses via
+-- 'Read', which requires the value to be quoted as a Haskell string literal
+-- (@--mem '"64G"'@).
+sBatchOptionsParser :: Applicative.Parser SbatchOptions
+sBatchOptionsParser = do
+  jobName <- optional $ strOption $ short 'J' <> long "job-name" <> metavar "STRING"
+  chdir <- optional $ strOption $ short 'D' <> long "chdir" <> metavar "PATH"
+  output <- optional $ strOption $ short 'o' <> long "output" <> metavar "PATH"
+  nodes <- option auto $ short 'N' <> long "nodes" <> value defaultSbatchOptions.nodes <> metavar "INT"
+  nTasksPerNode <-option auto $ long "ntasks-per-node" <> value defaultSbatchOptions.nTasksPerNode <> metavar "INT"
+  time <- option readTime $ short 't' <> long "time" <> value defaultSbatchOptions.time <> metavar "TIME"
+  mem <- optional $ strOption $ long "mem" <> metavar "STRING"
+  mailType <- optional $ strOption $ long "mail-type" <> metavar "STRING"
+  mailUser <- optional $ strOption $ long "mail-user" <> metavar "STRING"
+  partition <- optional $ strOption $ short 'p' <> long "partition" <> metavar "STRING"
+  constraint <- optional $ strOption $ short 'C' <> long "constraint" <> metavar "STRING"
+  account <- optional $ strOption $ short 'A' <> long "account" <> metavar "STRING"
+  qos <- optional $ strOption $ short 'q' <> long "qos" <> metavar "STRING"
+  noRequeue <- switch $ long "no-requeue"
+  scriptPreamble <- optional $ strOption $ long "script-preamble" <> metavar "STRING"
+    <> help "Shell code to run in the batch script before the command, as is; \
+            \separate several commands with ';' (e.g. 'module load gcc; module load openmpi')"
+  pure SbatchOptions {..}
+  where
+    readTime :: ReadM NominalDiffTime
+    readTime = eitherReader $ parseOnly (slurmTimeParser <* endOfInput) . T.pack
+
+    slurmTimeParser :: Attoparsec.Parser NominalDiffTime
+    slurmTimeParser = do
+      dd :: Maybe Integer <- optional $ decimal <* char '-'
+      hmsList :: [Integer] <- decimal `sepBy1` char ':'
+      dhms <- case (dd, hmsList) of
+        (Nothing, [m])       -> pure [0, 0, m, 0]
+        (Nothing, [m, s])    -> pure [0, 0, m, s]
+        (Nothing, [h, m, s]) -> pure [0, h, m, s]
+        (Just d, [h])        -> pure [d, h, 0, 0]
+        (Just d, [h, m])     -> pure [d, h, m, 0]
+        (Just d, [h, m, s])  -> pure [d, h, m, s]
+        _                    -> fail "invalid SLURM time format"
+      pure $ sum $
+        zipWith (*)
+        (fromIntegral <$> dhms)
+        [day, hour, minute, 1]
+
+sbatchOutputParser :: Attoparsec.Parser JobId
 sbatchOutputParser = JobId <$> ("Submitted batch job " *> takeWhile1 (not . isSpace) <* "\n")
 
 -- | Runs @sbatch@ on a batch file with options pulled from 'SbatchOptions' and
--- script given as the 'String' input parameter. If 'sbatch' exists with failure
--- then throws 'SbatchError'.
-sbatchScript :: SbatchOptions -> String -> IO JobId
+-- script given as the 'OsPath' input parameter. @sbatch@ runs without a shell
+-- and reads the script, as is, from stdin. If @sbatch@ cannot be started or
+-- fails then throws 'SbatchError'.
+sbatchScript :: SbatchOptions -> OsPath -> IO JobId
 sbatchScript opts script = do
   mapM_ (createDirectoryIfMissing True) $
     catMaybes [ chdir opts
-              , fmap takeDirectory (output opts)
+              , fmap takeDirectory opts.output
               ]
-  result@(exit, out, _) <- readCreateProcessWithExitCode (shell pipeToSbatch) ""
-  case (exit, parseOnly sbatchOutputParser (T.pack out)) of
-    (ExitSuccess, Right j) -> return j
-    _                      -> Log.throw (SbatchError result pipeToSbatch)
+  outcome <- tryJust startFailure $
+    readCreateProcessWithExitCode (proc "sbatch" (map toString sbatchArgs)) (toString wrappedScript)
+  case outcome of
+    Left e -> Log.throw (SbatchError (Left e) input)
+    Right (exit, out, err) -> case (exit, parseOnly sbatchOutputParser (T.pack out)) of
+      (ExitSuccess, Right j) -> return j
+      _                      -> Log.throw (SbatchError (Right (exit, fromString out, fromString err)) input)
   where
-    pipeToSbatch = "printf '" ++ wrappedScript ++ "' | sbatch " ++ sBatchOptionString opts
-    preamble = case scriptPreamble opts of
-      Just t -> T.unpack t ++ "\n"
+    sbatchArgs = sBatchOptionArgs opts
+    input = shellEsc "sbatch" sbatchArgs <> "\n" <> wrappedScript
+    -- Other IO errors can come after sbatch has submitted the job, so
+    -- retrying on them could submit it twice.
+    startFailure e
+      | isDoesNotExistError e || isPermissionError e = Just e
+      | otherwise                                    = Nothing
+    preamble = case opts.scriptPreamble of
+      Just t  -> t <> "\n"
       Nothing -> ""
-    wrappedScript = "#!/bin/sh\n" ++ preamble ++ script
+    wrappedScript = "#!/bin/sh\n" <> preamble <> script
 
 -- | Formats 'NominalDiffTime' into @hh:mm:ss@.
-formatRuntime :: NominalDiffTime -> String
-formatRuntime t = padNum h ++ ":" ++ padNum m ++ ":" ++ padNum s
+formatRuntime :: NominalDiffTime -> OsString
+formatRuntime t = padNum h <> ":" <> padNum m <> ":" <> padNum s
   where
     h = quotBy 3600 t
     m = remBy 60 (quotBy 60 t)
     s = remBy 60 (quotBy 1 t)
 
-    padNum x = case length (show x) of
+    padNum x = fromString $ case length (show x) of
       1 -> '0' : show x
       _ -> show x
 
@@ -150,11 +221,9 @@ formatRuntime t = padNum h ++ ":" ++ padNum m ++ ":" ++ padNum s
     remBy d n = n - (fromInteger f) * d where
       f = quotBy d n
 
--- | Runs the command given by 'FilePath' with arguments @['Text']@ in
--- @sbatch@ script via 'sbatchScript'. If 'sbatch' fails then throws
--- 'SbatchError'.
-sbatchCommand :: SbatchOptions -> FilePath -> [Text] -> IO JobId
-sbatchCommand opts cmd args = sbatchScript opts script
-  where
-    script = cmd ++ " " ++ unwords (map quote args)
-    quote a = "\"" ++ T.unpack a ++ "\""
+-- | Runs the command given by 'OsPath' with arguments @['OsString']@ in
+-- @sbatch@ script via 'sbatchScript'. The command is a single program, not
+-- shell code, and the arguments reach it as they are: the shell expands
+-- nothing in them. If 'sbatch' fails then throws 'SbatchError'.
+sbatchCommand :: SbatchOptions -> OsPath -> [OsString] -> IO JobId
+sbatchCommand opts cmd args = sbatchScript opts (shellEsc cmd args)

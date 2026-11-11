@@ -5,31 +5,41 @@
 
 module Hyperion.Util where
 
-import Control.Concurrent       (threadDelay)
-import Control.Concurrent.Async qualified as Async
-import Control.Monad            (replicateM)
-import Control.Monad.Catch      (MonadCatch, SomeException, try)
-import Control.Monad.IO.Class   (MonadIO, liftIO)
-import Data.BinaryHash          (hashBase64Safe)
-import Data.ByteString.Char8    qualified as B
-import Data.Constraint          (Constraint, Dict (..))
-import Data.IORef               (IORef, atomicModifyIORef', newIORef)
-import Data.Text                (Text)
-import Data.Text                qualified as Text
-import Data.Text.Lazy           qualified as LazyText
-import Data.Time.Clock          (NominalDiffTime)
-import Data.Vector              qualified as V
-import Hyperion.Log             qualified as Log
-import Network.Mail.Mime        (Address (..), renderSendMail, simpleMail')
-import Numeric                  (showFFloat, showIntAtBase)
-import System.Directory         (copyFile, createDirectoryIfMissing)
-import System.FilePath.Posix    (replaceDirectory)
-import System.IO.Unsafe         (unsafePerformIO)
-import System.Posix.Files       (readSymbolicLink)
-import System.Process           (callProcess)
-import System.Random            (randomRIO)
-import System.RUsage            qualified as RUsage
-import Text.ShellEscape         qualified as Esc
+import Control.Concurrent         (threadDelay)
+import Control.Concurrent.Async   qualified as Async
+import Control.Exception          (IOException)
+import Control.Monad              (liftM2, replicateM, (<=<))
+import Control.Monad.Catch        (MonadCatch, SomeException, handle, try)
+import Control.Monad.IO.Class     (MonadIO, liftIO)
+import Data.Base64.Types          qualified as B64
+import Data.Binary                (Binary, Word64, decodeOrFail, encode)
+import Data.ByteString.Base64.URL qualified as B64URL
+import Data.ByteString.Conversion (fromByteString, toByteString')
+import Data.ByteString.Lazy       qualified as BL
+import Data.Constraint            (Constraint, Dict (..))
+import Data.IORef                 (IORef, atomicModifyIORef', newIORef)
+import Data.List                  (intersperse)
+import Data.Maybe                 (fromJust, fromMaybe, listToMaybe)
+import Data.Text                  (Text)
+import Data.Text                  qualified as Text
+import Data.Text.Lazy             qualified as LazyText
+import Data.Time.Clock            (NominalDiffTime)
+import Data.Vector                qualified as V
+import Hyperion.Log               qualified as Log
+import Hyperion.OsPath            (OsPath, replaceDirectory)
+import Hyperion.OsString          (OsString, encodeUtf, hashBase64SafeOsString,
+                                   toString)
+import Network.Mail.Mime          (Address (..), renderSendMail, simpleMail')
+import Numeric                    (showFFloat, showIntAtBase)
+import System.Directory.OsPath    (copyFile, createDirectoryIfMissing)
+import System.IO                  (readFile')
+import System.IO.Unsafe           (unsafePerformIO)
+import System.OsString            qualified as OsString
+import System.Posix.Files         (readSymbolicLink)
+import System.Process             (callProcess)
+import System.Random              (randomRIO)
+import System.RUsage              qualified as RUsage
+import Text.ShellEscape           qualified as Esc
 
 -- | An opaque type representing a unique object. Only guaranteed to
 -- be unique in one instance of a running program. For example, if we
@@ -55,11 +65,30 @@ uniqueSource = unsafePerformIO (newIORef 0)
 newUnique :: IO Unique
 newUnique = fmap MkUnique $ atomicModifyIORef' uniqueSource $ \c -> (c+1,c)
 
+----------------- base64 encoding ----------------------
+
+encodeBinaryToBase64 :: Binary a => a -> OsString
+encodeBinaryToBase64 = fromJust . fromByteString . B64.extractBase64 . B64URL.encodeBase64' . BL.toStrict . encode
+
+decodeBinaryFromBase64 :: Binary a => OsString -> Either String a
+decodeBinaryFromBase64 s =
+  case B64URL.decodeBase64Untyped (toByteString' s) of
+    Left err -> Left (Text.unpack err)
+    Right bs -> case decodeOrFail (BL.fromStrict bs) of
+      Right (_, _, a)  -> Right a
+      Left (_, _, err) -> Left err
+
+----------------- Misc ----------------------
+
 -- | 'IO' action that returns a random string of given length
 randomString :: Int -> IO String
 randomString len = replicateM len $ toAlpha <$> randomRIO (0, 51)
   where toAlpha n | n < 26    = toEnum (n + fromEnum 'A')
                   | otherwise = toEnum (n - 26 + fromEnum 'a')
+
+-- | 'IO' action that returns a random string of given length
+randomOsString :: Int -> IO OsString
+randomOsString = encodeUtf <=< randomString
 
 -- | @retryRepeated n doTry m@ tries to run @doTry m@ n-1 times, after
 -- which it runs @m@ 1 time. After each failure waits 15-90 seconds
@@ -148,10 +177,14 @@ email msg toAddr a = emailMessage toAddr subject body
 emailError :: (Show a, MonadIO m) => Text -> a -> m ()
 emailError = email "Error"
 
--- | Takes a path and a list of 'String' arguments, shell-escapes the arguments,
--- and combines everything into a single string.
-shellEsc :: FilePath -> [String] -> String
-shellEsc cmd args = unwords $ cmd : map (B.unpack . Esc.bytes . Esc.sh . B.pack) args
+-- | Takes a path and a list of 'String' arguments, shell-escapes the path and
+-- the arguments, and combines everything into a single string.
+shellEsc :: OsPath -> [OsString] -> OsString
+shellEsc cmd args = mconcat $ intersperse " " $ map esc (cmd : args) where
+  -- Esc.sh turns "" into nothing, which would drop the argument
+  esc ""  = "''"
+  esc arg = fromMaybe (error $ show arg) $
+    fromByteString $ Esc.bytes $ Esc.sh $ toByteString' arg
 
 ----------------- Time ----------------------
 
@@ -169,41 +202,44 @@ nominalDiffTimeToMicroseconds t = ceiling (t*1000*1000)
 
 ----------------- Filesystem ----------------------
 
-myExecutable :: IO FilePath
-myExecutable = readSymbolicLink "/proc/self/exe"
+myExecutable :: IO OsPath
+myExecutable = encodeUtf =<< readSymbolicLink "/proc/self/exe"
 
 -- | Determine the path to this executable and save a copy to the specified dir
 -- with a string appended to filename.
 savedExecutable
-  :: FilePath
-  -> String -- ^ the string to append
-  -> IO FilePath
+  :: OsPath
+  -> OsString -- ^ the string to append
+  -> IO OsPath
 savedExecutable dir idString = do
   selfExec <- myExecutable
   createDirectoryIfMissing True dir
-  let savedExec = replaceDirectory (selfExec ++ "-" ++ idString) dir
+  let savedExec = replaceDirectory (selfExec <> "-" <> idString) dir
   copyFile selfExec savedExec
   return savedExec
 
 -- | Replaces all non-allowed characters by @\'_\'@. Allowed characters are alphanumerics and .,-,_
-sanitizeFileString :: String -> FilePath
-sanitizeFileString = map (\c -> if c `notElem` allowed then '_' else c)
+sanitizeFileString :: OsString -> OsString
+sanitizeFileString = OsString.pack . map sanitizeChar . OsString.unpack
   where
-    allowed = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ".-_"
+    sanitizeChar c = if c `notElem` allowed then OsString.unsafeFromChar '_' else c
+    allowed = map OsString.unsafeFromChar $ ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ".-_"
 
 -- | Truncates a string to a string of at most given length, replacing dropped
 -- characters by a hash. The hash takes up 43 symbols,
 -- so asking for a smaller length will still return 43 symbols.
-hashTruncateString :: Int -> String -> String
-hashTruncateString len s | length s <= len = s
+hashTruncateString :: Int -> OsString -> OsString
+hashTruncateString len s | length (OsString.unpack s) <= len = s
 hashTruncateString len s =
-  take numTake s ++ (if numTake > 0 then "-" else "") ++ hString
+  prefix <> (if numTake > 0 then "-" else "") <> hString
   where
     numTake = len - 44
-    hString  = hashBase64Safe (drop numTake s)
+    prefix = OsString.pack $ take numTake $ OsString.unpack s
+    suffix = OsString.pack $ drop numTake $ OsString.unpack s
+    hString  = hashBase64SafeOsString suffix
 
 -- | Synonim for @'hashTruncateString' 230@
-hashTruncateFileName :: String -> String
+hashTruncateFileName :: OsString -> OsString
 hashTruncateFileName = hashTruncateString 230
 
 -- | Turn an expression with a constraint into a function of an
@@ -226,30 +262,83 @@ withDict r Dict = r
 -- NB2: Async documentation recommends using 'withAsync', however the
 -- behavior of that function is different, and it would cancel the
 -- 'Async' on return from 'link'.
-runCmdLocalAsync :: (String, [String]) -> IO ()
-runCmdLocalAsync c = Async.async (uncurry callProcess c) >>= Async.link
+runCmdLocalAsync :: (OsString, [OsString]) -> IO ()
+runCmdLocalAsync (cmd, args) = Async.async (callProcess cmd' args') >>= Async.link where
+  cmd' = toString cmd
+  args' = map toString args
 
 -- | Run the given command and log the command. This is suitable
 -- for running on remote machines so we can keep track of what is
 -- being run where.
-runCmdLocalLog :: (String, [String]) -> IO ()
+runCmdLocalLog :: (OsString, [OsString]) -> IO ()
 runCmdLocalLog c = do
   Log.info "Running command" c
   runCmdLocalAsync c
 
 ----------------- Memory ----------------------
 
+-- | The peak resident set size on the @VmHWM@ line of a @/proc/<pid>/status@
+-- text, in kilobytes; 'Nothing' if there is no such line.
+parseVmHWM :: String -> Maybe Word64
+parseVmHWM status = listToMaybe
+  [ kb
+  | line <- lines status
+  , ("VmHWM:" : kbText : _) <- [words line]
+  , (kb, "") <- reads kbText :: [(Word64, String)]
+  ]
+
+-- | Peak resident set size of this process, in kilobytes, from @VmHWM@ in
+-- @/proc/self/status@; 'Nothing' where that file or line is missing (not
+-- Linux).
+--
+-- VmHWM stands for Virtual memory high-water mark
+-- Preferred over @ru_maxrss@ from 'RUsage.get': @VmHWM@ belongs to the
+-- current program image and starts from zero at @exec@, whereas Linux folds
+-- the pre-exec image's high-water mark into @ru_maxrss@, so a worker spawned
+-- on the master's own node inherits the master's peak as a floor and every
+-- task there reports at least the master's size.
+-- See https://github.com/davidsd/hyperion/issues/4
+getVmHWM :: IO (Maybe Word64)
+getVmHWM = handle (\(_ :: IOException) -> pure Nothing) $
+  parseVmHWM <$> readFile' "/proc/self/status"
+
+-- | The largest peak RSS (in kilobytes) reached by this process.
+-- Use VmHWM when available (Linux), ru_maxrss otherwise.
+-- NB: ru_maxrss may be wrong (inherited from parent)
+-- if the process was forked from another Haskell process.
+-- See https://github.com/davidsd/hyperion/issues/3
+-- and https://github.com/davidsd/hyperion/issues/4
+peakResidentSetSizeSelf :: IO Word64
+peakResidentSetSizeSelf = do
+  rSelf <- RUsage.get RUsage.Self
+  fromMaybe rSelf.maxResidentSetSize <$> getVmHWM
+
+-- | The largest peak RSS (in kilobytes)
+-- reached by this by any one of its reaped children
+-- NB: it's a maximum, not a sum, and blind to children that have not been waited for.
+-- NB: RSS may be wrong (inherited from parent) if the child is the same Haskell process forked from parent.
+-- See https://github.com/davidsd/hyperion/issues/3
+-- and https://github.com/davidsd/hyperion/issues/4
+peakResidentSetSizeChildren :: IO Word64
+peakResidentSetSizeChildren = (.maxResidentSetSize) <$> RUsage.get RUsage.Children
+
+-- | The largest peak RSS (in kilobytes)
+-- reached by this process or by any one of its reaped children
+-- NB: it's a maximum, not a sum, and blind to children that have not been waited for.
+peakResidentSetSizeSelfOrChildren :: IO Word64
+peakResidentSetSizeSelfOrChildren = liftM2 max peakResidentSetSizeSelf peakResidentSetSizeChildren
+
 logMemoryUsage :: IO ()
 logMemoryUsage = do
-  rSelf     <- RUsage.get RUsage.Self
-  rChildren <- RUsage.get RUsage.Children
+  selfMaxRSS     <- peakResidentSetSizeSelf
+  childrenMaxRSS <- peakResidentSetSizeChildren
   let
-    toGB m = fromIntegral @_ @Double m / 1000 / 1000
-    showMem m = Text.pack $ showFFloat (Just 3) (toGB m) ""
+    -- KB to GB
+    toGB m = fromIntegral @_ @Double m / 1024 / 1024
+    showMem m = Text.pack $ showFFloat (Just 3) (toGB m) " GB"
   Log.text $ mconcat
     [ "Max resident set size: self: "
-    , showMem rSelf.maxResidentSetSize
-    , " GB, children: "
-    , showMem rChildren.maxResidentSetSize
-    , " GB"
+    , showMem selfMaxRSS
+    , ", children: "
+    , showMem childrenMaxRSS
     ]

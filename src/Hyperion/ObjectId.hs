@@ -9,27 +9,27 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader   (MonadReader)
 import Data.Aeson             (FromJSON, ToJSON)
 import Data.Binary            (Binary)
-import Data.BinaryHash        (hashBase64Safe)
 import Data.Text              qualified as Text
 import Data.Typeable          (Typeable)
 import GHC.Generics           (Generic)
 import Hyperion.Database      qualified as DB
+import Hyperion.OsString      (OsString, hashBase64SafeOsString, toText)
 
 -- | An identifier for an object, useful for building filenames and
 -- database entries.
-newtype ObjectId = ObjectId String
+newtype ObjectId = ObjectId OsString
   deriving stock (Eq, Ord, Generic)
   deriving anyclass (Binary, FromJSON, ToJSON)
 
 -- | Convert an ObjectId to a String.
-objectIdToString :: ObjectId -> String
-objectIdToString (ObjectId i) = "Object_" ++ i
+objectIdToOsString :: ObjectId -> OsString
+objectIdToOsString (ObjectId i) = "Object_" <> i
 
 -- | Convert an ObjectId to Text.
 objectIdToText :: ObjectId -> Text.Text
-objectIdToText = Text.pack . objectIdToString
+objectIdToText = toText . objectIdToOsString
 
--- | The ObjectId of an object is the result of 'hashBase64Safe'. The
+-- | The ObjectId of an object is the result of 'hashBase64SafeOsString'. The
 -- first time 'getObjectId' is called, it comptues the ObjectId and
 -- stores it in the database before returning it. Subsequent calls
 -- read the value from the database.
@@ -45,4 +45,4 @@ getObjectId
   => a -> m ObjectId
 getObjectId = DB.memoizeWithMap
   (DB.KeyValMap "objectIds")
-  (pure . ObjectId . hashBase64Safe)
+  (pure . ObjectId . hashBase64SafeOsString)

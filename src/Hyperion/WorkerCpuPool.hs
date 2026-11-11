@@ -1,13 +1,13 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE OverloadedRecordDot  #-}
-{-# LANGUAGE TypeApplications   #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Hyperion.WorkerCpuPool
   ( CommandTransport (..)
   , defaultCommandTransport
-  , NumCPUs(..)
+  , NumCPUs
   , SSHError
   , WorkerAddr(..)
   , WorkerCpuPool(..)
@@ -32,6 +32,7 @@ import Data.Map.Strict             qualified as Map
 import Data.Maybe                  (fromMaybe)
 import GHC.Generics                (Generic)
 import Hyperion.Log                qualified as Log
+import Hyperion.OsString           (OsString, fromString, toString)
 import Hyperion.Slurm              qualified as Slurm
 import Hyperion.Util               (retryRepeated, runCmdLocalAsync, shellEsc)
 import System.Exit                 (ExitCode (..))
@@ -57,10 +58,8 @@ import System.Process              (proc, readCreateProcessWithExitCode)
 -- We also provide 'remoteRunCmd' for running commands on the nodes via @ssh@ or @srun@.
 -- * 'WorkerCpuPool' documentation
 -- $
--- | A newtype for the number of available CPUs
-newtype NumCPUs =
-  NumCPUs Int
-  deriving newtype (Eq, Ord, Num)
+-- | A type alias for the number of available CPUs
+type NumCPUs = Int
 
 -- | The 'WorkerCpuPool' type, contaning a map of available CPU resources
 data WorkerCpuPool = WorkerCpuPool
@@ -73,8 +72,8 @@ newPool cpus = WorkerCpuPool <$> newTVarIO cpus
 
 -- | A 'WorkerAddr' representing a node address. Can be a remote node or the local node
 data WorkerAddr
-  = LocalHost String
-  | RemoteAddr String
+  = LocalHost OsString
+  | RemoteAddr OsString
   deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 -- | Reads the system environment to obtain the list of nodes allocated to the job.
@@ -96,7 +95,7 @@ getSlurmAddrs = do
 newPoolFromSlurmEnv :: [WorkerAddr] -> IO WorkerCpuPool
 newPoolFromSlurmEnv nodes = do
   when (null nodes) (Log.throwError "Empty node list")
-  cpusPerNode <- fmap NumCPUs Slurm.getNTasksPerNode
+  cpusPerNode <- Slurm.getNTasksPerNode
   newPool $ Map.fromList $ zip nodes (repeat cpusPerNode)
 
 -- | Finds the worker with the most available CPUs and runs the given
@@ -131,7 +130,7 @@ withWorkerAddr pool cpus go =
 -- $
 -- Type for @ssh@ errors. The 'String's are 'stdout' and 'stderr' of @ssh@.
 data SSHError =
-  SSHError String (ExitCode, String, String)
+  SSHError OsString (ExitCode, OsString, OsString)
   deriving (Show, Exception)
 
 -- | The type for the command used in order to run processes on
@@ -160,8 +159,8 @@ data SSHError =
 --
 -- TODO: add @srun@ documentation
 data CommandTransport
-  = SSH (Maybe (String, [String]))
-  | SRun (Maybe (String, [String]))
+  = SSH (Maybe (OsString, [OsString]))
+  | SRun (Maybe (OsString, [OsString]))
   deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 -- | Default CommandTransport. Uses SSH as
@@ -181,18 +180,19 @@ defaultCommandTransport = SSH Nothing
 --
 -- @ssh@ is invoked to run @sh@ that calls @nohup@ to run the supplied command
 -- in background.
-remoteRunCmd :: String -> CommandTransport -> (String, [String]) -> IO ()
+remoteRunCmd :: OsString -> CommandTransport -> (OsString, [OsString]) -> IO ()
 remoteRunCmd addr (SSH sshCmd) (cmd, args) =
   retryRepeated 10 (try @IO @SSHError) $ do
-    result@(exit, _, _) <- readCreateProcessWithExitCode (proc ssh sshArgs) ""
+    (exit, out, err) <- readCreateProcessWithExitCode (proc (toString ssh) sshArgs) ""
     case exit of
       ExitSuccess -> return ()
-      _           -> Log.throw (SSHError addr result)
+      _           -> Log.throw (SSHError addr (exit, fromString out, fromString err))
   where
     (ssh, sshOpts) = fromMaybe defaultCmd sshCmd
-    sshArgs =
+    sshArgs = map toString $
       sshOpts
-        ++ [addr, shellEsc "sh" ["-c", shellEsc "nohup" (cmd : args) ++ " &"]]
+      -- NB: without /dev/null, nohup waits in some cases, e.g. ("sleep", ["5s"])
+        ++ [addr, shellEsc "sh" ["-c", shellEsc "nohup" (cmd : args) <> " >/dev/null 2>&1 </dev/null &"]]
     -- update the haddock above if changing this default.
     defaultCmd = ("ssh", ["-f", "-o", "UserKnownHostsFile /dev/null"])
 remoteRunCmd addr (SRun srunCmd) (cmd, args) = runCmdLocalAsync (srun, srunArgs)

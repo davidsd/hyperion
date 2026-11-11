@@ -1,13 +1,13 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.39.1.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c0e339f5b6535add7645615e65d0c562bac60c8a824ba5f4af06c6aa50c54339
+-- hash: 351f262e533467863baa175129a940d1065679d28752b358a455f7014631d224
 
 name:           hyperion
-version:        0.1.0.10
+version:        0.2.0.0
 author:         David Simmons-Duffin
 maintainer:     davidsd@gmail.com
 license:        MIT
@@ -35,6 +35,8 @@ library
       Hyperion.Log
       Hyperion.Main
       Hyperion.ObjectId
+      Hyperion.OsPath
+      Hyperion.OsString
       Hyperion.ProgramId
       Hyperion.Remote
       Hyperion.Server
@@ -46,6 +48,7 @@ library
       Hyperion.TokenPool
       Hyperion.Util
       Hyperion.Worker
+      Hyperion.WorkerCommand
       Hyperion.WorkerCpuPool
   other-modules:
       Paths_hyperion
@@ -57,9 +60,11 @@ library
     , async
     , attoparsec
     , base
+    , base64
     , binary
     , binaryhash
     , bytestring
+    , bytestring-conversion
     , concurrent-output
     , constraints
     , containers
@@ -69,6 +74,7 @@ library
     , distributed-static
     , exceptions
     , extra
+    , file-io
     , filepath
     , hyperion-static
     , lens
@@ -80,6 +86,7 @@ library
     , network-transport
     , network-transport-tcp
     , optparse-applicative
+    , os-string
     , pretty
     , pretty-show
     , process
@@ -92,6 +99,7 @@ library
     , sqlite-simple
     , stm
     , text
+    , text-conversions
     , time
     , transformers
     , transformers-base
@@ -158,8 +166,29 @@ executable example-root-search
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
   build-depends:
       base
-    , filepath
     , hyperion
     , mtl
     , optparse-applicative
+  default-language: GHC2021
+
+test-suite hyperion-test
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Paths_hyperion
+  hs-source-dirs:
+      test
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -Wunused-packages -threaded
+  build-depends:
+      base
+    , directory
+    , distributed-process
+    , filepath
+    , hyperion
+    , network-transport
+    , optparse-applicative
+    , process
+    , tasty
+    , tasty-hunit
+    , temporary
   default-language: GHC2021

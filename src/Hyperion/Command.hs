@@ -4,47 +4,52 @@
 
 module Hyperion.Command where
 
-import Control.Distributed.Process (NodeId)
-import Data.Text                   (Text)
-import Data.Text                   qualified as T
-import Hyperion.Remote             (nodeIdToAddress)
-import Hyperion.ServiceId          (ServiceId (..), serviceIdToText)
-import Options.Applicative         (Parser, help, long, metavar, strOption)
+import Hyperion.OsPath     (OsPath)
+import Hyperion.OsString   (OsString, fromString, toString)
+import Hyperion.Worker     (Service (..), decodeService, encodeService)
+import Options.Applicative (Parser, ReadM, eitherReader, help, long, metavar,
+                            option, strOption)
 
 -- Note: The argument list in hyperionWorkerCommand and the workerOpts
--- parser must be kept in sync.
+-- parser must be kept in sync; test/Main.hs checks this.
 
 -- | Haskell representation of arguments passed to the worker process.
 data Worker = Worker
-  { workerMasterAddress :: Text
-  , workerService       :: ServiceId
-  , workerLogFile       :: FilePath
-  } deriving Show
+  { workerService :: Service
+  , workerLogFile :: OsPath
+  } deriving (Eq, Show)
+
+serviceReader :: ReadM Service
+serviceReader = eitherReader (decodeService . fromString)
+
+serviceArg :: OsString
+serviceArg = "service"
+
+logFileArg :: OsString
+logFileArg = "logFile"
 
 -- | Parses worker command-line arguments. Essentially inverse to 'hyperionWorkerCommand'.
 workerOpts :: Parser Worker
 workerOpts = do
-  workerMasterAddress <- T.pack <$>
-    strOption (long "address"
-               <> metavar "HOST:PORT"
-               <> help "Address of the master process")
-  workerService <- ServiceId <$>
-    strOption (long "service"
-               <> metavar "SERVICENAME"
-               <> help "Name of service on master process")
-  workerLogFile <-
-    strOption (long "logFile"
-               <> metavar "PATH"
-               <> help "Path for worker log file")
+  workerService <- option serviceReader
+    (long (toString serviceArg)
+      <> metavar "SERVICE"
+      <> help "Service on master process (binary encoded)")
+  workerLogFile <- strOption
+    (long (toString logFileArg)
+      <> metavar "PATH"
+      <> help "Path for worker log file")
   return Worker{..}
 
 -- | Returns the @(command, [arguments])@ to run the worker process
-hyperionWorkerCommand :: FilePath -> NodeId -> ServiceId -> FilePath -> (String, [String])
-hyperionWorkerCommand hyperionExecutable masterNode masterService logFile =
-  (hyperionExecutable, map T.unpack args)
-  where
-    args = [ "worker"
-           , "--address", nodeIdToAddress masterNode
-           , "--service", serviceIdToText masterService
-           , "--logFile", T.pack logFile
-           ]
+-- NB: if it is called directly from the same executable on the same machine,
+-- then MaxRSS for the worker will be wrong (inherited from parent).
+-- See https://github.com/davidsd/hyperion/issues/3
+hyperionWorkerCommand :: OsPath -> Service -> OsPath -> (OsString, [OsString])
+hyperionWorkerCommand hyperionExecutable service logFile =
+  ( hyperionExecutable
+  , [ "worker"
+    , "--"<>serviceArg, encodeService service
+    , "--"<>logFileArg, logFile
+    ]
+  )

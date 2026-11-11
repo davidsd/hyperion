@@ -1,13 +1,14 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE RecordWildCards    #-}
-{-# LANGUAGE StaticPointers     #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE StaticPointers      #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 module Hyperion.Cluster where
 
-import Control.Distributed.Process      (NodeId, Process)
+import Control.Distributed.Process      (Process)
 import Control.Distributed.Process.Node (initRemoteTable)
 import Control.Lens                     (lens)
 import Control.Monad.Catch              (MonadCatch, try)
@@ -16,7 +17,7 @@ import Control.Monad.Reader             (MonadReader, ReaderT, asks, runReaderT)
 import Data.Aeson                       (FromJSON, ToJSON)
 import Data.Binary                      (Binary)
 import Data.Constraint                  (Dict (..))
-import Data.Text                        (Text)
+import Data.Maybe                       (fromMaybe)
 import Data.Text                        qualified as Text
 import Data.Time.Clock                  (NominalDiffTime)
 import Data.Typeable                    (Typeable)
@@ -29,13 +30,15 @@ import Hyperion.Database                qualified as DB
 import Hyperion.HasWorkers              (HasWorkerLauncher (..))
 import Hyperion.LockMap                 (LockMap, newLockMap, registerLockMap)
 import Hyperion.Log                     qualified as Log
-import Hyperion.ObjectId                (getObjectId, objectIdToString)
+import Hyperion.ObjectId                (getObjectId, objectIdToOsString)
+import Hyperion.OsPath                  (OsPath, (<.>), (</>))
+import Hyperion.OsString                (OsString, toText)
 import Hyperion.ProgramId               (ProgramId, newProgramId,
-                                         programIdToText)
+                                         programIdToOsString)
 import Hyperion.Remote                  (runProcessLocalWithRT)
 import Hyperion.Server                  (ServerState)
 import Hyperion.Server                  qualified as Server
-import Hyperion.ServiceId               (ServiceId, serviceIdToString,
+import Hyperion.ServiceId               (ServiceId, serviceIdToOsString,
                                          serviceIdToText)
 import Hyperion.Slurm                   (JobId (..), SbatchError,
                                          SbatchOptions (..), sbatchCommand)
@@ -44,10 +47,10 @@ import Hyperion.Static                  (Static (..))
 import Hyperion.TokenPool               (TokenPool, newTokenPool, withToken)
 import Hyperion.Util                    (emailError, retryExponential,
                                          savedExecutable)
-import Hyperion.Worker                  (RemoteError (..), WorkerLauncher (..),
+import Hyperion.Worker                  (RemoteError (..), Service (..),
+                                         WorkerLauncher (..),
                                          registerMasterNodeId)
-import System.Directory                 (createDirectoryIfMissing)
-import System.FilePath.Posix            ((<.>), (</>))
+import System.Directory.OsPath          (createDirectoryIfMissing)
 
 -- * General comments
 -- $
@@ -123,9 +126,9 @@ import System.FilePath.Posix            ((<.>), (</>))
 -- | Type containing information about our program
 data ProgramInfo = ProgramInfo
   { programId       :: ProgramId
-  , programDatabase :: FilePath
-  , programLogDir   :: FilePath
-  , programDataDir  :: FilePath
+  , programDatabase :: OsPath
+  , programLogDir   :: OsPath
+  , programDataDir  :: OsPath
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON)
 
 instance Static (Binary ProgramInfo) where closureDict = static Dict
@@ -155,23 +158,23 @@ type Cluster = ReaderT ClusterEnv Process
 instance DB.HasDB ClusterEnv where
   dbConfigLens = lens get set
     where
-      get ClusterEnv {..} = DB.DatabaseConfig
-        { dbPool      = clusterDatabasePool
-        , dbProgramId = programId clusterProgramInfo
-        , dbRetries   = clusterDatabaseRetries
+      get env = DB.DatabaseConfig
+        { dbPool      = env.clusterDatabasePool
+        , dbProgramId = programId env.clusterProgramInfo
+        , dbRetries   = env.clusterDatabaseRetries
         }
-      set h DB.DatabaseConfig {..} = h
-        { clusterDatabasePool    = dbPool
-        , clusterProgramInfo     = (clusterProgramInfo h) { programId = dbProgramId }
-        , clusterDatabaseRetries = dbRetries
+      set h dbConfig = h
+        { clusterDatabasePool    = dbConfig.dbPool
+        , clusterProgramInfo     = h.clusterProgramInfo { programId = dbConfig.dbProgramId }
+        , clusterDatabaseRetries = dbConfig.dbRetries
         }
 
 -- | We make 'ClusterEnv' an instance of 'HasWorkerLauncher'. This makes
 -- 'Cluster' an instance of 'HasWorkers' and gives us access to functions in
 -- "Hyperion.Remote".
 instance HasWorkerLauncher ClusterEnv where
-  toWorkerLauncher ClusterEnv{..} =
-    clusterWorkerLauncher clusterJobOptions clusterProgramInfo
+  toWorkerLauncher env =
+    env.clusterWorkerLauncher env.clusterJobOptions env.clusterProgramInfo
 
 -- | Type representing resources for an MPI job.
 data MPIJob = MPIJob
@@ -180,11 +183,12 @@ data MPIJob = MPIJob
   } deriving (Eq, Ord, Show, Generic, Binary, FromJSON, ToJSON, Typeable)
 
 runCluster :: ClusterEnv -> Cluster a -> IO a
-runCluster clusterEnv@ClusterEnv{..} h = runProcessLocalWithRT (hostNameStrategy clusterStaticConfig)
-                                                               rtable (runReaderT h clusterEnv)
+runCluster clusterEnv h =
+  runProcessLocalWithRT (hostNameStrategy clusterEnv.clusterStaticConfig)
+  rtable (runReaderT h clusterEnv)
   where
     rtable = registerMasterNodeId Nothing
-           $ registerLockMap clusterLockMap initRemoteTable
+           $ registerLockMap clusterEnv.clusterLockMap initRemoteTable
 
 modifyJobOptions :: (SbatchOptions -> SbatchOptions) -> ClusterEnv -> ClusterEnv
 modifyJobOptions f cfg = cfg { clusterJobOptions = f (clusterJobOptions cfg) }
@@ -195,25 +199,25 @@ setJobOptions c = modifyJobOptions (const c)
 setJobTime :: NominalDiffTime -> ClusterEnv -> ClusterEnv
 setJobTime t = modifyJobOptions $ \opts -> opts { time = t }
 
-setJobMemory :: Text -> ClusterEnv -> ClusterEnv
+setJobMemory :: OsString -> ClusterEnv -> ClusterEnv
 setJobMemory m = modifyJobOptions $ \opts -> opts { mem = Just m }
 
 setJobType :: MPIJob -> ClusterEnv -> ClusterEnv
-setJobType MPIJob{..} = modifyJobOptions $ \opts -> opts
-  { nodes = mpiNodes
-  , nTasksPerNode = mpiNTasksPerNode
+setJobType job = modifyJobOptions $ \opts -> opts
+  { nodes = job.mpiNodes
+  , nTasksPerNode = job.mpiNTasksPerNode
   }
 
-setSlurmPartition :: Text -> ClusterEnv -> ClusterEnv
+setSlurmPartition :: OsString -> ClusterEnv -> ClusterEnv
 setSlurmPartition p = modifyJobOptions $ \opts -> opts { partition = Just p }
 
-setSlurmConstraint :: Text -> ClusterEnv -> ClusterEnv
+setSlurmConstraint :: OsString -> ClusterEnv -> ClusterEnv
 setSlurmConstraint c = modifyJobOptions $ \opts -> opts { constraint = Just c }
 
-setSlurmAccount :: Text -> ClusterEnv -> ClusterEnv
+setSlurmAccount :: OsString -> ClusterEnv -> ClusterEnv
 setSlurmAccount a = modifyJobOptions $ \opts -> opts { account = Just a }
 
-setSlurmQos :: Text -> ClusterEnv -> ClusterEnv
+setSlurmQos :: OsString -> ClusterEnv -> ClusterEnv
 setSlurmQos a = modifyJobOptions $ \opts -> opts { qos = Just a }
 
 -- | The default number of retries to use in 'withConnectionRetry'. Set to 20.
@@ -242,11 +246,11 @@ dbConfigFromProgramInfo pInfo = do
 --       from the values in 'HyperionConfig' and 'programId'.
 --     * 'slurmWorkerLauncher' is used for 'clusterWorkerLauncher'
 --     * 'clusterDatabaseRetries' is set to 'defaultDBRetries'.
-newClusterEnv :: HyperionConfig -> HyperionStaticConfig -> ServerState -> Int -> IO (ClusterEnv, FilePath)
+newClusterEnv :: HyperionConfig -> HyperionStaticConfig -> ServerState -> Int -> IO (ClusterEnv, OsPath)
 newClusterEnv HyperionConfig{..} clusterStaticConfig serverState holdPort = do
   programId    <- newProgramId
   hyperionExec <- maybe
-    (savedExecutable execDir (Text.unpack (programIdToText programId)))
+    (savedExecutable execDir (programIdToOsString programId))
     return
     hyperionCommand
   programDatabase <- newDatabasePath initialDatabase databaseDir programId
@@ -255,7 +259,7 @@ newClusterEnv HyperionConfig{..} clusterStaticConfig serverState holdPort = do
   sbatchTokenPool <- newTokenPool maxSlurmJobs
   let clusterJobOptions = defaultSbatchOptions { Slurm.chdir = Just jobDir }
       clusterProgramInfo = ProgramInfo {..}
-      clusterWorkerLauncher = slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool
+      clusterWorkerLauncher = slurmWorkerLauncher emailAddr clusterStaticConfig.workerCommand hyperionExec serverState holdPort sbatchTokenPool
       clusterDatabaseRetries = defaultDBRetries
   clusterDatabasePool <- DB.newDefaultPool programDatabase
   clusterLockMap <- newLockMap
@@ -266,24 +270,30 @@ runDBWithProgramInfo pInfo m = do
   dbConfigFromProgramInfo pInfo >>= runReaderT m
 
 slurmWorkerLauncher
-  :: Maybe Text      -- ^ Email address to send notifications to if sbatch
+  :: Maybe OsString      -- ^ Email address to send notifications to if sbatch
                      -- fails or there is an error in a remote
                      -- job. 'Nothing' means no emails will be sent.
-  -> FilePath        -- ^ Path to this hyperion executable
+  -> ((OsString, [OsString]) -> (OsString, [OsString]))
+                     -- ^ Turns 'hyperionWorkerCommand' into the
+                     -- command that sbatch runs (the @workerCommand@
+                     -- of 'HyperionStaticConfig')
+  -> OsPath        -- ^ Path to this hyperion executable
   -> ServerState     -- ^ ServerState used by the Server
   -> Int             -- ^ Port used by the Server (needed for error messages)
   -> TokenPool       -- ^ TokenPool for throttling the number of submitted jobs
   -> SbatchOptions
   -> ProgramInfo
   -> WorkerLauncher JobId
-slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool opts progInfo =
+slurmWorkerLauncher emailAddr workerCommand hyperionExec serverState holdPort sbatchTokenPool opts progInfo =
   WorkerLauncher {..}
   where
     connectionTimeout = Nothing
 
+    overrideToLogPath = Nothing
+
     emailAlertUser :: (MonadIO m, Show e) => e -> m ()
     emailAlertUser e = case emailAddr of
-      Just toAddr -> emailError toAddr e
+      Just toAddr -> emailError (toText toAddr) e
       Nothing     -> return ()
 
     onRemoteError :: forall b . RemoteError -> Process b -> Process b
@@ -304,8 +314,8 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
       Log.info "Retrying" sId
       go
 
-    withLaunchedWorker :: forall b . NodeId -> ServiceId -> (JobId -> Process b) -> Process b
-    withLaunchedWorker nid serviceId goJobId = withToken sbatchTokenPool $ do
+    withLaunchedWorker :: forall b . Maybe (ServiceId -> OsPath) -> Service -> (JobId -> Process b) -> Process b
+    withLaunchedWorker serviceIdToLogPath service goJobId = withToken sbatchTokenPool $ do
       jobId <- liftIO $
         -- Repeatedly run sbatch, with exponentially increasing time
         -- intervals between failures. Email the user on each failure
@@ -313,18 +323,19 @@ slurmWorkerLauncher emailAddr hyperionExec serverState holdPort sbatchTokenPool 
         -- propagate up from here because there is no obvious way to
         -- recover. TODO: maybe use the Server?
         retryExponential (try @IO @SbatchError) logSbatchError $
-        sbatchCommand opts' cmd (map Text.pack args)
+        sbatchCommand opts' cmd args
       goJobId jobId
       where
         progId = programId progInfo
-        logFile = programLogDir progInfo </> serviceIdToString serviceId <.> "log"
+        defaultToLogPath serviceId = programLogDir progInfo </> serviceIdToOsString serviceId <.> "log"
+        logFile = fromMaybe defaultToLogPath serviceIdToLogPath service.serviceId
         opts' = opts
-          { jobName = Just $ programIdToText progId <> "-" <> serviceIdToText serviceId
+          { jobName = Just $ programIdToOsString progId <> "-" <> serviceIdToOsString service.serviceId
           }
-        (cmd, args) = hyperionWorkerCommand hyperionExec nid serviceId logFile
+        (cmd, args) = workerCommand $ hyperionWorkerCommand hyperionExec service logFile
         logSbatchError e = do
           Log.err e
-          emailAlertUser (e, progInfo, nid, serviceId)
+          emailAlertUser (e, progInfo, service)
 
     -- TODO: Call scancel on the job as well?
     storeCancelAction :: ServiceId -> JobId -> IO () -> Process ()
@@ -348,10 +359,10 @@ newWorkDir
      , MonadIO m
      , MonadCatch m
      )
-  => a -> m FilePath
+  => a -> m OsPath
 newWorkDir = DB.memoizeWithMap (DB.KeyValMap "workDirectories") $ \obj -> do
   dataDir <- asks (programDataDir . toProgramInfo)
   objId <- getObjectId obj
-  let workDir = dataDir </> objectIdToString objId
+  let workDir = dataDir </> objectIdToOsString objId
   liftIO $ createDirectoryIfMissing True workDir
   return workDir
