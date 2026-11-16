@@ -1,8 +1,7 @@
 flags: {}
 packages:
 - '.'
-extra-deps:
-resolver: github:pkravchuk/hyperionage:snapshots/hyp-2.0.0.yaml
+resolver: github:pkravchuk/hyperionage:snapshots/hyp-3.0.0.yaml
 build:
   haddock-arguments:
     haddock-args:
